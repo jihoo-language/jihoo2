@@ -1,0 +1,474 @@
+---
+// The landing page. The terminal output shown for each sample is what the
+// v0.1.0 compiler prints for it.
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import jihoo from '../jihoo.tmLanguage.json';
+import { GITHUB, INSTALL, VERSION, url } from '../lib/site';
+
+const themes = { light: 'github-light', dark: 'github-dark-dimmed' } as const;
+const lang = jihoo as any;
+
+const samples = [
+  {
+    file: 'hello.jh',
+    code: `fn greet(name: str) -> String {
+    "Hello, " + name + "!"
+}
+
+fn main() {
+    println(greet("jihoo2"))
+}`,
+    run: 'jihoo run hello.jh',
+    out: [{ c: 'ok', t: 'Hello, jihoo2!' }],
+  },
+  {
+    file: 'borrow.jh',
+    code: `fn main() {
+    var v = Vec(i64).new()
+    v.push(1)
+    for x in v {
+        v.push(x)
+    }
+}`,
+    run: 'jihoo check borrow.jh',
+    out: [
+      { c: 'err', t: 'error: borrow.jh:5:9: `v` is changed here while it is borrowed' },
+      { c: 'note', t: 'note: borrow.jh:4:14: the borrow starts here, and is used later' },
+    ],
+  },
+  {
+    file: 'expr.jh',
+    code: `enum Expr {
+    Num(i64)
+    Add(Box(Expr), Box(Expr))
+    Mul(Box(Expr), Box(Expr))
+}
+
+fn eval(e: Expr) -> i64 {
+    match e {
+        Num(n) => n
+        Add(a, b) => eval(a) + eval(b)
+        Mul(a, b) => eval(a) * eval(b)
+    }
+}`,
+    run: 'jihoo run expr.jh',
+    out: [{ c: 'ok', t: '14' }],
+  },
+  {
+    file: 'tiny.jh',
+    code: `#![freestanding]
+
+fn main() {
+    var v = Vec(i64).new()
+    v.push(42)
+    println(v[0])
+}`,
+    run: 'jihoo build tiny.jh -o tiny && ./tiny',
+    out: [
+      { c: 'ok', t: '42' },
+      { c: '', t: '# 5,584 bytes, static, no libc: system calls only' },
+    ],
+  },
+];
+
+const features = [
+  {
+    title: 'As fast as C',
+    c: 'var(--teal)',
+    wide: true,
+    icon: '<path d="M13 2 4 14h7l-1 8 9-12h-7Z"/>',
+    text: 'LLVM compiles every program, with no runtime and no hidden copies. On the benchmarks jihoo matches C compiled by clang, with bounds checks on. <code>inout</code> parameters cannot alias, so they are marked <code>noalias</code>.',
+  },
+  {
+    title: 'Safe without lifetimes',
+    c: 'var(--violet)',
+    wide: true,
+    icon: '<path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5Z"/><path d="m9 12 2 2 4-4"/>',
+    text: 'Borrows are scoped to a function, so the compiler sees every one of them and needs no annotations. A separate borrow kernel checks the rules on the compiler’s IR, without trusting the type checker.',
+  },
+  {
+    title: 'Generics at compile time',
+    c: 'var(--cyan)',
+    icon: '<path d="M8 3H6a2 2 0 0 0-2 2v4l-2 3 2 3v4a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v4l2 3-2 3v4a2 2 0 0 1-2 2h-2"/>',
+    text: '<code>comptime T: type</code> parameters, inferred at calls, with traits as bounds. One copy of the code per instance, checked per instance.',
+  },
+  {
+    title: 'Contracts, proved',
+    c: 'var(--pink)',
+    icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    text: '<code>requires</code>, <code>ensures</code> and loop <code>invariant</code>s are proved while compiling. A proved bounds check is removed; an unproved contract is an error.',
+  },
+  {
+    title: 'Down to the metal',
+    c: 'var(--amber)',
+    icon: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
+    text: 'Raw pointers, C functions, system calls, atomics and volatile access. Native, freestanding and UEFI programs for x86_64 and aarch64.',
+  },
+  {
+    title: 'A library in the language',
+    c: 'var(--teal)',
+    wide: true,
+    icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+    text: '<code>Vec</code>, <code>String</code>, <code>Map</code>, <code>Box</code>, sorting, files, processes and threads are jihoo code, with or without libc. Errors carry an <code>os.Error</code>, and iterator pipelines fuse into loops.',
+  },
+  {
+    title: 'Tools that come with it',
+    c: 'var(--violet)',
+    wide: true,
+    icon: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9Z"/>',
+    text: '<code>jihoo fmt</code>, <code>jihoo test</code>, <code>jihoo check</code> with JSON diagnostics, and <code>jihoo lsp</code> for editors. The compiler is written in jihoo and builds itself to the same IR.',
+  },
+];
+
+const modes = [
+  {
+    kw: 'x: T',
+    c: 'var(--teal)',
+    title: 'Borrow',
+    text: 'The default. The function reads the value; the caller keeps it. No copy.',
+    code: `fn total(xs: Vec(i64)) -> i64 {
+    var s = 0
+    for x in xs { s += x }
+    s
+}`,
+  },
+  {
+    kw: 'inout',
+    c: 'var(--cyan)',
+    title: 'Borrow to change',
+    text: 'Changes the caller’s value in place, written f(&v) at the call. Never aliased.',
+    code: `fn add_one(inout xs: Vec(i64)) {
+    for i in 0..xs.len() {
+        xs[i] += 1
+    }
+}`,
+  },
+  {
+    kw: 'sink',
+    c: 'var(--violet)',
+    title: 'Take',
+    text: 'Moves the value into the function. The caller can no longer use it.',
+    code: `fn keep(sink s: String) -> Box(String) {
+    Box.new(s)
+}`,
+  },
+];
+
+const stages = [
+  { n: '01', s: 'parse', d: 'tokens, newlines end statements' },
+  { n: '02', s: 'sema', d: 'types, generics, moves and drops' },
+  { n: '03', s: 'MIR', d: 'one IR for every pass after' },
+  { n: '04', s: 'elab', d: 'use after move, drop flags' },
+  { n: '05', s: 'borrow kernel', d: 'loans checked on MIR', hot: true },
+  { n: '06', s: 'verify', d: 'checks proved and removed' },
+  { n: '07', s: 'LLVM', d: 'object, linked, static if asked' },
+];
+---
+
+<Base title="jihoo2" section="home">
+  <div class="landing">
+    <canvas id="stars" aria-hidden="true"></canvas>
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <section class="section hero">
+      <div>
+        <a class="pill reveal" href={`${GITHUB}/releases/tag/v${VERSION}`}>
+          <b>v{VERSION}</b> The first jihoo2 release is out →
+        </a>
+        <h1 class="reveal" style="--delay: 0.08s">
+          Systems code at the speed of C. <span class="gradient-text">Safe without lifetimes.</span>
+        </h1>
+        <p class="lead reveal" style="--delay: 0.16s">
+          Every value has one owner. Functions borrow their arguments, borrow them to change them, or take them, and a small kernel makes
+          sure nothing changes what is borrowed. No garbage collector, no reference counting, no annotations.
+        </p>
+        <div class="actions reveal" style="--delay: 0.24s">
+          <a class="button primary" href={url('start/getting-started')}>
+            Get started
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </a>
+          <a class="button ghost" href={url('language/tour')}>Take the tour</a>
+        </div>
+        <div class="install reveal" style="--delay: 0.32s">
+          <span class="prompt">$</span>
+          <code>{INSTALL}</code>
+          <button type="button" data-copy={INSTALL}>Copy</button>
+        </div>
+      </div>
+
+      <div class="window-wrap reveal" style="--delay: 0.2s">
+        <div class="window">
+          <div class="window-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <div class="tabs" role="tablist" aria-label="Examples">
+              {
+                samples.map((s, i) => (
+                  <button type="button" role="tab" aria-selected={i === 0 ? 'true' : 'false'} data-tab={i}>
+                    {s.file}
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+          {
+            samples.map((s, i) => (
+              <div class="panel" role="tabpanel" hidden={i !== 0} data-panel={i}>
+                <Code code={s.code} lang={lang} themes={themes} defaultColor={false} />
+              </div>
+            ))
+          }
+          <div class="terminal" aria-live="polite" data-terminal></div>
+        </div>
+        <script is:inline type="application/json" id="samples" set:html={JSON.stringify(samples.map((s) => ({ run: s.run, out: s.out })))} />
+      </div>
+    </section>
+
+    <section class="section" style="padding-top: 1rem">
+      <div class="stats reveal">
+        <div class="stat"><div class="value gradient-text">≈ C</div><div class="label">speed, with bounds checks on</div></div>
+        <div class="stat"><div class="value gradient-text" data-count="0">0</div><div class="label">lifetime annotations</div></div>
+        <div class="stat"><div class="value gradient-text" data-count="5584" data-suffix=" B">5584 B</div><div class="label">static freestanding binary</div></div>
+        <div class="stat"><div class="value gradient-text" data-count="100" data-suffix="%">100%</div><div class="label">written in jihoo, self-hosted</div></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head reveal">
+        <span class="eyebrow">Why jihoo2</span>
+        <h2>Everything C gives you. <span class="gradient-text">None of the footguns.</span></h2>
+        <p>A language for programs that must be fast and correct: compilers, kernels, tools and the libraries under them.</p>
+      </div>
+      <div class="bento">
+        {
+          features.map((f, i) => (
+            <article class:list={['card', 'reveal', { wide: f.wide }]} style={`--c: ${f.c}; --delay: ${(i % 3) * 0.08}s`}>
+              <div class="icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={f.icon} />
+              </div>
+              <h3>{f.title}</h3>
+              <p set:html={f.text} />
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head reveal">
+        <span class="eyebrow">Ownership</span>
+        <h2>Three ways to pass a value. <span class="gradient-text">That’s the whole model.</span></h2>
+        <p>Borrows last for a call, so the compiler sees all of them. Values that own memory move, and <code>.clone()</code> copies them.</p>
+      </div>
+      <div class="modes">
+        {
+          modes.map((m, i) => (
+            <div class="mode reveal" style={`--c: ${m.c}; --delay: ${i * 0.1}s`}>
+              <header>
+                <div class="kw">{m.kw}</div>
+                <h3>{m.title}</h3>
+                <p>{m.text}</p>
+              </header>
+              <Code code={m.code} lang={lang} themes={themes} defaultColor={false} />
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head reveal">
+        <span class="eyebrow">Inside the compiler</span>
+        <h2>From source to machine code, <span class="gradient-text">checked at every step.</span></h2>
+        <p>The borrow kernel does not trust the type checker: it checks loans again on MIR, where every access is explicit.</p>
+      </div>
+      <div class="pipeline reveal">
+        <span class="packet"></span><span class="packet"></span><span class="packet"></span>
+        {
+          stages.map((s) => (
+            <div class:list={['stage', { hot: s.hot }]}>
+              <div class="n">{s.n}</div>
+              <strong>{s.s}</strong>
+              <span>{s.d}</span>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="cta reveal">
+        <span class="eyebrow">Ready when you are</span>
+        <h2>Write your first <span class="gradient-text">jihoo2</span> program.</h2>
+        <p>One Nix command brings the compiler, clang, lld and the standard library. Or download a release for x86_64 or aarch64 Linux.</p>
+        <div class="actions">
+          <a class="button primary" href={url('start/getting-started')}>
+            Get started
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </a>
+          <a class="button ghost" href={url('examples/hello')}>Browse examples</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</Base>
+
+<script>
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- Reveal on scroll ----
+  const reveal = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        e.target.classList.add('visible');
+        reveal.unobserve(e.target);
+        for (const n of e.target.querySelectorAll<HTMLElement>('[data-count]')) countUp(n);
+      }
+    },
+    { threshold: 0.15 },
+  );
+  document.querySelectorAll('.reveal').forEach((el) => reveal.observe(el));
+
+  function countUp(el: HTMLElement) {
+    const end = Number(el.dataset.count);
+    const suffix = el.dataset.suffix ?? '';
+    if (reduced || end === 0) return;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 1400);
+      const eased = 1 - Math.pow(1 - t, 4);
+      el.textContent = Math.round(end * eased).toLocaleString('en') + suffix;
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // ---- Spotlight on the feature cards ----
+  for (const card of document.querySelectorAll<HTMLElement>('.card')) {
+    card.addEventListener('pointermove', (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--x', `${e.clientX - r.left}px`);
+      card.style.setProperty('--y', `${e.clientY - r.top}px`);
+    });
+  }
+
+  // ---- The editor window: tabs and a terminal that types ----
+  type Line = { c: string; t: string };
+  const samples: { run: string; out: Line[] }[] = JSON.parse(document.getElementById('samples')!.textContent!);
+  const terminal = document.querySelector<HTMLElement>('[data-terminal]')!;
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-tab]')];
+  const panels = [...document.querySelectorAll<HTMLElement>('[data-panel]')];
+  let run = 0;
+  let current = 0;
+  let auto: number | undefined;
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+
+  async function play(i: number) {
+    const id = ++run;
+    const { run: cmd, out } = samples[i];
+    if (reduced) {
+      terminal.innerHTML = `<div class="cmd">${esc(cmd)}</div>` + out.map((l) => `<div class="${l.c}">${esc(l.t)}</div>`).join('');
+      return;
+    }
+    terminal.innerHTML = '<div class="cmd"></div>';
+    const line = terminal.firstElementChild as HTMLElement;
+    for (let k = 1; k <= cmd.length; k++) {
+      if (id !== run) return;
+      line.innerHTML = esc(cmd.slice(0, k)) + '<span class="cursor"></span>';
+      await sleep(28 + Math.random() * 40);
+    }
+    await sleep(380);
+    if (id !== run) return;
+    line.textContent = cmd;
+    for (const l of out) {
+      await sleep(160);
+      if (id !== run) return;
+      const div = document.createElement('div');
+      div.className = l.c;
+      div.textContent = l.t;
+      terminal.append(div);
+    }
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    terminal.append(cursor);
+  }
+
+  function select(i: number, user = false) {
+    current = i;
+    tabs.forEach((t, k) => t.setAttribute('aria-selected', String(k === i)));
+    panels.forEach((p, k) => (p.hidden = k !== i));
+    play(i);
+    if (user) {
+      clearInterval(auto);
+      auto = undefined;
+    }
+  }
+  tabs.forEach((t, i) => t.addEventListener('click', () => select(i, true)));
+  select(0);
+  if (!reduced) auto = window.setInterval(() => select((current + 1) % samples.length), 7000);
+
+  // ---- Stars: drifting points, joined near the pointer ----
+  const canvas = document.getElementById('stars') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d');
+  if (ctx && !reduced) {
+    let w = 0;
+    let h = 0;
+    let dpr = 1;
+    const pointer = { x: -9999, y: -9999 };
+    let stars: { x: number; y: number; vx: number; vy: number; r: number }[] = [];
+    const resize = () => {
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const n = Math.round(Math.min(110, (w * h) / 14000));
+      stars = Array.from({ length: n }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.18,
+        vy: (Math.random() - 0.5) * 0.18,
+        r: Math.random() * 1.3 + 0.3,
+      }));
+    };
+    resize();
+    addEventListener('resize', resize);
+    addEventListener('pointermove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      pointer.x = e.clientX - r.left;
+      pointer.y = e.clientY - r.top;
+    });
+    let visible = true;
+    new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe(canvas);
+    const frame = () => {
+      requestAnimationFrame(frame);
+      if (!visible || document.hidden) return;
+      const light = document.documentElement.dataset.theme === 'light';
+      const ink = light ? '20, 40, 90' : '200, 255, 245';
+      ctx.clearRect(0, 0, w, h);
+      for (const s of stars) {
+        s.x = (s.x + s.vx + w) % w;
+        s.y = (s.y + s.vy + h) % h;
+        const d = Math.hypot(s.x - pointer.x, s.y - pointer.y);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r + (d < 140 ? 0.8 : 0), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${ink}, ${d < 140 ? 0.9 : 0.45})`;
+        ctx.fill();
+        if (d < 140) {
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(pointer.x, pointer.y);
+          ctx.strokeStyle = `rgba(46, 230, 197, ${0.35 * (1 - d / 140)})`;
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+      }
+    };
+    frame();
+  }
+</script>

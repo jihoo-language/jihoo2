@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro';
+import { url } from '../lib/site';
+---
+
+<Base title="Page not found">
+  <div class="landing">
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+    <section class="section" style="text-align: center; padding: 9rem 1.5rem 8rem">
+      <span class="eyebrow">error: no such page</span>
+      <h1 class="gradient-text" style="font-family: var(--font-display); font-size: clamp(5rem, 16vw, 10rem); line-height: 1; margin: 0 0 1rem; letter-spacing: -0.05em">404</h1>
+      <p style="color: var(--muted); font-size: 1.15rem; margin: 0 auto 2.5rem; max-width: 30rem">
+        This page does not exist. It may have moved when the docs were reorganized, or it described dependent types, which jihoo2 does not have.
+      </p>
+      <div class="actions" style="justify-content: center">
+        <a class="button primary" href={url()}>Back to the start</a>
+        <button class="button ghost" type="button" data-search-open style="cursor: pointer; font: inherit; font-weight: 600">Search the docs</button>
+      </div>
+    </section>
+  </div>
+</Base>

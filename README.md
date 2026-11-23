@@ -21,7 +21,7 @@ of it. Contracts are still proved by the verifier over MIR.
 - **A standard library written in jihoo** (`Vec`, `String`, `Map`, `Box`,
   sorting, files, processes), with or without libc.
 
-Documentation: the pages in
+Documentation: **<https://jihoo-language.github.io/jihoo2/>**, built from
 [docs/](docs) and [examples/](examples).
 
 ```jihoo

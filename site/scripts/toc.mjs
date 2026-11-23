@@ -47,10 +47,3 @@ export function readToc() {
   }
   return { groups, pages };
 }
-
-/** The sidebar entries for one group of the table of contents. */
-export function sidebarGroup(group) {
-  const entry = (item) =>
-    'slug' in item ? item.slug : { label: item.label, items: item.items.map(entry) };
-  return { label: group.label, items: group.items.map(entry) };
-}

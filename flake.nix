@@ -43,7 +43,7 @@
       };
 
       meta = {
-        homepage = "https://jihoolang.github.io/jihoo/";
+        homepage = "https://jihoo-language.github.io/jihoo2/";
         license = lib.licenses.asl20;
         platforms = lib.platforms.linux;
       };

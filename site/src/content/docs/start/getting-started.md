@@ -1,6 +1,7 @@
 ---
 title: Getting started
 description: Install jihoo with Nix, then run and build your first programs.
+source: site/src/content/docs/start/getting-started.md
 ---
 
 ## Install
@@ -52,7 +53,7 @@ jihoo-v0.1.0-x86_64-linux/bin/jihoo run hello.jh
 
 ```sh
 git clone https://github.com/jihoo-language/jihoo2
-cd jihoo
+cd jihoo2
 nix build                       # bootstraps the compiler: ./result/bin/jihoo
 ./result/bin/jihoo run examples/hello.jh
 ```
@@ -105,8 +106,8 @@ jihoo build words.jh -o words && ./words notes.txt
 
 ## Where next
 
-- [A tour](/jihoo/language/tour/) of the language;
-- [Values and ownership](/jihoo/language/ownership/) and
-  [Borrowing](/jihoo/language/borrowing/), what makes jihoo safe without a
+- [A tour](../../language/tour/) of the language;
+- [Values and ownership](../../language/ownership/) and
+  [Borrowing](../../language/borrowing/), what makes jihoo safe without a
   garbage collector;
-- the [examples](/jihoo/examples/hello/).
+- the [examples](../../examples/hello/).

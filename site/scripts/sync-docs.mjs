@@ -3,6 +3,8 @@
 //
 //   docs/**/*.md   -> one page each, placed as docs/README.md's table of contents says
 //   examples/*.jh  -> examples/*.md, the leading comment as text, then the code
+//   src/generated/nav.json -> the sidebar: the table of contents, with the
+//                  examples after the language
 //
 // Relative links between the Markdown files become links between pages, links
 // to other files of the repository point to GitHub, and a link to a file that
@@ -24,12 +26,12 @@ function reset(dir) {
   fs.mkdirSync(path.join(out, dir), { recursive: true });
 }
 
-function writePage(slug, { title, description, sidebar }, body) {
+function writePage(slug, { title, description, source }, body) {
   // Keep the TOC route authoritative: Astro otherwise normalizes punctuation
-  // in filenames (for example, `0.6-proof-status`) into a different slug.
+  // in filenames (for example, `0.6-notes`) into a different slug.
   const front = ['---', `title: ${JSON.stringify(title)}`, `slug: ${JSON.stringify(slug)}`];
   if (description) front.push(`description: ${JSON.stringify(description)}`);
-  if (sidebar) front.push(`sidebar: ${JSON.stringify(sidebar)}`);
+  if (source) front.push(`source: ${JSON.stringify(source)}`);
   front.push('---', '');
   fs.mkdirSync(path.dirname(path.join(out, slug)), { recursive: true });
   fs.writeFileSync(path.join(out, `${slug}.md`), front.join('\n') + body.trim() + '\n');
@@ -121,8 +123,7 @@ for (const page of pages) {
   // The `# Title` line is the page title; the TOC names the page in the sidebar.
   const title = md.match(/^# (.+)$/m)?.[1] ?? page.title;
   const body = linkPaths(links(md.replace(/^# .*\n/, ''), file, page.slug), page.slug);
-  const sidebar = title === page.title ? undefined : { label: page.title };
-  writePage(page.slug, { title, description: firstParagraph(body), sidebar }, body);
+  writePage(page.slug, { title, description: firstParagraph(body), source: `docs/${page.file}` }, body);
 }
 
 // Every page in docs/ must be reachable from the table of contents.
@@ -145,7 +146,8 @@ const examples = fs.readdirSync(path.join(repo, 'examples')).filter((f) => f.end
 const first = ['hello.jh', 'fib.jh'];
 const rank = (f) => (first.includes(f) ? first.indexOf(f) : first.length);
 examples.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-examples.forEach((file, i) => {
+const exampleNav = [];
+examples.forEach((file) => {
   const src = fs.readFileSync(path.join(repo, 'examples', file), 'utf-8');
   // The comment block at the top (after an optional `#![...]`) explains the example.
   const lines = src.split('\n');
@@ -173,10 +175,23 @@ examples.forEach((file, i) => {
   ]
     .filter(Boolean)
     .join('\n\n');
-  // Compiled examples are marked with their profile in the sidebar.
-  const sidebar = { order: i, ...(attr && { badge: { text: attr, variant: attr === 'native' ? 'note' : 'caution' } }) };
-  writePage(slug, { title: name, description: prose.split('\n')[0], sidebar }, body);
+  // Examples for another profile are marked with it in the sidebar.
+  exampleNav.push({ label: name, slug, ...(attr && { badge: attr }) });
+  writePage(slug, { title: name, description: prose.split('\n')[0], source: `examples/${file}` }, body);
 });
+
+// ---- the sidebar ----
+
+const entry = (item) => ('slug' in item ? { label: item.title, slug: item.slug } : { label: item.label, items: item.items.map(entry) });
+const nav = [
+  { label: 'Start here', items: [{ label: 'Getting started', slug: 'start/getting-started' }] },
+  ...groups.flatMap((g) => {
+    const group = { label: g.label, items: g.items.map(entry) };
+    return g.label === 'Language' ? [group, { label: 'Examples', items: exampleNav }] : [group];
+  }),
+];
+fs.mkdirSync(path.join(site, 'src/generated'), { recursive: true });
+fs.writeFileSync(path.join(site, 'src/generated/nav.json'), JSON.stringify(nav, null, 2) + '\n');
 
 if (errors.length) {
   console.error(errors.map((e) => `error: ${e}`).join('\n'));

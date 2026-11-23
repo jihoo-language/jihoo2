@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
-const base = (process.env.BASE_PATH ?? '/jihoo').replace(/\/?$/, '/');
+const base = (process.env.BASE_PATH ?? '/jihoo2').replace(/\/?$/, '/');
 
 const html = new Map();
 (function walk(dir) {
@@ -27,7 +27,7 @@ const idsOf = (file) => {
 const problems = [];
 for (const [file, page] of html) {
   const url = base + path.relative(dist, file).replace(/index\.html$/, '').split(path.sep).join('/');
-  // Only the content: the sidebar and header are Starlight's own.
+  // Only the content: the sidebar and header are the layout's own.
   const content = page.match(/<main[\s\S]*<\/main>/)?.[0] ?? '';
   for (const [, href] of content.matchAll(/<a\s[^>]*href="([^"]+)"/g)) {
     if (/^[a-z]+:/.test(href)) continue;
