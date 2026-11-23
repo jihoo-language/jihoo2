@@ -5,24 +5,21 @@ Their version and SHA-256 hashes are pinned in `flake.nix`; their fixed local
 names keep only the current pair in the checkout. Nix verifies the raw archive
 hash and patches the released compiler for its environment as before.
 
-For the initial v0.5.0 seed:
+The current seed is jihoo2 v0.1.0, the first jihoo2 release, which itself was
+built from the jihoo v0.5.0 seed:
 
 | Local file | Original release asset | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| `jihoo-x86_64-linux.tar.gz` | [x86_64 archive](https://github.com/jihoolang/jihoo/releases/download/v0.5.0/jihoo-v0.5.0-x86_64-linux.tar.gz) | 1,200,682 | `a9fedcae6cdc51142f1d26fc694baa48c68636fa9b39eab777b45dd3134ecadc` |
-| `jihoo-aarch64-linux.tar.gz` | [aarch64 archive](https://github.com/jihoolang/jihoo/releases/download/v0.5.0/jihoo-v0.5.0-aarch64-linux.tar.gz) | 1,132,711 | `3bb15b1e8e1f6ae88d54c6e36fb2cce9e1b5acb3f0b371a2d2bf1a856d33a211` |
+| `jihoo-x86_64-linux.tar.gz` | [x86_64 archive](https://github.com/jihoo-language/jihoo2/releases/download/v0.1.0/jihoo-v0.1.0-x86_64-linux.tar.gz) | 991,012 | `f00489601bb505d2454365b817bc5a471ca31483168621633efdea13060d104e` |
+| `jihoo-aarch64-linux.tar.gz` | [aarch64 archive](https://github.com/jihoo-language/jihoo2/releases/download/v0.1.0/jihoo-v0.1.0-aarch64-linux.tar.gz) | 942,304 | `579a07e92e5cbea588cbb4dbc34bafbf2c636d8aee4423db286765ec9fc1905e` |
 
 Each archive contains the compiler, its standard library and Apache-2.0 license.
-No binaries were rebuilt or recompressed for vendoring. The hashes above are
-the release asset digests and the existing pre-vendoring `flake.nix` pins.
-The x86_64 copy was recovered from the existing Nix fixed-output cache; the
-aarch64 copy was downloaded from GitHub's release asset API. Both match those
-independently recorded pins.
+No binaries were rebuilt or recompressed for vendoring: both were checked
+against the release's published `.sha256` files by `scripts/bump-version.sh seed`.
 
 Run `python3 tests/bootstrap_seed.py` to check the current pair. To select a
 new release, use `scripts/bump-version.sh seed X.Y.Z`, then review and test its
-commit before pushing. The table above records initial provenance, not the
-current version after a later update; `flake.nix` is authoritative.
+commit before pushing. `flake.nix` is authoritative if this table falls behind.
 
 See [self-hosting](../docs/internals/self-hosting.md) for the release process,
 offline limits and bootstrap trust assumptions. Do not use Git LFS here or

@@ -69,7 +69,7 @@ checks both archive hashes, versioned layouts and compiler architectures
 without Nix or network access; CI runs it before bootstrapping. This also
 detects a changed local archive when Nix already has the expected seed cached.
 
-The v0.5.0 archives together add about 2.23 MiB to a checkout. Each seed update
+The v0.1.0 archives together add about 1.84 MiB to a checkout. Each seed update
 adds binary data to Git history, so keep only the current pair in the working
 tree and update the seed only when needed. Git LFS is not used: its extra
 download service would reintroduce an external dependency. These released
