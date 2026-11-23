@@ -68,7 +68,7 @@ class SeedUpdate(unittest.TestCase):
         self.stub('gh', '''import os, pathlib, shutil, sys
 args = sys.argv[1:]
 assert args[:2] in (['release', 'view'], ['release', 'download']), args
-assert args[2:5] == ['-R', 'jihoolang/jihoo', 'v0.2.0'], args
+assert args[2:5] == ['-R', 'jihoo-language/jihoo2', 'v0.2.0'], args
 if args[1] == 'download':
     target = pathlib.Path(args[args.index('--dir') + 1])
     for i, arg in enumerate(args):

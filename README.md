@@ -21,7 +21,7 @@ of it. Contracts are still proved by the verifier over MIR.
 - **A standard library written in jihoo** (`Vec`, `String`, `Map`, `Box`,
   sorting, files, processes), with or without libc.
 
-Documentation: **<https://jihoolang.github.io/jihoo/>**, built from
+Documentation: the pages in
 [docs/](docs) and [examples/](examples).
 
 ```jihoo
@@ -65,11 +65,11 @@ fn main() {
 ## Install
 
 ```sh
-nix run github:jihoolang/jihoo -- run hello.jh     # try it
-nix profile install github:jihoolang/jihoo         # install `jihoo`
+nix run github:jihoo-language/jihoo2 -- run hello.jh     # try it
+nix profile install github:jihoo-language/jihoo2         # install `jihoo`
 ```
 
-Without Nix, each [release](https://github.com/jihoolang/jihoo/releases)
+Without Nix, each [release](https://github.com/jihoo-language/jihoo2/releases)
 has the compiler for x86_64 and aarch64 Linux with its standard library; it
 needs glibc and LLVM 21 (libLLVM, clang, lld).
 

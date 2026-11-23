@@ -14,7 +14,7 @@
 # docs/internals/self-hosting.md.
 set -euo pipefail
 
-repo=jihoolang/jihoo
+repo=jihoo-language/jihoo2
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 

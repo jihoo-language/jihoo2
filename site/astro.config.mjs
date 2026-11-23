@@ -17,7 +17,7 @@ const sidebar = [
 ];
 
 // GitHub Pages serves the site under /<repository>/. The deploy workflow passes
-// the exact origin and path; these defaults match github.com/jihoolang/jihoo.
+// the exact origin and path; these defaults match github.com/jihoo-language/jihoo2.
 const base = process.env.BASE_PATH ?? '/jihoo';
 
 // Pages that moved. The 0.1 rewrite replaced every page, so none redirect.
@@ -35,7 +35,7 @@ export default defineConfig({
       description:
         'A systems language as fast as C, memory-safe without lifetimes or a garbage collector.',
       favicon: '/favicon.svg',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/jihoolang/jihoo' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/jihoo-language/jihoo2' }],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: { shiki: { langs: [jihoo] }, styleOverrides: { borderRadius: '0.625rem' } },
       sidebar,
