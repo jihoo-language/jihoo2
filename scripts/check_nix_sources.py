@@ -17,20 +17,7 @@ import subprocess
 import tempfile
 
 SYSTEMS = ('x86_64-linux', 'aarch64-linux')
-TEST_FILES = (
-    'scripts/benchmark_compile.py',
-    'docs/internals/core-spec.md',
-    'docs/language/dependent-types.md',
-    'docs/language/dependent-functions.md',
-    'docs/language/dependent-aliases.md',
-    'docs/language/dependent-records.md',
-    'docs/language/proof-automation.md',
-    'docs/language/buffer-ranges.md',
-    'docs/language/bounded-collection.md',
-    'docs/language/list-buffer-transfer.md',
-    'docs/language/vector-extension.md',
-)
-KEYS = ('compilerSrc', 'compilerDrv', 'testsSrc', 'testsDrv', 'graphDrv', 'toolchainDrv')
+KEYS = ('compilerSrc', 'compilerDrv', 'testsSrc', 'testsDrv', 'toolchainDrv')
 
 
 def require(condition, message):
@@ -85,7 +72,6 @@ def evaluate(nix, root, offline, selected):
           compilerFiles = files compiler.src "";
           testsDrv = tests.drvPath; testsSrc = toString tests.src;
           testsFiles = files tests.src "";
-          graphDrv = flake.checks.${system}.graph-certificates.drvPath;
           toolchainDrv = flake.checks.${system}.toolchain.drvPath;
         }; };
     in builtins.listToAttrs (map snapshot [ SYSTEMS ])
@@ -99,7 +85,7 @@ def evaluate(nix, root, offline, selected):
     data = json.loads(result.stdout)
     compiler_files = sorted(files_under(root, 'compiler') + files_under(root, 'lib'))
     test_files = sorted(compiler_files + files_under(root, 'tests') +
-                        files_under(root, 'examples') + list(TEST_FILES))
+                        files_under(root, 'examples'))
     for system in selected:
         for key, expected in (('compilerFiles', compiler_files), ('testsFiles', test_files)):
             actual = sorted(data[system].pop(key))
@@ -150,7 +136,7 @@ def main():
     root = args.repo.resolve()
     require((root / 'flake.lock').is_file(), 'expected checkout with flake.nix and flake.lock')
     changes = []
-    tests_only = {'testsSrc', 'testsDrv', 'graphDrv'}
+    tests_only = {'testsSrc', 'testsDrv'}
     examples = tests_only | {'toolchainDrv'}
     everything = set(KEYS)
     for directory, existing, expected in (
@@ -163,10 +149,8 @@ def main():
     changes += [
         ('compiler/main.jh', 'edit', everything),
         ('lib/std/io.jh', 'edit', everything),
-        ('docs/internals/core-spec.md', 'edit', {'testsSrc', 'testsDrv'}),
         ('docs/README.md', 'edit', set()),
-        ('scripts/benchmark_compile.py', 'edit', {'testsSrc', 'testsDrv'}),
-        ('proofs/Jihoo.lean', 'edit', {'graphDrv'}),
+        ('scripts/benchmark_compile.py', 'edit', set()),
     ]
     evidence = {'systems': list(selected), 'mutations': []}
     with tempfile.TemporaryDirectory(prefix='jihoo-nix-sources-') as temporary:

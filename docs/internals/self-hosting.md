@@ -63,8 +63,8 @@ A released archive is never replaced, since the flake pins its hash.
 
 Only a seed update needs the release download service. Each checked-out
 revision carries its own seed, so a cold CI runner is not blocked by a Release
-download outage. Nix still needs its other dependencies, such as LLVM and
-Lean, unless those are already cached. `python3 tests/bootstrap_seed.py`
+download outage. Nix still needs its other dependencies, such as LLVM,
+unless those are already cached. `python3 tests/bootstrap_seed.py`
 checks both archive hashes, versioned layouts and compiler architectures
 without Nix or network access; CI runs it before bootstrapping. This also
 detects a changed local archive when Nix already has the expected seed cached.

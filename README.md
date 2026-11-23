@@ -3,6 +3,11 @@
 A systems programming language that is as fast as C and memory-safe without
 lifetime annotations or a garbage collector.
 
+This repository, jihoo2, is [jihoo](https://github.com/jihoo-language/jihoo)
+without dependent types: the dependent core (`#![dependent_core]`, `jihoo core`,
+`.jhc` files), its `lib/dependent` libraries and its Lean proofs are not part
+of it. Contracts are still proved by the verifier over MIR.
+
 - **Ownership without lifetimes.** Every value has one owner. Functions
   borrow their arguments (`x: T`), borrow them to change them (`inout x: T`)
   or take them (`sink x: T`). Borrows are scoped to a function body, so the
@@ -15,9 +20,6 @@ lifetime annotations or a garbage collector.
   inferred at calls, with traits as bounds.
 - **A standard library written in jihoo** (`Vec`, `String`, `Map`, `Box`,
   sorting, files, processes), with or without libc.
-- **Dependent types, as an opt-in subset.** A `#![dependent_core]` module states
-  contracts as types, and its proofs are checked and erased, so a proved access
-  has no bounds check ([guide](docs/language/dependent-types.md)).
 
 Documentation: **<https://jihoolang.github.io/jihoo/>**, built from
 [docs/](docs) and [examples/](examples).
@@ -91,45 +93,6 @@ out/jihoo emit-mir examples/hello.jh
 jihoo run tests/runner.jh                    # the tests
 ```
 
-For the dependent-kernel formalization, `nix develop .#proofs` adds Lean and
-Lake to the native development tools. The proof scripts require the exact
-version in `proofs/lean-toolchain` and reject admitted proofs and unexpected
-axiom dependencies:
-
-```sh
-nix develop .#proofs
-mkdir -p out
-scripts/proof-limits.sh bash proofs/check.sh > out/lean-proofs.log 2>&1
-```
-
-Local checks use the memory limits in [AGENTS.md](AGENTS.md). The guard uses
-systemd cgroups when available; Linux containers without user systemd use a
-serialized process supervisor with inherited address-space limits and sampled
-aggregate RSS monitoring. Its virtual address-space allowance accommodates
-Lean's runtime reservations; the tree RSS threshold is 6 GiB. The fallback is
-not a cgroup hard cap.
-See the [executable kernel scope](proofs/KERNEL_CHECKER_SCOPE.md) and
-[native kernel scope](proofs/NATIVE_KERNEL_SCOPE.md) for the guarantees and
-remaining boundaries. A [rootless verification report](proofs/ROOTLESS_KERNEL_VERIFICATION.md)
-records the checked revision, commands and results.
-
-On Linux without root or a host `/nix`, a working
-[nix-portable](https://github.com/DavHau/nix-portable) installation can run the
-same locked flake. With the rootless Nix skill's launcher installed at
-`/workspace/.local/bin/nix-rootless`, enter the proof environment with:
-
-```sh
-/workspace/.local/bin/nix-rootless develop .#proofs
-```
-
-If the container rejects Nix's build-sandbox hostname/domain setup, use
-`nix-rootless --option sandbox false develop .#proofs` for that invocation.
-The proof process guard still applies inside the resulting shell.
-
-The launcher uses bubblewrap user namespaces. Its executable and private Nix
-store are separate from a system-wide Nix installation; do not replace the
-project's lock file to accommodate a launcher version mismatch.
-
 ## Layout
 
 | path | what |
@@ -170,190 +133,6 @@ equations of a closed type family. For example, `Dual(Client)` derives the
 server side of a protocol, including the payload and order of its replies.
 The result uses the layout and move rules of the type it reduces to.
 [Closed type families](docs/language/type-families.md)
-
-[Bounded proof automation](docs/language/proof-automation.md) constructs checked
-natural equality/order proofs from local evidence and explicit lemma hints.
-It has fixed search limits and erases to the same runtime code as explicit proofs.
-
-0.6 is scoped as a feature, library and stabilization release; the original
-broad soundness goal remains future research ([release notes](docs/internals/0.6-release-notes.md)). Pure normalization now retains dependent motives on symbolic
-branches, so the core preservation regressions have no expected failures.
-Sum conversion also respects proof irrelevance when ordering nested terms.
-Source elaboration infers unsigned literal arithmetic from either operand and
-accepts checked type annotations in contextual proof and induction lambdas.
-Conditional branches and constant-result matches infer local result types;
-conditional proof lambdas accept validated result annotations. Empty calls
-through function values are rejected; direct declared nullary calls remain valid.
-Repeated `_` parameters work consistently in dependent lambdas and proof motives,
-without exposing discarded values or skipping their checks. Computed signed
-negation uses checked subtraction, preserving overflow traps and operand effects.
-Function-producing blocks support direct calls with lexical scope and ordered
-effects; function-valued match results retain their ownership restriction with
-an explicit diagnostic.
-[Explicit indexed record literals](docs/language/dependent-records.md) support
-`Sized(n) { data: alloc(n, x) }` without a surrounding type annotation, with
-checked erased indices and the same field, privacy and ownership rules.
-[Nested record patterns](docs/language/dependent-records.md) in lets and match
-arms unpack owned or borrowed
-indexed fields while preserving evidence, private fields and single ownership.
-[Bulk vector extension](docs/language/vector-extension.md) retains a checked
-old-to-new length postcondition while reusing capacity or growing the buffer.
-[Structural buffer materialization](docs/language/list-buffer-transfer.md)
-copies proved-length list results to contiguous storage without repeated indexed
-list reads or an extra length-discovery pass.
-[Runtime-selected collections](docs/language/bounded-collection.md) retain a
-proved upper bound and exact stored count when callbacks skip candidates.
-[Proof-bounded buffer ranges](docs/language/buffer-ranges.md) provide independent
-owned snapshots, using an imported offset theorem for every loop read.
-[The list proof library](docs/language/list-proofs.md) adds borrowed observations,
-owned copies, proof-bounded head/nth access and higher-order map with structural
-clone/append/map length theorems. Imported theorems prove executable array bounds.
-[Indexed owned lists](docs/language/sized-lists.md) support bounded-index callbacks
-and direct buffer/range conversion, preserving exact lengths through
-a runtime construction loop and structural mapping, allowing reads from a
-caller-supplied index bound without recomputing the length. Ownership-transferring
-concatenation applies imported structural evidence inside a runtime loop while
-copying only its fixed prefix.
-Dependent modules now keep separate namespaces and enforce public item and field
-boundaries, including qualified patterns and structural elimination.
-An initial [Lean 4 proof](docs/internals/lean-proofs.md) establishes consistency
-and conversion soundness for a separate arithmetic evidence fragment, and proves
-index/value substitution, finite scoping, conversion-aware beta preservation and
-logical consistency for a restricted index-dependent calculus with value lets.
-A [representation bridge](docs/internals/core-bridge.md) connects a bounded subset
-to core syntax with proved binder and certificate properties and generated tests.
-Restricted annotated source typing translates to a separate ghost-mode target
-judgment; executable-checker refinement remains unproved.
-[Graph artifact certificates](docs/internals/graph-certificates.md) independently
-check exported snapshots of actual binder transformations, with an explicit
-exporter and execution-association trust boundary. Canonical byte codecs and
-replay checks bind successive transforms to the same graph artifact and root.
-Target renaming, typed substitution and head-beta retyping preserve the restricted
-judgment; typed artifact outputs still require explicit input-typing premises.
-A separate beta-aware target proves fixed-type contextual beta preservation,
-including annotation changes, using proved conversion and context transport.
-A [verified executable kernel](proofs/KERNEL_CHECKER_SCOPE.md) now checks the
-complete universe-free, ghost-mode Raw calculus directly from terms, including
-dependent functions, arrays, bounds evidence and arithmetic/beta conversion.
-Lean proofs establish acceptance soundness, forward computation and type
-preservation of its normalizer, and declarative type uniqueness modulo
-conversion. Certificate-free snapshot admission binds these guarantees to exact
-canonical graph bytes and derives closed literal-evidence consistency.
-A [native-syntax formalization](proofs/NATIVE_KERNEL_SCOPE.md) represents all
-54 production kernel constructors, with full binder/substitution and append-only
-arena proofs. Its executable checker adds universes, ghost/code modes,
-polymorphism, arithmetic evidence, transport, refinements, evidence-binding
-branches and pure dependent iteration, with proved acceptance soundness.
-Its selected conversion theory has Church–Rosser,
-type uniqueness and contextual ghost preservation, including its executable
-normalizer. Direct arena transformations also have semantic and budget proofs.
-Actual native snapshots and all constructor encodings
-are tested against these definitions. Ordered checked globals and recomputed
-inductive signatures are bound to exact whole-program graph bytes. The unified
-environment checker adds dependent constructors, proposition elimination,
-Buffer/ref operations, Back/Give/Take, owned iteration and data elimination
-with Case/Drop and borrowed View, with code quantities derived from
-checked type and family metadata. It uses the proved bounded
-environment-indexed family-iota/delta/ACU converter.
-Its resource gate derives abstract representation kinds from checked contexts
-and replays each call's actual dependent signature and erasure flags.
-The same typing checker unfolds checked global definitions during comparison
-and inferred-type exposure. Its acceptance soundness is unconditional; checked
-history derives the closed, transparent environment used for Church–Rosser,
-rigid injectivity, ghost substitution and cross-mode type uniqueness. Actual
-combined forward reduction and concrete normalization preserve the original
-independently derived type, including beneath dependent binders. Further
-operators and loan equations, consistency, native source
-refinement and runtime heap/loan correspondence remain open.
-A concrete finite universe/context model and a source-derived U64/function
-fundamental theorem are also checked. Recognized closed U64 terms have a genuine
-finite forward path to a unique numeral; the full dependent fundamental theorem
-and consistency remain open. Abstract-type/function source interpretation and
-realizability also cover every native universe input 0 through 31, with the
-administrative Type32 boundary retained.
-Source reconstruction also handles any finite number of independent mixed-level
-universe parameters and nested first-order type-level beta computations in
-binder annotations. Type-to-type family variables at arbitrary native levels
-also have source-derived interpretations, including nested family applications.
-Value-dependent families `B : A -> Type(j)` also have source-derived meanings
-over arbitrary supported monotypes, with observations `x : A` used as indices
-and ordinary values. The closed dependent identity is checked at all native levels.
-Finite-code interpretation also recovers checked dependent annotations with
-nested Pi, Strict and Free, including effectful binder annotations. Projected
-closing coherence follows from the actual source-slot type alignment.
-Installed family iota rules preserve the exact original
-type for parameterized Case, general indexed recursive Prop/data Elim and
-arbitrary recursive borrowed View. The same expanded conversion has genuine
-finite common reducts, rigid injectivity, contextual preservation and a sound
-bounded implementation. Actual checked calls construct
-closing interpretations for every finite Prop/Type0 binder telescope; arbitrary
-higher-kind closing and full code/resource substitution remain open.
-Loan snapshot scope/renaming and the dependent-lend reader/continuation
-specializations are checked separately. Regression proofs show that returning
-an owner retains its alias identity and that the existing resource gate rejects
-duplicate consumption. Integrated Lend typing and heap lifetime safety remain open.
-The specialized ghost-body checks also construct a typed genuine forward
-contractum of the pure Lend expansion, with exact result-binder scope removal.
-A separate loan-indexed extension covers all existing typing rules plus active
-code borrowing and Lend. Existing derivations embed into it, ghost promotion
-forgets the loan stack, and code borrows require active named owners. Full ghost
-renaming and simultaneous substitution cover all 64 rules, including replacing
-named owners with arbitrary typed values. Original checked calls also retain
-their opened source bodies' code typing and actual argument resource contracts.
-They reconstruct exact typed argument stores for every binder sort, with
-source-slot type and erasure alignment derived from the actual replay.
-Explicit Lend callbacks also have atomic pure evaluation with original-type
-preservation. A separate raw Lend/family/delta/ACU theory has genuine finite
-common reducts and binding-aware injectivity; its macro intermediates are not
-assumed typed.
-The loan extension's default checker integration and heap/resource
-execution proof remain open.
-Its separate executable checker now covers the complete shared syntax and all
-loan rules, with proved inference/check/binder soundness and saved reader stacks.
-An exact-byte entry point checks one closed native declaration; it provides
-typing rather than whole-program quantity or heap admission.
-Type uniqueness covers all 64 rules, across loan stacks and code/ghost modes.
-Loan-specific raw conversion, bounded search and safe contextual evaluation are
-also verified. Its resource gate checks reader demand zero and restored-owner
-demand one, including alias and owned-result accounting. Transparent global
-type checking, concrete higher-kind code interpretation and a source-binding
-CBV heap machine add further scoped results; full native heap/loan soundness
-and mixed-program admission remain open.
-[Checked typing artifacts](docs/internals/typing-certificates.md) independently
-validate closed typing and formation derivations bound to complete exported graphs.
-A [symbolic dependent Buffer judgment](docs/internals/symbolic-core-typing.md)
-checks a restricted source rule family before runtime inputs are known. It
-instantiates the existing ownership judgment, including dependent natural-result
-substitution, and constructs safe execution with exact resource accounting.
-It also connects to fixed binary Tree source typing through symbolic mixed
-contexts, deriving actual source totality and all-run safety/accounting at every
-suitable closing. It does not cover all sized rules or close the common full-Core
-typing gap.
-An [executable common erasure compiler](docs/internals/symbolic-core-typing.md#executable-common-erasure-compiler)
-now computes the common Data/Core target. Structural and typed completeness
-prove success at every sufficiently large fuel; existing closing and ownership
-invariants then give target execution and accounting. This does not prove
-production native compiler refinement or normalization of arbitrary cyclic graphs.
-Exact backward simulation now also gives source/target execution equivalence and
-safety/accounting for every compiled target run under the existing invariants.
-Target execution is independently deterministic; the fixed binary Tree scope
-and CommonData-to-MIR/native proof gaps remain.
-A relocatable MIR allocation/fill fragment now proves initialization and framing
-inside enclosing programs with existing heap objects, with separately proved
-continuations. A Lean constructor now lowers compact/source allocations into
-that fragment, including dynamic operands and lexical natural lets. A compositional
-constructor now covers bindings, repeated allocation and release, the existing
-scalar/owned-result read-only lends, and conditional scalar/natural/owner result
-joins, with scalar-returning program theorems connected to source typing. The
-unchanged sized-composition Core graph retains both of its branches in this
-constructed translation. Its actual native MIR is also retained separately, with
-a parametric execution theorem for the same four-argument fixture and exact
-source/generated/native heap and allocation-lifecycle correspondence. More
-general lender forms and a generic native-lowering theorem remain outside the result.
-These do not establish full kernel or compiler soundness.
-These are implemented features and scoped proof results for the smaller 0.6
-release plan, not full compiler verification or an announcement of a published
-release ([roadmap](docs/internals/roadmap.md#6-verification-05)).
 
 The compiler uses its own threads: it elaborates, infers borrow effects and
 checks borrows one function per thread, the costliest first, and emits
@@ -406,36 +185,6 @@ the proved checks, and an unproved contract is a compile error
 (`jihoo verify compiler/main.jh`), and CI fails if it proves fewer; no
 check is left in the trusted checker itself. The verifier is not proved
 sound.
-
-0.5 adds [dependent types](docs/language/dependent-types.md) in a
-[native dependent core](docs/internals/dependent-core.md), which checks programs
-and proofs together and emits MIR directly from the checked terms, with the proofs
-erased. Modules opt in with `#![dependent_core]`, and
-[the specification](docs/internals/core-spec.md) states its rules. It has:
-
-- evidence about u64 indices, with their order and equality, so that
-  [an index](examples/core_index.jh) needs no bounds check;
-- [refinements](examples/core_refine.jh), [data types](examples/core_data.jh)
-  [parameterized](examples/core_indexed.jh) by values, and
-  [inductive propositions](examples/core_inductive.jh) that programs declare;
-- owned [buffers](examples/core_buffer.jh) and
-  [heap data](examples/core_list.jh), each used exactly once, which the kernel
-  checks, and [freed](examples/core_scope.jh) where their scope ends;
-- [borrows](examples/core_borrow.jh), whose [results](examples/core_lend.jh) and
-  [proofs by induction](examples/core_borrow_induct.jh) can be about what they read,
-  and [reads that depend on them](examples/core_nth.jh);
-- [loops whose invariants are types](examples/core_invariant.jh);
-- [`inout` parameters](examples/core_inout.jh) with `old(x)`, which change values in
-  place, with no mutable reference in the kernel;
-- [a vector](lib/dependent/vec.jh) whose contracts are [types](examples/core_vec.jh).
-
-The full native kernel is **not verified**. The executable Lean kernel and
-its [mechanized guarantees](proofs/KERNEL_CHECKER_SCOPE.md) cover a restricted
-calculus; equivalence to native inference and normalization remains unproved.
-The native kernel also uses rejection suites, an independent evaluator and
-independent reviews. The core is a subset, with i64 elements, no type
-parameters and the [other limits](docs/language/dependent-types.md#what-it-does-not-do) its
-guide lists. The existing verifier still proves unmarked programs and the compiler's own source.
 
 Buffered UTF-8 input (`std.io.BufRead`, `StrReader`, `BufReader`) and
 Unicode scalar decoding/iteration (`std.utf8`) support streaming parsers.
@@ -518,7 +267,3 @@ server built on the same checking and diagnostics: errors in unsaved
 documents, go to definition and formatting.
 
 Next ([roadmap](docs/internals/roadmap.md)): application-driven library work.
-
-A separate [reference-cell CFG model](docs/internals/lean-proofs.md#reference-cell-cfg-scalar-conservativity)
-preserves bounded scalar MIR execution, fuel, events and final heaps; native
-reference encoding and full compiler correctness remain outside this result.

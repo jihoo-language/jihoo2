@@ -1,2 +1,0 @@
-; Core conversion projects a pure Free to its result under a dependent binder.
-(def freed_eq (pi x U64 (Eq (free (alloc 1 (int 0)) x) x)) (lam x U64 (refl x)))

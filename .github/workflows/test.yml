@@ -41,15 +41,8 @@ jobs:
           python3 tests/bootstrap_seed_update.py
           python3 tests/release_version.py
       - uses: cachix/install-nix-action@v31
-      - name: Check proof supervisor cleanup and resource limits
-        run: nix develop --command python3 tests/proof_limits.py
-      # Includes aggregate and recursive Data/Buffer erasure axiom audits.
       - name: nix flake check
         run: nix flake check -L
-      - name: Check callable Tree Drop compiler rule and axiom audit
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-tree-drop-call.sh
-      - name: Check common target context and Drop prefix preservation
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-common-data-target-context.sh
       - name: Source isolation checks
         run: python3 scripts/check_nix_sources.py --offline --system ${{ matrix.system }}
       - name: Fusion benchmark checks
@@ -72,13 +65,3 @@ jobs:
           name: compile-${{ matrix.system }}
           path: out/compile
           if-no-files-found: ignore
-      - name: Check Tree constructor prefixes, relocation and axiom audits
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-tree-create-relocation.sh
-      - name: Check independent Case CFG entry, relocation and axiom audit
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-common-data-case.sh
-      - name: Check executed Case entry context and axiom audit
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-common-data-case-entry-context.sh
-      - name: Check Tree constructor common context and axiom audit
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-tree-create-context.sh
-      - name: Check conditional common Case composition and register safety audits
-        run: nix develop .#checks.${{ matrix.system }}.lean-proofs --command bash proofs/check-common-case-composition.sh

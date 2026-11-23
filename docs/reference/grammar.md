@@ -65,7 +65,7 @@ impl     = "impl" [ params ] type [ "for" type ] "{" { item | ";" } "}"
 trait    = "trait" name [ params ] [ ":" type { "+" type } ] "{" { item | ";" } "}"
 const    = "const" name [ ":" type ] "=" expr
 static   = "static" name [ ":" type ] "=" expr
-alias    = "type" name [ params ] [ "=" type ]
+alias    = "type" name [ "=" type ]
 family   = "type" name "{" equation { sep equation } [ sep ] "}"
 equation = type_pat "=>" type
 type_pat = "_" | "let" name | path [ "(" [ type_pat { "," type_pat } [ "," ] ] ")" ]
@@ -75,26 +75,7 @@ type_pat = "_" | "let" name | path [ "(" [ type_pat { "," type_pat } [ "," ] ] "
 ```
 
 - `#![...]` attributes come first in the file. `#![freestanding]` and
-  `#![uefi]` select runtime profiles; experimental `#![dependent_core]`
-  selects a [restricted source subset](../internals/dependent-core.md#ordinary-source-subset)
-  using contextual `erased(P)`, `if_lt`, `if_eq`, `index`, `decide_lt`,
-  `refl`, `transport`, `induct`, `fold`, `lt_add`, `lt_cancel`, `lt_le`,
-  `sub`, `zero_le`, `refine`, `pack`, `witness` and `proof` forms, and
-  `enum` declarations, with u64 parameters, and `match` for
-  [data types](../internals/dependent-core.md#data-types), and `buffer`,
-  `alloc`, `load`, `store` and `free` for
-  [owned buffers](../internals/dependent-core.md#owned-buffers); a
-  recursive `enum` is [heap data](../internals/dependent-core.md#recursive-data-on-the-heap),
-  and owned values a scope does not use are
-  [freed where it ends](../internals/dependent-core.md#frees-where-ownership-ends);
-  `ref T` parameters and `let` statements [borrow](../internals/dependent-core.md#borrows),
-  and `induct(fn(t, a: A) { T }, ...)(a)` and `absurd(p)` give
-  [results that depend on a borrow](../internals/dependent-core.md#views-whose-result-depends-on-the-borrow),
-  in the existing grammar. `Lt(i, n)` and `Eq(a, b)` are its built-in
-  propositions; in it, a `trait` with `u64` parameters and bodiless
-  functions declares an [inductive proposition](../internals/dependent-core.md#inductive-propositions)
-  and its constructors. Induction cases can use contextual `fn(...) { ... }`
-  proof lambdas. Item attributes are `#[view]`, `#[derive(...)]`
+  `#![uefi]` select runtime profiles. Item attributes are `#[view]`, `#[derive(...)]`
   ([derive](../language/reflection.md#derive)), `#[interior]`
   ([unsafe code](../language/unsafe.md#changing-behind-a-shared-borrow))
   and, on functions, `#[literal_check(param, check)]`
@@ -108,9 +89,7 @@ type_pat = "_" | "let" name | path [ "(" [ type_pat { "," type_pat } [ "," ] ] "
   whether or not they say `comptime`: `struct Pair(T: type)`. Those of an
   `impl` are written the same way: `impl(T: Ord) Ord for Vec(T)`.
 - `type Item` without `= T` declares an associated type in a trait.
-  Parameterized aliases, such as `type Mem(n: u64) = buffer(n)`, are supported
-  only in `#![dependent_core]` modules, with erased `u64` parameters and a
-  required body. See [dependent type aliases](../language/dependent-aliases.md).
+  Type aliases take no parameters.
 - A family is a module item. `Name(T)` applies its equations to one concrete
   type. A tuple supplies several inputs as one type. A single parenthesized
   pattern groups its contents. [Closed type families](../language/type-families.md)
@@ -131,23 +110,14 @@ type     = path [ "(" expr { sep expr } ")" ]      Vec(i64), std.map.Map(K, V)
          | "type"                                   the type of types
 path     = name { "." name }
 fn_ty    = "(" [ fn_ty_param { "," fn_ty_param } ] ")" [ "->" type ]
-fn_ty_param = [ "inout" | "sink" ] [ name ":" ] type
+fn_ty_param = [ "inout" | "sink" ] type
 fnptr_ty = "(" [ [ "inout" | "sink" ] type { "," [ "inout" | "sink" ] type }
                  [ "," "..." ] | "..." ] ")" [ "->" type ]
 ```
 
 `...` in a function pointer requires a C-compatible value signature.
 
-Named function-type parameters are supported only by `fn` types in
-`#![dependent_core]` modules. For example, `fn(n: u64, buffer(n)) -> i64`
-names the first argument so the second argument's type can refer to it.
-The name is in scope in later domains and the result, not in its own domain;
-unnamed domains remain supported. The dependent subset requires at least one
-parameter and an explicit result, uses `erased(T)` for erased domains, and
-rejects `inout` and `sink` in function types. Named domains do not extend
-`fnptr`, `dyn fn`, `impl fn`, or ordinary code. See
-[functions in dependent code](../language/dependent-functions.md) and the
-[indexed callback example](../../examples/core_named_functions.jh).
+A function type lists types, not names: `fn(i64, i64) -> i64`.
 
 Type arguments are expressions, so a number can be one (`[T; N]`,
 `Matrix(f64, 3)`). The `(` of type arguments, and the `->` of a function

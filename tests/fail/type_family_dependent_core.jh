@@ -1,3 +1,0 @@
-#![dependent_core]
-// error: closed type families require an ordinary module
-type Identity { let T => T }

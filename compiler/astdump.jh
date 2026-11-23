@@ -294,10 +294,9 @@ impl Dump {
             }
             Const(c) => self.const_(c, "(const ")
             Static(c) => self.const_(c, "(static ")
-            TypeAlias(name, ps, t) => {
+            TypeAlias(name, t) => {
                 self.s("(type ")
                 self.s(name.as_str())
-                if ps.len() != 0 { self.params(ps) }
                 self.opt_ty(t)
                 self.s(")")
             }
@@ -352,7 +351,6 @@ impl Dump {
             self.s("(")
             self.mode(p.mode)
             self.s(" ")
-            match p.name { Some(n) => { self.s(n.as_str()); self.s(": ") }, None => {} }
             self.ty(p.ty)
             self.s(")")
         }

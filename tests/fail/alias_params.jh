@@ -1,0 +1,5 @@
+// Type aliases take no parameters.
+// error: expected an item
+type Mem(n: u64) = [i64; 4]
+
+fn main() {}

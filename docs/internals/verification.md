@@ -1,18 +1,8 @@
-# Design: verification and future mathematics libraries
+# Design: verification
 
-This page retains the historical verifier design and broader library goals.
-The [smaller 0.6 release scope](0.6-release-notes.md) does not complete the
-original imported-induction/loop-`ensures` goal or general soundness/lowering
-proofs; those remain future work.
-
-The replacement direction is a [native dependent core](dependent-core.md):
-check the program and its proofs together, then erase and lower those
-same terms. The first executable `.jhc` slice is available through
-`jihoo core`. Ordinary `.jh` elaboration has not yet moved to that core.
-The implementation and principles below describe the existing verifier while
-that migration is in progress. Its checker and generator are tested, not proved:
-an earlier proof of the checker, through Horn and Agda, was removed with that
-path before 0.5.0 and is in the repository's history.
+This page describes the verifier: obligations from MIR, proved while
+compiling. jihoo2 has no dependent types, so this is the only verification
+path. Its checker and generator are tested, not proved.
 
 Status: research. The compiler proves checks and
 [contracts](../language/contracts.md) itself
@@ -70,7 +60,7 @@ or a loop head, to a check, a return or a loop head gives the goals on that
 path.
 
 Goals that need induction (a property of every element, of every `n`) are
-0.6's, in the [native core](dependent-core.md).
+out of scope.
 
 ## What is trusted
 

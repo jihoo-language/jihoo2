@@ -9,7 +9,6 @@
 
 import std.mem
 import check
-import core_elab
 import interp
 import ast
 import diag
@@ -916,11 +915,7 @@ impl Sema {
                 })
                 self.define(module, c.name.as_str(), Sym.Static(id), item.public, item.span)?
             }
-            TypeAlias(name, params, t) => {
-                if params.len() != 0 { return Err(ty_err(
-                    item.span,
-                    "parameterized type aliases require dependent_core"
-                )) }
+            TypeAlias(name, t) => {
                 match t {
                     Some(t) => {
                         let id = self.aliases.len() as u32
@@ -956,12 +951,7 @@ impl Sema {
                             panic_handler_attr(sub, false)?
                             fns.insert(f.name.clone(), fid);
                         }
-                        TypeAlias(_, params, _) => {
-                            if params.len() != 0 { return Err(ty_err(
-                                sub.span,
-                                "parameterized type aliases require dependent_core"
-                            )) }
-                        }
+                        TypeAlias(_, _) => {}
                         _ => return Err(ty_err(
                             sub.span,
                             "a trait holds functions and associated types"
@@ -1001,11 +991,7 @@ impl Sema {
                             }
                             fns.insert(f.name.clone(), fid);
                         }
-                        TypeAlias(n, params, t) => {
-                            if params.len() != 0 { return Err(ty_err(
-                                sub.span,
-                                "parameterized type aliases require dependent_core"
-                            )) }
+                        TypeAlias(n, t) => {
                             match t {
                                 Some(t) => {
                                     assoc.insert(n.clone(), &t);
@@ -1343,9 +1329,6 @@ impl Sema {
         var params = Vec(u32).new()
         var c_abi = !closure
         for x in ps {
-            if x.name.is_some() { return Err(ty_err(
-                x.ty.span, "named function type parameters require dependent_core"
-            )) }
             let pt = self.resolve_ty(x.ty, env)?
             raw.push(pt)
             params.push(self.param_local_ty(x.mode, pt).0)
@@ -1977,7 +1960,7 @@ impl Sema {
             var has = false
             for i in at(self.traits[tr].decl).items {
                 match i.kind {
-                    TypeAlias(n, _, _) => {
+                    TypeAlias(n, _) => {
                         if n == name {
                             has = true
                         }
@@ -3698,7 +3681,6 @@ pub fn compile(
     profile: bool,
     inout reports: Vec(interp.Report)
 ) -> Result(mir.Program, Diag) {
-    if load.dependent_core(a) { return core_elab.compile(a, tgt, library, codegen) }
     var s = Sema.new(a, tgt, checked)
     s.profile_comptime = profile
     let result = compile_inner(&s, a, tgt, checked, library, codegen)

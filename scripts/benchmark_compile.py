@@ -48,32 +48,6 @@ WORKLOADS = {
 }
 
 
-DEPENDENT = ("dependent-buffer", "dependent-list")
-
-
-def dependent_source(kind, size, entry="exports"):
-    """Independent exported consumers; size scales checked code, not loop trips."""
-    if kind not in DEPENDENT or not 1 <= size <= 256:
-        raise ValueError("dependent workload size must be between 1 and 256")
-    if entry not in ("exports", "fanout"):
-        raise ValueError("dependent entry must be exports or fanout")
-    lines = ["#![dependent_core]"]
-    if kind == "dependent-list":
-        lines += ["import dependent.sized_list", "fn increment(x: i64) -> i64 { x + 1 }"]
-    for i in range(size):
-        if kind == "dependent-list":
-            body = """let xs = sized_list.repeat(n, x)
-    let ys = sized_list.map(n, xs, increment)
-    if_lt(i, n, fn(p) { sized_list.nth(n, ys, i, p) }, -1)"""
-        else:
-            body = """let b = fold(n, alloc(n, x), fn(j, p, acc) { store(acc, j, x + 1, p) })
-    if_lt(i, n, fn(p) { load(b, i, p, fn(v, b) { free(b, v) }) }, free(b, -1))"""
-        lines.append(f"export fn consumer_{i}(n: u64, i: u64, x: i64) -> i64 {{\n    {body}\n}}")
-    lines.append("fn main() -> i64 { " + " + ".join(
-        f"consumer_{i}(3, 1, 16)" for i in range(size if entry == "fanout" else 1)) + " }")
-    return "\n\n".join(lines) + "\n"
-
-
 def git_revision(directory, paths=()):
     """The commit of `directory`, with `-dirty` if tracked files (in paths) changed."""
     if shutil.which("git") is None:
@@ -216,12 +190,8 @@ def main():
                         help="target to compile for (repeatable; default the host)")
     parser.add_argument("--opt", default="-O2", choices=["-O0", "-O1", "-O2", "-O3"],
                         help="optimization for full compilation")
-    parser.add_argument("--workload", action="append", choices=sorted((*WORKLOADS, *DEPENDENT)),
+    parser.add_argument("--workload", action="append", choices=sorted(WORKLOADS),
                         help="built-in workload (repeatable; default all)")
-    parser.add_argument("--dependent-entry", choices=["exports", "fanout"], default="exports",
-                        help="exports: main calls one export; fanout: main calls every export")
-    parser.add_argument("--dependent-size", type=int, action="append", metavar="N",
-                        help="independent consumers per dependent workload, 1..256 (repeatable; default 1,2,4)")
     parser.add_argument("--external", action="append", type=parse_external, default=[],
                         metavar="NAME=ENTRY[:INCLUDE...]",
                         help="also measure a program outside the checkout, e.g. a Banana entry point")
@@ -240,10 +210,6 @@ def main():
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be positive")
-    if args.dependent_size and any(not 1 <= n <= 256 for n in args.dependent_size):
-        parser.error("--dependent-size must be between 1 and 256")
-    if args.dependent_size and not any(n in DEPENDENT for n in (args.workload or [])):
-        parser.error("--dependent-size requires a dependent --workload")
     if args.check_only:
         args.repeats = 1
 
@@ -255,7 +221,7 @@ def main():
         parser.error("GNU time is needed to measure peak memory (it is in the dev shell)")
     env = {**os.environ, "JIHOO_PATH": str(ROOT / "lib")}
     targets = args.target or [HOST]
-    workloads = {name: WORKLOADS[name] for name in (args.workload or WORKLOADS) if name in WORKLOADS}
+    workloads = {name: WORKLOADS[name] for name in (args.workload or WORKLOADS)}
     sources = {}
     if args.proofs:
         proofs = args.proofs.resolve()
@@ -288,20 +254,6 @@ def main():
     failed = False
     with tempfile.TemporaryDirectory(prefix="jihoo-compile-") as temp:
         temp = Path(temp)
-        generated = {}
-        for kind in dict.fromkeys(args.workload or []):
-            if kind not in DEPENDENT:
-                continue
-            for size in sorted(set(args.dependent_size or [1, 2, 4])):
-                name = f"{kind}-{args.dependent_entry}-{size}"
-                if name in workloads:
-                    parser.error(f"workload {name} is defined twice")
-                source = dependent_source(kind, size, args.dependent_entry)
-                path = temp / f"{name}.jh"
-                path.write_text(source)
-                workloads[name] = (temp, path.name, [])
-                generated[name] = {"kind": kind, "consumers": size, "entry": args.dependent_entry, "source": source}
-        report["generated"] = generated
         cases = []
         for name, (directory, entry, flags) in workloads.items():
             for target in targets:

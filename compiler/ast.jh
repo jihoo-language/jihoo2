@@ -40,7 +40,7 @@ pub enum ItemKind {
     // `static NAME: T = value`: a global variable, used in `unsafe` code.
     Static(ConstDecl)
     // `type Name = T`, in an impl (an associated type) or a module (an alias).
-    TypeAlias(String, Vec(Param), Option(Ty))
+    TypeAlias(String, Option(Ty))
     TypeFamily(TypeFamilyDecl)
 }
 
@@ -213,8 +213,6 @@ pub enum TyKind {
 }
 
 pub struct FnTyParam {
-    // Optional source binder, scoped over later domains and the result.
-    pub name: Option(String)
     pub mode: Mode
     pub ty: Ty
 }
@@ -417,7 +415,7 @@ impl Clone for ItemKind {
             })
             Const(c) => ItemKind.Const(c.clone())
             Static(c) => ItemKind.Static(c.clone())
-            TypeAlias(n, ps, t) => ItemKind.TypeAlias(n.clone(), ps.clone(), t.clone())
+            TypeAlias(n, t) => ItemKind.TypeAlias(n.clone(), t.clone())
             TypeFamily(f) => ItemKind.TypeFamily(f.clone())
         }
     }
@@ -496,7 +494,7 @@ impl Clone for TyKind {
 
 impl Clone for FnTyParam {
     fn clone(self) -> FnTyParam {
-        FnTyParam { name: self.name.clone(), mode: self.mode, ty: self.ty.clone() }
+        FnTyParam { mode: self.mode, ty: self.ty.clone() }
     }
 }
 

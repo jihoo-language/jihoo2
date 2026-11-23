@@ -1,3 +1,0 @@
-#![dependent_core]
-import plain
-pub fn bridge() -> i64 { plain.ordinary() }
