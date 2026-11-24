@@ -851,6 +851,33 @@ pub fn erase(inout p: mir.Program, r: Report) {
     }
 }
 
+// `--audit-proved`: every check stays, and one that was proved says so
+// when it fails, as a bug of the verifier rather than of the program. A
+// way to test the verifier on real programs: run them, and their tests,
+// built this way.
+pub fn audit(inout p: mir.Program, r: Report) {
+    let n = p.fns.len()
+    p.audited = Vec(Vec((i64, i64))).filled(n, Vec((i64, i64)).new())
+    for c in r.checks {
+        if !c.proved || c.retarget >= 0 { continue }
+        let i = c.function as i64
+        if c.stmt >= 0 {
+            p.audited[i].push((c.block, c.stmt))
+            continue
+        }
+        let Some(b) = mem.replace(&p.fns[i].body, None) else { continue }
+        var body = b
+        match body.blocks[c.block].term {
+            Assert(cond, msg, next, at) => {
+                let m = msg.as_str() + ", which verification proved impossible: a verifier bug, please report it"
+                body.blocks[c.block].term = mir.Term.Assert(cond.clone(), m, next, at)
+            }
+            _ => {}
+        }
+        p.fns[i].body = Some(body)
+    }
+}
+
 fn erase_one(inout body: mir.Body, block: i64, stmt: i64) {
     if stmt < 0 {
         match body.blocks[block].term {

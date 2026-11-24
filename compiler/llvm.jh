@@ -69,6 +69,17 @@ impl Clone for V {
 }
 
 // (Rust's `FnCx` also has a trap block, which nothing sets.)
+// The message of a proved overflow check that failed with `--audit-proved`.
+pub const AUDITED_OVERFLOW: str =
+    "integer overflow, which verification proved impossible: a verifier bug, please report it"
+
+fn audited(list: [(i64, i64)], block: i64, stmt: i64) -> bool {
+    for x in list {
+        if x.0 == block && x.1 == stmt { return true }
+    }
+    false
+}
+
 struct FnCx {
     body: String
     tmp: i64
@@ -77,6 +88,10 @@ struct FnCx {
     // The label of the block being written (for phis): Rust's
     // `label_block` finds it in the text.
     label: String
+    // The proved overflow checks of the function (`Program.audited`), and
+    // whether the statement being written is one.
+    audit: Vec((i64, i64))
+    audited: bool
 }
 
 impl FnCx {
@@ -86,7 +101,9 @@ impl FnCx {
             tmp: tmp,
             locals: Vec(String).new(),
             sret: None,
-            label: String.from("entry")
+            label: String.from("entry"),
+            audit: Vec((i64, i64)).new(),
+            audited: false
         }
     }
 
@@ -525,6 +542,7 @@ impl Gen {
         ).as_str())
         let body = mem.replace(&self.p.fns[f as i64].body, None).unwrap()
         var cx = FnCx.new(0)
+        if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
         if sret { cx.sret = Some(String.from("%p0")) }
         for i, local in body.locals {
             if i == 0 && sret { cx.locals.push(String.from("%p0")) }
@@ -564,7 +582,11 @@ impl Gen {
         cx.line("br label %bb0")
         for bi, b in body.blocks {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
-            for s in b.stmts { self.stmt(&cx, body, s) }
+            for si, s in b.stmts {
+                cx.audited = audited(cx.audit.as_slice(), bi, si)
+                self.stmt(&cx, body, s)
+            }
+            cx.audited = false
             self.term(&cx, f, body, b.term)
         }
         self.out.push_str(cx.body.as_str())
@@ -799,6 +821,7 @@ impl Gen {
         // panic): keep it out of the hot path.
         let attrs = if self.p.fns[f as i64].sig.ret == types.NEVER { " cold noreturn" } else { "" }
         var cx = FnCx.new(0)
+        if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
         var names = Vec(String).new()
         if sret {
             names.push(String.from("ptr %sret"))
@@ -876,9 +899,11 @@ impl Gen {
         cx.line("br label %bb0")
         for bi, b in body.blocks {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
-            for s in b.stmts {
+            for si, s in b.stmts {
+                cx.audited = audited(cx.audit.as_slice(), bi, si)
                 self.stmt(&cx, body, s)
             }
+            cx.audited = false
             self.term(&cx, f, body, b.term)
         }
         self.out.push_str(cx.body.as_str())
@@ -1683,7 +1708,8 @@ impl Gen {
                 "{} = extractvalue { {}, i1 } {}, 1",
                 [o.as_str(), lt, pair.as_str()]
             ).as_str())
-            self.check(&cx, o.as_str(), true, "integer overflow")
+            let msg = if cx.audited { AUDITED_OVERFLOW } else { "integer overflow" }
+            self.check(&cx, o.as_str(), true, msg)
             return r
         }
         var simple = ""

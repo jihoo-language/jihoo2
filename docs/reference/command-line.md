@@ -39,6 +39,7 @@ once the program has none.
 | `--release` | integer overflow wraps instead of trapping |
 | `--no-verify` | skip [verification](#verification): keep every check, and do not prove contracts (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--verify` | also prove contracts in `check` (code generation always does, unless `--no-verify`) |
+| `--audit-proved` | keep the checks verification proves, each failing with the message of a verifier bug instead of the program's (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--target x86_64\|aarch64` | the machine to compile for (Linux, or UEFI for a `#![uefi]` program) |
 | `-I <dir>` | also look for modules in `<dir>` |
 | `-o <file>` | the output |
@@ -454,6 +455,13 @@ returns becomes `unreachable` (so its branch goes away), and a call that
 proved its callee's panics away calls a copy of the callee without them.
 The program does the same, without their cost. `JIHOO_VERIFY_TRACE=1`
 prints the time each function took on standard error.
+
+`--audit-proved` tests the verifier instead: the build proves the program
+as usual but keeps every check, and a proved one that fails says
+`..., which verification proved impossible: a verifier bug, please report
+it`. A program and its tests built this way and run on real inputs check
+the proofs where the differential test of jihoo-proofs checks them on
+random ones.
 
 ## Verification model
 

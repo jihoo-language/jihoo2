@@ -485,6 +485,10 @@ pub struct Program {
     pub target: target.Target
     // Kernel settings: no red zone, general registers only.
     pub codegen: target.Codegen
+    // With `--audit-proved`, per function, the overflow checks verification
+    // proved (block, statement), kept and reported as a verifier bug if
+    // they fail. Empty otherwise.
+    pub audited: Vec(Vec((i64, i64)))
 }
 
 // ---- printing ----
