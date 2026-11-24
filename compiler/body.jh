@@ -250,6 +250,10 @@ fn same_spec_var(a: mir.SpecTerm, b: mir.SpecTerm) -> bool {
             Field(y, py) => x == y && px == py
             _ => false
         }
+        Quot(x) => match b.name {
+            Quot(y) => x == y
+            _ => false
+        }
     }
 }
 
@@ -806,7 +810,14 @@ impl sema.Sema {
         for e in d.ensures { self.clauses(fb, e, ClauseAt.Ensures, None, &ensures)? }
         fb.body.contract.requires = requires
         fb.body.contract.ensures = ensures
+        self.take_quots(&fb)
         Ok(())
+    }
+
+    // The quotients the clauses just lowered divide by, into the body's.
+    fn take_quots(inout self, inout fb: Fb) {
+        let qs = mem.replace(&self.spec_quots, Vec((mir.Spec, i128)).new())
+        for q in qs.into_iter() { fb.body.contract.quots.push(q) }
     }
 
     // A loop's `invariant` clauses, at its head: the names they see are
@@ -815,6 +826,7 @@ impl sema.Sema {
         var out = Vec(mir.Clause).new()
         for e in es { self.clauses(fb, e, ClauseAt.Invariant, None, &out)? }
         for c in out.into_iter() { fb.body.contract.invariants.push((head, c)) }
+        self.take_quots(&fb)
         Ok(())
     }
 
@@ -958,6 +970,28 @@ impl sema.Sema {
                     } else {
                         return Err(err(e.span, "a contract multiplies only by a constant"))
                     }
+                } else if op == Op.Div || op == Op.Rem {
+                    // `a / k` is a quotient `q`, and `a % k` is `a - k * q`.
+                    let x = self.spec_in(fb, a.deref(), at, this.clone())?
+                    let y = self.spec_in(fb, b.deref(), at, this.clone())?
+                    if y.terms.len() > 0 || y.constant < 1 || y.constant > 1 << 32 {
+                        return Err(err(
+                            e.span,
+                            "a contract divides only by a constant from 1 to 2^32"
+                        ))
+                    }
+                    if at == ClauseAt.Type {
+                        return Err(err(e.span, "a type's `invariant` cannot divide yet"))
+                    }
+                    let i = fb.body.contract.quots.len() + self.spec_quots.len()
+                    self.spec_quots.push((x.clone(), y.constant))
+                    let q = spec_var(mir.SpecVar.Quot(i as u32), false)
+                    if op == Op.Div { Some(Some(q)) } else { Some(spec_combine(
+                        x,
+                        1,
+                        q,
+                        0 - y.constant
+                    )) }
                 } else { None }
             }
             Name(n) => {
@@ -1640,6 +1674,7 @@ impl sema.Sema {
                 let at = fb.new_block()
                 fb.goto(at)
                 for c in out.into_iter() { fb.body.contract.proofs.push((at, c)) }
+                self.take_quots(&fb)
                 Ok(false)
             }
             Assign(place, value) => {
@@ -2876,6 +2911,7 @@ impl sema.Sema {
                 for d in dec {
                     let m = self.spec_in(fb, d, ClauseAt.Invariant, None)?
                     fb.body.contract.decreases.push((head, m, d.span))
+                    self.take_quots(&fb)
                 }
                 let cv = self.expr(&fb, c.deref(), Some(types.BOOL))?
                 let cv = self.coerce(&fb, cv, types.BOOL, c.span)?

@@ -77,7 +77,8 @@ compare = term cmp term { ( "<" | "<=" | ">" | ">=" ) term }
 cmp    = "<" | "<=" | ">" | ">=" | "==" | "!="
 term   = integer | place | place ".len" "(" ")" | "old" "(" place ")"
        | "old" "(" place ".len" "(" ")" ")"
-       | term ( "+" | "-" ) term | term "*" term | "-" term | "(" term ")"
+       | term ( "+" | "-" ) term | term "*" term | term ( "/" | "%" ) integer
+       | "-" term | "(" term ")"
 place  = ( name | "result" ) { "." field }
 ```
 
@@ -89,6 +90,11 @@ place  = ( name | "result" ) { "." field }
   an `ensures result == ...` over `self`: `v.len()` for a `Vec` is
   `v.len`, and `s.len()` for a `String` is its bytes' length.
 - One side of `*` must be a constant: the verifier's arithmetic is linear.
+  `/` and `%` divide by a constant from 1 to 2^32 and round toward zero, as
+  in code: `a / k` is a quotient the verifier defines anew each time it
+  uses the clause, and `a % k` is `a - k * (a / k)`, so
+  `invariant i % 2 == 0` keeps a counter even. A type's `invariant`
+  cannot divide yet.
 - **The arithmetic is exact.** `x + 1 <= hi` in a clause cannot overflow,
   and integers of different types compare by value: `i <= xs.len` holds
   for `i: u64`.

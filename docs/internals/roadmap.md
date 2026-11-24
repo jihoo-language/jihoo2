@@ -509,9 +509,11 @@ Next, in order:
    overflow checks. Left: an outer loop's `decreases` across an inner
    loop's head, which needs the measure's value at the start of the
    iteration as a variable, and `decreases` on recursive calls.
-2. `/` and `%` by constants in clauses (`invariant i % 2 == 0`), which
-   needs a quotient variable in `mir.Spec`; the cuts then prove
-   loops that step by two.
+2. Done: `/` and `%` by constants in clauses (`invariant i % 2 == 0`).
+   A quotient is a variable of the function's model (`SpecVar.Quot`,
+   `Contract.quots`) that each use of the clause defines anew with the
+   facts of division (`vc.Fact.defs`), so the cuts prove loops that step
+   by two (`tests/verify/clause_division.jh`).
 3. Compile-time cost bounds: Tekel's amortized analysis over the MIR
    interpreter's steps, so that `comptime` work states its budget and a
    bound is known before evaluation starts.

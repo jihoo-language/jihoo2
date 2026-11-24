@@ -212,20 +212,28 @@ pub struct Fact {
     pub stated: bool
     pub ors: Vec(Vec(Cond))
     pub partial: bool
+    // Quotients the fact names: variable `v` is `a / k` (toward zero) for
+    // `(v, a, k)`, in order, each use defining it anew (`define`).
+    pub defs: Vec((i64, Lin, i128))
 }
 
 impl Clone for Fact {
     fn clone(self) -> Fact {
+        var defs = Vec((i64, Lin, i128)).new()
+        for d in self.defs { defs.push((d.0, d.1.clone(), d.2)) }
         Fact {
             op: self.op, a: self.a.clone(), b: self.b.clone(), stated: self.stated,
-            ors: self.ors.clone(), partial: self.partial
+            ors: self.ors.clone(), partial: self.partial, defs
         }
     }
 }
 
 impl Fact {
     pub fn compare(op: Cmp, sink a: Lin, sink b: Lin) -> Fact {
-        Fact { op, a, b, stated: true, ors: Vec(Vec(Cond)).new(), partial: false }
+        Fact {
+            op, a, b, stated: true, ors: Vec(Vec(Cond)).new(), partial: false,
+            defs: Vec((i64, Lin, i128)).new()
+        }
     }
 
     pub fn is_or(self) -> bool { self.ors.len() > 0 || self.partial }
@@ -263,14 +271,17 @@ pub fn fact(op: Cmp, a: Operand, b: Operand) -> Fact {
 pub fn unstated(op: Cmp) -> Fact {
     Fact {
         op, a: Lin.num(0), b: Lin.num(0), stated: false, ors: Vec(Vec(Cond)).new(),
-        partial: false
+        partial: false, defs: Vec((i64, Lin, i128)).new()
     }
 }
 
 // One of the conjunctions holds, or with `partial`, one left out.
 pub fn disjunction(sink ors: Vec(Vec(Cond)), partial: bool) -> Fact {
     if ors.len() == 0 { return unstated(Cmp.Eq) }
-    Fact { op: Cmp.Eq, a: Lin.num(0), b: Lin.num(0), stated: false, ors, partial }
+    Fact {
+        op: Cmp.Eq, a: Lin.num(0), b: Lin.num(0), stated: false, ors, partial,
+        defs: Vec((i64, Lin, i128)).new()
+    }
 }
 
 // A struct's invariant at a place, as a fact over the function's
@@ -798,6 +809,14 @@ impl Gen {
     // of every alternative it can state cannot all hold (one it cannot
     // state is left out, which only makes the claim stronger).
     fn require_fact(inout self, p: Path, what: str, x: Fact, map: [Option(Lin)]) {
+        if x.defs.len() > 0 {
+            var q = p.clone()
+            let m = define(&self, &q, x, map)
+            self.require_defined(q, what, x, m.as_slice())
+        } else { self.require_defined(p, what, x, map) }
+    }
+
+    fn require_defined(inout self, p: Path, what: str, x: Fact, map: [Option(Lin)]) {
         var known = Vec(Vec(Cond)).new()
         for alt in alternatives(x, map).into_iter() {
             match alt {
@@ -1066,7 +1085,45 @@ fn alternatives(x: Fact, map: [Option(Lin)]) -> Vec(Option(Vec(Cond))) {
 
 // The fact holds on this path, resting on `tag`. An alternative the map
 // cannot state could be the one that holds, so then nothing is assumed.
-fn assume_fact(inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
+// The map with each quotient the fact names defined: a new variable `q`
+// with `a - k * q` between 0 and `k - 1` when `a >= 0`, and between
+// `1 - k` and 0 when `a <= 0`, as `/` rounds. One whose dividend the map
+// cannot state stays unknown.
+fn define(inout g: Gen, inout p: Path, x: Fact, map: [Option(Lin)]) -> Vec(Option(Lin)) {
+    var m = Vec(Option(Lin)).with_capacity(map.len)
+    for y in map { m.push(copy(y)) }
+    for d in x.defs {
+        while m.len() <= d.0 { m.push(None) }
+        let Some(a) = substitute(d.1, m.as_slice()) else { continue }
+        if a.magnitude() > linear.MAX_VALUE { continue }
+        let k = d.2
+        let q = g.fresh(Kind.Int(0 - (1 << 64), 1 << 64), why_code("div"))
+        let r = a.minus(q.scale(k))
+        var up = Vec(Cond).new()
+        up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: a.clone() })
+        up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: r.clone() })
+        up.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(k - 1) })
+        var down = Vec(Cond).new()
+        down.push(Cond { op: Cmp.Le, a: a.clone(), b: Lin.num(0) })
+        down.push(Cond { op: Cmp.Le, a: Lin.num(1 - k), b: r.clone() })
+        down.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(0) })
+        var dnf = Vec(Vec(Cond)).new()
+        dnf.push(up)
+        dnf.push(down)
+        assume_dnf(&p, dnf.as_slice(), Tag.Path)
+        m[d.0] = Some(q)
+    }
+    m
+}
+
+fn assume_fact(inout g: Gen, inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
+    if x.defs.len() > 0 {
+        let m = define(&g, &p, x, map)
+        assume_defined(&p, x, m.as_slice(), tag)
+    } else { assume_defined(&p, x, map, tag) }
+}
+
+fn assume_defined(inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
     var d = Vec(Vec(Cond)).new()
     for alt in alternatives(x, map).into_iter() {
         let Some(conj) = alt else { return }
@@ -1204,7 +1261,7 @@ pub fn unassigned(f: Function) -> Vec(bool) {
 
 // A path starting at `block`: every variable is its own, inside its range,
 // and `facts` hold, resting on `tag`.
-fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Path {
+fn start(inout g: Gen, f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Path {
     var p = Path {
         block,
         state: Vec(Sym).with_capacity(f.kinds.len()),
@@ -1250,7 +1307,7 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
             for v in x.names() {
                 if v >= entry_map.len() || entry_map[v].is_none() { all = false }
             }
-            if all { assume_fact(&p, x, entry_map.as_slice(), Tag.Requires) }
+            if all { assume_fact(&g, &p, x, entry_map.as_slice(), Tag.Requires) }
         }
     }
     // The invariants of what the parameters hold, on entry, and at a cut
@@ -1262,9 +1319,9 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
                 if v >= fixed.len || !fixed[v] { all = false }
             }
         }
-        if all { assume_fact(&p, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
+        if all { assume_fact(&g, &p, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
     }
-    for x in facts { assume_fact(&p, x, map.as_slice(), tag) }
+    for x in facts { assume_fact(&g, &p, x, map.as_slice(), tag) }
     p
 }
 
@@ -1858,7 +1915,7 @@ fn call(
             }
             None => {}
         }
-        for x in c.ensures { assume_fact(&q, x, post.as_slice(), Tag.Ensures(site.callee)) }
+        for x in c.ensures { assume_fact(&g, &q, x, post.as_slice(), Tag.Ensures(site.callee)) }
     }
     for y in lent { q.state[y.0] = Sym.Num(y.1.clone()) }
     if dst >= 0 {
@@ -1869,7 +1926,7 @@ fn call(
     }
     if site.after.len() > 0 {
         let map = state_map(q)
-        for h in site.after { assume_fact(&q, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
+        for h in site.after { assume_fact(&g, &q, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
     }
     q
 }
@@ -2125,7 +2182,7 @@ fn walk(
                     g.source = Source.Proof(k)
                     let map = state_map(p)
                     g.require_fact(p, "prove", x, map.as_slice())
-                    assume_fact(&p, x, map.as_slice(), Tag.Path)
+                    assume_fact(&g, &p, x, map.as_slice(), Tag.Path)
                     g.at = nowhere()
                 }
             }
@@ -2235,16 +2292,12 @@ pub fn generate(
     }
     let fixed = unassigned(f)
     if f.blocks.len() > 0 {
-        walk(&g, f, contracts, lifts, start(f, fixed.as_slice(), 0, f.requires(), Tag.Requires))
+        let first = start(&g, f, fixed.as_slice(), 0, f.requires(), Tag.Requires)
+        walk(&g, f, contracts, lifts, first)
         for k, inv in f.invariants {
             if g.errors.len() == 0 {
-                walk(
-                    &g,
-                    f,
-                    contracts,
-                    lifts,
-                    start(f, fixed.as_slice(), inv.0, inv.1.as_slice(), Tag.Cut(k))
-                )
+                let at = start(&g, f, fixed.as_slice(), inv.0, inv.1.as_slice(), Tag.Cut(k))
+                walk(&g, f, contracts, lifts, at)
             }
         }
     }

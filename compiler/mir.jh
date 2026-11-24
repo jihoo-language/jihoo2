@@ -330,6 +330,8 @@ pub enum SpecVar {
     Deref(u32)
     Len(u32)
     Field(u32, Vec(u32))
+    // `Contract.quots[i]`: a quotient, `a / k` rounded toward zero.
+    Quot(u32)
 }
 
 impl Clone for SpecVar {
@@ -339,6 +341,7 @@ impl Clone for SpecVar {
             Deref(l) => SpecVar.Deref(l)
             Len(l) => SpecVar.Len(l)
             Field(l, path) => SpecVar.Field(l, path.clone())
+            Quot(i) => SpecVar.Quot(i)
         }
     }
 }
@@ -416,6 +419,8 @@ pub struct Contract {
     // A `while` loop's head and its `decreases` measure, which every
     // iteration makes smaller and which is never negative there.
     pub decreases: Vec((u32, Spec, Span))
+    // The quotients clauses divide by: `a / k` for a constant `k > 0`.
+    pub quots: Vec((Spec, i128))
 }
 
 impl Contract {
@@ -425,7 +430,8 @@ impl Contract {
             ensures: Vec(Clause).new(),
             invariants: Vec((u32, Clause)).new(),
             proofs: Vec((u32, Clause)).new(),
-            decreases: Vec((u32, Spec, Span)).new()
+            decreases: Vec((u32, Spec, Span)).new(),
+            quots: Vec((Spec, i128)).new()
         }
     }
 }
@@ -436,6 +442,8 @@ impl Clone for Contract {
         for x in self.invariants { invariants.push((x.0, x.1.clone())) }
         var proofs = Vec((u32, Clause)).new()
         for x in self.proofs { proofs.push((x.0, x.1.clone())) }
+        var quots = Vec((Spec, i128)).new()
+        for x in self.quots { quots.push((x.0.clone(), x.1)) }
         var decreases = Vec((u32, Spec, Span)).new()
         for x in self.decreases { decreases.push((x.0, x.1.clone(), x.2)) }
         Contract {
@@ -443,7 +451,8 @@ impl Clone for Contract {
             ensures: self.ensures.clone(),
             invariants: invariants,
             proofs: proofs,
-            decreases: decreases
+            decreases: decreases,
+            quots: quots
         }
     }
 }

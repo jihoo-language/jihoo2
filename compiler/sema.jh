@@ -435,6 +435,8 @@ pub struct Sema {
     // The functions marked `#[panic_handler]`, and the instance of the one
     // a program may have.
     handler_decls: Vec(u32)
+    // The quotients of the clauses being lowered, for `Contract.quots`.
+    pub spec_quots: Vec((mir.Spec, i128))
     // Declarations marked `#[no_alloc]` (0) or `#[no_panic]` (1).
     effect_decls: Vec((u32, i64))
     pub panic_handler: Option(u32)
@@ -534,6 +536,7 @@ impl Sema {
                 panic: None
             }
             handler_decls: Vec(u32).new(),
+            spec_quots: Vec((mir.Spec, i128)).new(),
             effect_decls: Vec((u32, i64)).new()
             panic_handler: None
             profile: profile

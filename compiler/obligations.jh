@@ -43,6 +43,8 @@ struct Model {
     kinds: Vec(String)
     vkinds: Vec(vc.Kind)
     count: i64
+    // The variable of `Contract.quots[0]`, the others after it.
+    quot_base: i64
 }
 
 fn range(inout s: String, i: types.IntTy) {
@@ -1394,7 +1396,7 @@ fn model(t: Types, b: Body, wanted: [Place]) -> Model {
         escaped: escaped.clone(), fields: find_fields(t, b, lent.as_slice(), wanted),
         by_local: Vec(Vec(i64)).filled(b.locals.len(), Vec(i64).new()),
         entries: Vec((i64, i64)).new(), kinds: Vec(String).new(), vkinds: Vec(vc.Kind).new(),
-        count: b.locals.len()
+        count: b.locals.len(), quot_base: 0
     }
     for i, l in b.locals {
         let scalar = match t.kind(l.ty) {
@@ -1458,6 +1460,14 @@ fn model(t: Types, b: Body, wanted: [Place]) -> Model {
             m.kinds.push(k)
             m.vkinds.push(vk)
         }
+    }
+    // A clause's quotients: variables that each use of the clause defines
+    // anew (`vc.Fact.defs`).
+    m.quot_base = m.count
+    for _ in b.contract.quots {
+        m.count += 1
+        m.kinds.push("(int -18446744073709551616 18446744073709551616)".to_string())
+        m.vkinds.push(vc.Kind.Int(0 - (1 << 64), 1 << 64))
     }
     m
 }
@@ -1827,6 +1837,7 @@ fn spec_variable(t: Types, b: Body, m: Model, x: mir.SpecTerm) -> Option(i64) {
         Deref(l) => m.derefs[l as i64]
         Len(l) => m.lengths[l as i64]
         Field(l, path) => variable(m, spec_place(t, b, l, path.as_slice()))
+        Quot(i) => Some(m.quot_base + i as i64)
     }
     if !x.old { return v }
     let Some(v) = v else { return None }
@@ -2450,7 +2461,43 @@ fn model_spec(t: Types, b: Body, m: Model, x: mir.Spec) -> Option(linear.Lin) {
     Some(out)
 }
 
+// A clause as a fact, with the definitions of the quotients it names.
 fn model_clause(t: Types, b: Body, m: Model, c: mir.Clause) -> vc.Fact {
+    var x = model_clause_only(t, b, m, c)
+    var used = Vec(bool).filled(b.contract.quots.len(), false)
+    for alt in c.ors {
+        for y in alt {
+            quots_of(y.a, &used)
+            quots_of(y.b, &used)
+        }
+    }
+    // A quotient's dividend may name earlier quotients.
+    var i = used.len()
+    while i > 0 {
+        i -= 1
+        if used[i] { quots_of(b.contract.quots[i].0, &used) }
+    }
+    for k, u in used {
+        if !u { continue }
+        let q = b.contract.quots[k]
+        match model_spec(t, b, m, q.0) {
+            Some(a) => x.defs.push((m.quot_base + k, a, q.1))
+            None => return vc.unstated(vc.Cmp.Eq)
+        }
+    }
+    x
+}
+
+fn quots_of(s: mir.Spec, inout used: Vec(bool)) {
+    for term in s.terms {
+        match term.name {
+            Quot(i) => if (i as i64) < used.len() { used[i as i64] = true }
+            _ => {}
+        }
+    }
+}
+
+fn model_clause_only(t: Types, b: Body, m: Model, c: mir.Clause) -> vc.Fact {
     if c.ors.len() == 1 && c.ors[0].len() == 1 {
         let x = c.ors[0][0]
         let op = model_cmp(x.op).unwrap()
