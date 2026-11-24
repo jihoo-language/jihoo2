@@ -486,11 +486,14 @@ impl Parser {
         }
         var requires = Vec(Expr).new()
         var ensures = Vec(Expr).new()
+        var decreases = Vec(Expr).new()
         loop {
             if self.word("requires") {
                 requires.push(self.clause_expr()?)
             } else if self.word("ensures") {
                 ensures.push(self.clause_expr()?)
+            } else if decreases.len() == 0 && self.word("decreases") {
+                decreases.push(self.clause_expr()?)
             } else { break }
         }
         let body = if self.at(Tok.LBrace) { Some(self.block()?) } else { None }
@@ -498,7 +501,7 @@ impl Parser {
         if variadic && !is_extern {
             return Err(Diag.new(name_span, "only extern functions can have `...` parameters"))
         }
-        if body.is_none() && (requires.len() > 0 || ensures.len() > 0) {
+        if body.is_none() && (requires.len() > 0 || ensures.len() > 0 || decreases.len() > 0) {
             return Err(Diag.new(name_span, "a function without a body cannot have a contract"))
         }
         if is_extern && body.is_some() {
@@ -519,6 +522,7 @@ impl Parser {
             is_unsafe: is_unsafe
             requires: requires
             ensures: ensures
+            decreases: decreases
         })
     }
 

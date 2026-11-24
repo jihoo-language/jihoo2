@@ -54,7 +54,7 @@ attr     = "#[" name [ "(" name { "," name } ")" ] "]"
 import   = "import" name { "." name } [ "as" name ]
 fn       = [ "unsafe" ] [ "extern" | "export" ] "fn" name params
            [ "->" [ "ref" | "inout" ] type ] { clause } [ block ]
-clause   = ( "requires" | "ensures" ) cond
+clause   = ( "requires" | "ensures" | "decreases" ) cond
 params   = "(" [ param { "," param } [ "," ] ] ")"
 param    = "..."                                   (last; `extern fn` only)
          | [ "inout" | "sink" | "comptime" ] name [ ":" type { "+" type } ]

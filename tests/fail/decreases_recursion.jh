@@ -1,0 +1,16 @@
+// A call to itself whose arguments do not make the measure smaller.
+// Ackermann's function needs the pair (m, n) in order; one integer cannot
+// measure its inner call.
+// verify
+// error: unproved `decreases` at this call of ack to itself
+fn ack(m: i64, n: i64) -> i64
+    requires m >= 0 && n >= 0
+    ensures result >= 0
+    decreases m
+{
+    if m == 0 { return n + 1 }
+    if n == 0 { return ack(m - 1, 1) }
+    ack(m - 1, ack(m, n - 1))
+}
+
+fn main() { println(ack(1, 1)) }

@@ -276,8 +276,29 @@ fn gcd(a: i64, b: i64) -> i64
 `d` is a term as in clauses. An inner loop's `decreases` is proved like
 any other; an outer loop's is not yet when its iterations pass an inner
 loop's head, where the value `d` had when the iteration began is not
-known (put the inner loop in a function of its own). `decreases` on `for`
-loops, which end anyway, and on recursive calls is not there yet.
+known (put the inner loop in a function of its own). `for` loops end
+anyway.
+
+On a function, after `requires` and `ensures`, `decreases d` over the
+parameters says that its recursion ends: at every call to itself, `d` of
+the parameters on entry is not negative and `d` of the arguments is
+smaller.
+
+```jihoo
+fn bsearch(xs: [i64], key: i64, lo: i64, hi: i64) -> i64
+    requires 0 <= lo <= hi <= xs.len
+    decreases hi - lo
+{
+    if lo >= hi { return lo }
+    let mid = lo + (hi - lo) / 2
+    if xs[mid] < key { bsearch(xs, key, mid + 1, hi) } else { bsearch(xs, key, lo, mid) }
+}
+```
+
+Only direct calls count: recursion through another function, a closure
+or a pointer is not checked. One integer cannot measure every recursion
+(Ackermann's function needs a pair in order); a measure that is a tuple
+compared in order is not there yet.
 
 ## Functions that do not allocate or panic
 

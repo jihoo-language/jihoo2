@@ -136,6 +136,9 @@ pub struct FnDecl {
     // clauses, between the signature and the body.
     pub requires: Vec(Expr)
     pub ensures: Vec(Expr)
+    // `decreases d`: a recursive call passes arguments for which `d` is
+    // smaller (none or one).
+    pub decreases: Vec(Expr)
 }
 
 pub struct Field {
@@ -470,6 +473,7 @@ impl Clone for FnDecl {
             is_unsafe: self.is_unsafe
             requires: self.requires.clone()
             ensures: self.ensures.clone()
+            decreases: self.decreases.clone()
         }
     }
 }

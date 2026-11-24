@@ -2592,6 +2592,10 @@ pub fn model_of(p: Program, f: mir.Function, ifaces: [Interface]) -> Option(vc.F
             term: model_term(p, b, m, writes.as_slice(), bl.term, ifaces)
         })
     }
+    var measure = Vec((Option(linear.Lin), (i64, i64))).new()
+    for x in b.contract.measure {
+        measure.push((model_spec(t, b, m, x.0), (x.1.lo as i64, x.1.hi as i64)))
+    }
     var decreases = Vec((i64, Option(linear.Lin), (i64, i64))).new()
     for x in b.contract.decreases {
         decreases.push((x.0 as i64, model_spec(t, b, m, x.1), (x.2.lo as i64, x.2.hi as i64)))
@@ -2604,7 +2608,7 @@ pub fn model_of(p: Program, f: mir.Function, ifaces: [Interface]) -> Option(vc.F
         decreases,
         callee: vc.Callee {
             symbol: f.symbol.clone(), kinds, args: b.arg_count, lengths, derefs, fields,
-            entries: m.entries.clone(), requires, ensures
+            entries: m.entries.clone(), requires, ensures, measure
         },
         liftable: liftable(b),
         holds_in: inv.holds_in.clone(),

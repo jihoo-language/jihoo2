@@ -224,6 +224,7 @@ fn copy_source(s: vc.Source) -> vc.Source {
         TypeInvariant(t) => vc.Source.TypeInvariant(t)
         Proof(k) => vc.Source.Proof(k)
         Decreases(k) => vc.Source.Decreases(k)
+        Recursion(b) => vc.Source.Recursion(b)
     }
 }
 
@@ -444,7 +445,8 @@ pub fn verify(p: mir.Program) -> Report {
         let m = obligations.model_of(p, f, ifaces.as_slice())
         match &m {
             Some(x) => {
-                if x.callee.requires.len() > 0 || x.callee.ensures.len() > 0 {
+                if x.callee.requires.len() > 0 || x.callee.ensures.len() > 0 ||
+                    x.callee.measure.len() > 0 {
                     contracts.push(Some(x.callee.clone()))
                 } else { contracts.push(None) }
             }
@@ -736,6 +738,10 @@ pub fn verify(p: mir.Program) -> Report {
                 Decreases(k) => Some(
                     (b.contract.decreases[k].2, "unproved `decreases`".to_string())
                 )
+                Recursion(block) => Some((
+                    site_span(b, block, -1),
+                    "unproved `decreases` at this call of " + f.name.as_str() + " to itself"
+                ))
                 TypeInvariant(ty) => Some((
                     if r.at.0 >= 0 {
                         diag.Span.new(f.span.file, r.at.0, r.at.1)

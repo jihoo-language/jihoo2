@@ -313,10 +313,15 @@ pub struct Callee {
     pub entries: Vec((i64, i64))
     pub requires: Vec(Fact)
     pub ensures: Vec(Fact)
+    // The `decreases` measure over the parameters (None when the model
+    // cannot state it) and its span: none or one.
+    pub measure: Vec((Option(Lin), (i64, i64)))
 }
 
 impl Clone for Callee {
     fn clone(self) -> Callee {
+        var measure = Vec((Option(Lin), (i64, i64))).new()
+        for x in self.measure { measure.push((copy(x.0), x.1)) }
         Callee {
             symbol: self.symbol.clone(),
             kinds: self.kinds.clone(),
@@ -326,7 +331,8 @@ impl Clone for Callee {
             fields: self.fields.clone(),
             entries: self.entries.clone(),
             requires: self.requires.clone(),
-            ensures: self.ensures.clone()
+            ensures: self.ensures.clone(),
+            measure: measure
         }
     }
 }
@@ -381,6 +387,8 @@ pub enum Source {
     Proof(i64)
     // The `k`th `decreases` measure.
     Decreases(i64)
+    // The function's own `decreases`, at a call to itself in the block.
+    Recursion(i64)
 }
 
 // What a fact on a path rests on, besides the path itself: an assumption
@@ -600,6 +608,7 @@ fn copy_source(s: Source) -> Source {
         TypeInvariant(t) => Source.TypeInvariant(t)
         Proof(k) => Source.Proof(k)
         Decreases(k) => Source.Decreases(k)
+        Recursion(b) => Source.Recursion(b)
     }
 }
 
@@ -1821,6 +1830,19 @@ fn parameters(inout g: Gen, p: Path, c: Callee, site: CallSite) -> Vec(Option(Li
     pre
 }
 
+// A form over the parameters, of their values on entry, on this path:
+// each parameter through its entry variable, which on a path from the
+// entry is the parameter itself.
+fn at_entry(f: Function, p: Path, m: Lin) -> Option(Lin) {
+    var map = Vec(Option(Lin)).with_capacity(f.kinds.len())
+    for v in 0..f.kinds.len() { map.push(Some(Lin.of(v))) }
+    for e in f.callee.entries {
+        if e.0 < map.len() && e.1 < map.len() { map[e.0] = Some(Lin.of(e.1)) }
+    }
+    let Some(x) = substitute(m, map.as_slice()) else { return None }
+    substitute(x, state_map(p).as_slice())
+}
+
 // A call: the variables lent to it and its result get new values. When the
 // callee has a contract, its `requires` must hold here, with the arguments
 // for its parameters, and its `ensures` holds after, over the new values.
@@ -1843,6 +1865,30 @@ fn call(
         let what = "requires of " + c.symbol.as_str()
         g.source = Source.Requires(q.block, site.callee)
         for x in c.requires { g.require_fact(q, what.as_str(), x, pre.as_slice()) }
+        // A call to itself: the measure of the arguments is smaller than
+        // that of the parameters on entry, which is not negative.
+        if c.symbol == f.callee.symbol {
+            for mz in c.measure {
+                g.at = mz.1
+                g.source = Source.Recursion(q.block)
+                let entry = match &mz.0 {
+                    Some(m) => at_entry(f, q, m)
+                    None => None
+                }
+                let args = match &mz.0 {
+                    Some(m) => substitute(m, pre.as_slice())
+                    None => None
+                }
+                match (entry, args) {
+                    (Some(e), Some(a)) => {
+                        g.obligation(q, "decreases", e.clone())
+                        g.obligation(q, "decreases", e.minus(a).shift(-1))
+                    }
+                    _ => g.unknown(q, "decreases")
+                }
+                g.at = nowhere()
+            }
+        }
     }
     q.block = next
     q.steps += 1

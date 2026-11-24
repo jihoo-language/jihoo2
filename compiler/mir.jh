@@ -421,6 +421,8 @@ pub struct Contract {
     pub decreases: Vec((u32, Spec, Span))
     // The quotients clauses divide by: `a / k` for a constant `k > 0`.
     pub quots: Vec((Spec, i128))
+    // The function's `decreases` measure, over its parameters on entry.
+    pub measure: Vec((Spec, Span))
 }
 
 impl Contract {
@@ -431,7 +433,8 @@ impl Contract {
             invariants: Vec((u32, Clause)).new(),
             proofs: Vec((u32, Clause)).new(),
             decreases: Vec((u32, Spec, Span)).new(),
-            quots: Vec((Spec, i128)).new()
+            quots: Vec((Spec, i128)).new(),
+            measure: Vec((Spec, Span)).new()
         }
     }
 }
@@ -442,6 +445,8 @@ impl Clone for Contract {
         for x in self.invariants { invariants.push((x.0, x.1.clone())) }
         var proofs = Vec((u32, Clause)).new()
         for x in self.proofs { proofs.push((x.0, x.1.clone())) }
+        var measure = Vec((Spec, Span)).new()
+        for x in self.measure { measure.push((x.0.clone(), x.1)) }
         var quots = Vec((Spec, i128)).new()
         for x in self.quots { quots.push((x.0.clone(), x.1)) }
         var decreases = Vec((u32, Spec, Span)).new()
@@ -452,7 +457,8 @@ impl Clone for Contract {
             invariants: invariants,
             proofs: proofs,
             decreases: decreases,
-            quots: quots
+            quots: quots,
+            measure: measure
         }
     }
 }

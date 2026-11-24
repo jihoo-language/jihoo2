@@ -810,6 +810,10 @@ impl sema.Sema {
         for e in d.ensures { self.clauses(fb, e, ClauseAt.Ensures, None, &ensures)? }
         fb.body.contract.requires = requires
         fb.body.contract.ensures = ensures
+        for e in d.decreases {
+            let m = self.spec_in(fb, e, ClauseAt.Requires, None)?
+            fb.body.contract.measure.push((m, e.span))
+        }
         self.take_quots(&fb)
         Ok(())
     }

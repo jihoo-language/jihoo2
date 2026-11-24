@@ -506,9 +506,12 @@ Next, in order:
    `/` and `%` by a variable followed (the result has the sign of what is
    divided, and a remainder is smaller than the divisor), so Euclid's
    loop is proved to end. The compiler proves 1,262 of its bounds and
-   overflow checks. Left: an outer loop's `decreases` across an inner
-   loop's head, which needs the measure's value at the start of the
-   iteration as a variable, and `decreases` on recursive calls.
+   overflow checks. Done: `decreases` on functions, proved at each call
+   to itself against the parameters' values on entry. Left: an outer
+   loop's `decreases` across an inner loop's head, which needs the
+   measure's value at the start of the iteration as a variable, measures
+   compared in order (Ackermann's), and recursion through other
+   functions.
 2. Done: `/` and `%` by constants in clauses (`invariant i % 2 == 0`).
    A quotient is a variable of the function's model (`SpecVar.Quot`,
    `Contract.quots`) that each use of the clause defines anew with the

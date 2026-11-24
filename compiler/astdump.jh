@@ -230,6 +230,7 @@ impl Dump {
                 self.opt_ty(f.ret)
                 self.clauses("requires", f.requires)
                 self.clauses("ensures", f.ensures)
+                self.clauses("decreases", f.decreases)
                 match f.body {
                     Some(b) => {
                         self.s(" ")
