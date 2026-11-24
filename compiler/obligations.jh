@@ -2231,14 +2231,16 @@ fn model_rvalue(p: Program, b: Body, m: Model, rv: mir.Rvalue) -> vc.Rvalue {
                         a,
                         c
                     ) }
-                    None => opaque_rv(match op {
-                        Div => "div"
-                        Rem => "rem"
-                        MulWrap => "wrap"
-                        Shl | Shr => "shift"
-                        LogOr => "bool"
-                        _ => "bits"
-                    })
+                    None => match op {
+                        Div => vc.Rvalue.Div(a, c)
+                        Rem => vc.Rvalue.Rem(a, c)
+                        _ => opaque_rv(match op {
+                            MulWrap => "wrap"
+                            Shl | Shr => "shift"
+                            LogOr => "bool"
+                            _ => "bits"
+                        })
+                    }
                 }
             }
         }

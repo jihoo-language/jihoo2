@@ -536,7 +536,9 @@ pointer or borrow), `field`, `variant`, `element`, `aggregate` (a local that
 is not an integer), `escaped` (a local whose address is taken, `&x` for an
 `inout` parameter or `&raw`, since it may change through that pointer,
 except a borrow only passed to one call, as `bump(&x)` passes it),
-`wrap` (`*%`, and `*` with `--release`), `div`, `rem`,
+`wrap` (`*%`, and `*` with `--release`), `div`, `rem` (which
+`jihoo verify` follows for a positive constant divisor, as a quotient and
+a remainder; this format does not yet),
 `shift`, `bits`, `neg`, `bool`, `pointer`, `tag`, `constant` and `length`. A `switch`
 the model does not follow is `(any blocks...)`. Each check ends with
 `(at lo hi)`, the byte range where compile-time evaluation reports it

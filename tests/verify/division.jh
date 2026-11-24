@@ -1,0 +1,69 @@
+// `a / k` and `a % k` by a positive constant are a quotient `q` and the
+// remainder `a - k * q`, between 0 and `k - 1` when `a >= 0` and between
+// `1 - k` and 0 when `a <= 0`. So the midpoint of a binary search is in
+// bounds, as are both middle elements of a slice.
+
+fn search(xs: [i64], key: i64) -> i64 {
+    var lo = 0
+    var hi = xs.len
+    while lo < hi
+        invariant 0 <= lo && lo <= hi && hi <= xs.len
+    {
+        let mid = lo + (hi - lo) / 2
+        if xs[mid] < key { lo = mid + 1 } else { hi = mid }
+    }
+    if lo < xs.len && xs[lo] == key { lo } else { -1 }
+}
+
+fn middle(xs: [i64]) -> i64
+    requires xs.len > 0
+{
+    xs[(xs.len - 1) / 2] +% xs[xs.len / 2]
+}
+
+// A remainder by 10 of a value that is not negative is a digit.
+fn digit(n: i64) -> u8
+    requires 0 <= n
+{
+    (n % 10 + 48) as u8
+}
+
+// Only over the integers: `x` is even, so `x - 2 * (x / 2)` is 0, not
+// anything up to 1. Elimination over the rationals cannot see it; a cut
+// (`2a >= 1` gives `a >= 1`) does.
+fn even_part(x: i64) -> i64
+    requires x >= 0
+{
+    if x % 2 == 1 { return 0 }
+    let h = x / 2
+    let one = [7]
+    one[x - 2 * h]
+}
+
+// A divisor that is not a constant is not followed.
+fn ratio(a: i64, b: i64) -> i64
+    requires a >= 0 && b > 0
+{
+    let t = [1, 2]
+    t[a / b]
+}
+
+fn main() {
+    let v = [1, 3, 5, 7]
+    println(search(v, 5) +% middle(v) +% even_part(6) +% ratio(3, 2))
+    println(digit(7))
+}
+
+//> 12:24: proved integer overflow in search
+//> 12:19: proved integer overflow in search
+//> 13:12: proved index out of bounds in search
+//> 13:33: proved integer overflow in search
+//> 15:23: proved index out of bounds in search
+//> 21:8: proved integer overflow in middle
+//> 21:5: proved index out of bounds in middle
+//> 21:29: proved index out of bounds in middle
+//> 28:5: proved integer overflow in digit
+//> 40:13: proved integer overflow in even_part
+//> 40:9: proved integer overflow in even_part
+//> 40:5: proved index out of bounds in even_part
+//> 48:5: kept index out of bounds in ratio (div)

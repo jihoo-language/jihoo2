@@ -447,6 +447,15 @@ and moves into the compiler once its trust boundary is stated.
    `linear.jh` is kept. The compiler proves 1,145 of its bounds and
    overflow checks, and its contracts and `std`'s hold in both overflow
    modes.
+   Done: integers and division
+   ([design](verification.md#open-questions)). Certificates may list
+   Chvátal–Gomory cuts, which the checker checks (still with no check
+   kept in it), so parity and rounding goals are no longer lost, and `/`
+   and `%` by a positive constant are a quotient and a remainder instead
+   of opaque values, which proves a binary search's midpoint in bounds
+   (`tests/verify/division.jh`, the approach of the sibling Shalem's
+   prover). The compiler proves 1,239 of its bounds and overflow checks
+   (1,228 without them).
 7. The releases. A 0.4.x release that parses contracts lets `lib/std`
    state its contracts (step 5) before 0.5.0, since the seed compiles
    `lib/std`; contracts' syntax is fixed from then on. 0.5.0 comes when

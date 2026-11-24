@@ -83,6 +83,10 @@ pub enum Rvalue {
     // `+% -%`, and `+ -` without overflow checks: modulo the type's size.
     AddWrap(Operand, Operand)
     SubWrap(Operand, Operand)
+    // `/` and `%`, which round toward zero; followed when the divisor is a
+    // positive constant.
+    Div(Operand, Operand)
+    Rem(Operand, Operand)
     Compare(Cmp, Operand, Operand)
     // `!b` and `a && b` on bools.
     Not(Operand)
@@ -411,8 +415,8 @@ pub fn settle(goals: [linear.Goal], tags: [Vec(Tag)]) -> (bool, Vec(Tag)) {
     for i, goal in goals {
         let Ok(c) = fm.prove(goal) else { return (false, used) }
         if linear.check(goal, c).is_err() { return (false, used) }
-        for k, w in c.weights {
-            if w > 0 && i < tags.len && k < tags[i].len() {
+        for k, w in fm.uses(c, goal.facts.len() + 1) {
+            if w && i < tags.len && k < tags[i].len() {
                 match tags[i][k] {
                     Path => {}
                     t => used.push(t)
@@ -1432,6 +1436,8 @@ fn assign(inout g: Gen, f: Function, inout p: Path, dst: i64, rv: Rvalue) {
         }
         AddWrap(a, b) => wrapping(&g, f, &p, dst, a, b, 1)
         SubWrap(a, b) => wrapping(&g, f, &p, dst, a, b, -1)
+        Div(a, b) => dividing(&g, f, &p, dst, a, b, false)
+        Rem(a, b) => dividing(&g, f, &p, dst, a, b, true)
         Compare(op, a, b) => compare(g, p, op, a, b)
         Not(a) => match bools(p, a) {
             Some(x) => Sym.Bool(x.1.clone(), x.0.clone())
@@ -1456,6 +1462,8 @@ fn assign(inout g: Gen, f: Function, inout p: Path, dst: i64, rv: Rvalue) {
         Opaque(w) => w
         Cast(_) => WHY_CAST
         AddWrap(_, _) | SubWrap(_, _) => why_code("wrap")
+        Div(_, _) => why_code("div")
+        Rem(_, _) => why_code("rem")
         _ => WHY_UNSTATED
     }
     havoc_or(&g, f, &p, dst, value, why)
@@ -1507,6 +1515,55 @@ fn wrapping(
     if up <= 0 { d.push(below) }
     assume_dnf(&p, d.as_slice(), Tag.Path)
     Sym.Num(r)
+}
+
+// `a / k` or `a % k` for a constant `k > 0`: a new quotient `q`, whose
+// remainder `r = a - k * q` is between 0 and `k - 1` when `a >= 0`, and
+// between `1 - k` and 0 when `a <= 0` (division rounds toward zero). The
+// value is `q`, or `r` for `%`. Unknown for other divisors.
+fn dividing(
+    inout g: Gen,
+    f: Function,
+    inout p: Path,
+    dst: i64,
+    a: Operand,
+    b: Operand,
+    rem: bool
+) -> Sym {
+    let Int(_, _) = f.kinds[dst] else { return Sym.Unknown }
+    let Some(y) = operand(p, b) else { return Sym.Unknown }
+    if !y.is_constant() || y.constant < 1 || y.constant > 1 << 32 { return Sym.Unknown }
+    let k = y.constant
+    let Some(x) = term(&g, f, p, a, dst) else { return Sym.Unknown }
+    if x.magnitude() > linear.MAX_VALUE { return Sym.Unknown }
+    let q = g.fresh(f.kinds[dst], why_code("div"))
+    let r = x.minus(q.scale(k))
+    var up = Vec(Cond).new()
+    up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: x.clone() })
+    up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: r.clone() })
+    up.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(k - 1) })
+    var down = Vec(Cond).new()
+    down.push(Cond { op: Cmp.Le, a: x.clone(), b: Lin.num(0) })
+    down.push(Cond { op: Cmp.Le, a: Lin.num(1 - k), b: r.clone() })
+    down.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(0) })
+    var d = Vec(Vec(Cond)).new()
+    d.push(up)
+    // A value that cannot be negative (an unsigned one, a length) has
+    // only the first case.
+    let nonneg = match a {
+        Local(l) => match f.kinds[l] {
+            Int(lo, _) => lo >= 0
+            Other => false
+        }
+        Const(c) => c >= 0
+        Opaque(_) => match f.kinds[dst] {
+            Int(lo, _) => lo >= 0
+            Other => false
+        }
+    }
+    if !nonneg { d.push(down) }
+    assume_dnf(&p, d.as_slice(), Tag.Path)
+    if rem { Sym.Num(r) } else { Sym.Num(q) }
 }
 
 // Gives the local the value, or a fresh variable in its range when the
