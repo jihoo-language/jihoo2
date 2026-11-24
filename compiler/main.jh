@@ -21,6 +21,7 @@ import interp
 import body
 import builtins
 import check
+import effects
 import elab
 import fmt
 import format
@@ -328,11 +329,27 @@ fn drive() {
             report_times(timer, time_passes)
             source_error(sources, diag.Diag.several(errors), json_errors)
         }
+        if auditing { verify.audit(&prog, report) } else { verify.erase(&prog, report) }
+        // `#[no_alloc]` and `#[no_panic]`, on what code generation will see:
+        // without the checks verification proved.
+        let effect_errors = effects.check(prog, true)
+        if effect_errors.len() > 0 {
+            report_times(timer, time_passes)
+            source_error(sources, diag.Diag.several(effect_errors), json_errors)
+        }
         if cmd == "check" {
             report_times(timer, time_passes)
             return
         }
-        if auditing { verify.audit(&prog, report) } else { verify.erase(&prog, report) }
+    } else if cmd == "build" || cmd == "run" || cmd == "test" || cmd == "emit-llvm" ||
+        cmd == "emit-obj" {
+        // With `--no-verify` every check stays on purpose, so only
+        // `#[no_alloc]` can hold.
+        let effect_errors = effects.check(prog, false)
+        if effect_errors.len() > 0 {
+            report_times(timer, time_passes)
+            source_error(sources, diag.Diag.several(effect_errors), json_errors)
+        }
     }
     if cmd == "emit-mir" {
         var text = String.new()

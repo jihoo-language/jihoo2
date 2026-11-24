@@ -1,0 +1,11 @@
+// `#[no_panic]` holds when every check left after verification is gone:
+// `xs[0]` keeps its bounds check without a `requires`.
+// verify
+// error: `first` is `#[no_panic]`, but it may stop the program
+// error: `first` has a check (index out of bounds)
+#[no_panic]
+fn first(xs: [i64]) -> i64 {
+    xs[0]
+}
+
+fn main() { println(first([4])) }

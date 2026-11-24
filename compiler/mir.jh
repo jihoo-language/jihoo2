@@ -489,6 +489,9 @@ pub struct Program {
     // proved (block, statement), kept and reported as a verifier bug if
     // they fail. Empty otherwise.
     pub audited: Vec(Vec((i64, i64)))
+    // The instances of functions marked `#[no_alloc]` (0) or
+    // `#[no_panic]` (1), which `effects.check` checks.
+    pub effects: Vec((u32, i64))
 }
 
 // ---- printing ----

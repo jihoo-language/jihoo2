@@ -236,3 +236,56 @@ it. A panic that the function rules out itself, as after
 `if x == x + 1 { panic(...) }`, is removed from it.
 
 See [Grammar](../reference/grammar.md#files) for where clauses go.
+
+## Functions that do not allocate or panic
+
+`#[no_alloc]` says that a function, and everything it calls, does not
+allocate; `#[no_panic]` that it cannot stop the program: no check is left
+in it or its callees, and nothing it calls panics, traps or never
+returns. Both are checked on the program as code generation sees it,
+after verification removed what it proved, so a function whose bounds and
+overflow checks are all proved is `#[no_panic]` with nothing else written:
+
+```jihoo
+#[no_panic]
+#[no_alloc]
+fn sum(xs: [i64]) -> i64 {
+    var s = 0
+    for i in 0..xs.len { s +%= xs[i] }
+    s
+}
+
+#[no_panic]
+fn first(xs: [i64]) -> i64
+    requires xs.len > 0      // without it, `xs[0]` keeps its check
+{
+    xs[0]
+}
+```
+
+A function that breaks its attribute is a compile error that follows the
+calls to the reason:
+
+```text
+error: app.jh:14:4: `wrapped` is `#[no_alloc]`, but it may allocate
+note: app.jh:15:5: `wrapped` calls `helper`
+note: app.jh:9:5: `helper` calls `Vec(i64).push`
+...
+note: lib/std/sys.jh:25:15: `alloc_bytes` allocates
+```
+
+What counts:
+
+- Allocating is calling the standard library's allocator (`sys.alloc_bytes`
+  and `realloc_bytes`, in every profile) or C's `malloc`, `calloc`,
+  `realloc`, `aligned_alloc` and `posix_memalign`. Other C functions are
+  taken to do neither, unless their type says they never return.
+- A drop runs the `Drop` impls of the value's type and of its parts, so
+  those count; a `dyn` value's destructor is not known.
+- A call through a `fnptr`, a `fn` value or a `dyn fn` may do anything. A
+  `comptime` closure parameter is inlined, and so is checked as written.
+- In a `--release` build `+ - *` wrap and have no checks; division by a
+  value that is not a nonzero constant may still trap.
+- `check --verify` and every command that generates code check them.
+  With `--no-verify`, which keeps every check on purpose, only
+  `#[no_alloc]` is checked.

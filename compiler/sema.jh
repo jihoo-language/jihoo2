@@ -435,6 +435,8 @@ pub struct Sema {
     // The functions marked `#[panic_handler]`, and the instance of the one
     // a program may have.
     handler_decls: Vec(u32)
+    // Declarations marked `#[no_alloc]` (0) or `#[no_panic]` (1).
+    effect_decls: Vec((u32, i64))
     pub panic_handler: Option(u32)
     pub profile: target.Profile
     pub target: target.Target
@@ -531,7 +533,8 @@ impl Sema {
                 dyn_drop: None,
                 panic: None
             }
-            handler_decls: Vec(u32).new()
+            handler_decls: Vec(u32).new(),
+            effect_decls: Vec((u32, i64)).new()
             panic_handler: None
             profile: profile
             target: tgt
@@ -856,6 +859,7 @@ impl Sema {
                 if handler {
                     self.handler_decls.push(id)
                 }
+                for k in effect_attrs(item) { self.effect_decls.push((id, k)) }
                 self.fns.push(FnDeclInfo {
                     module: module,
                     decl: &f,
@@ -949,6 +953,7 @@ impl Sema {
                             })
                             test_attr(sub, false)?
                             panic_handler_attr(sub, false)?
+                            for k in effect_attrs(sub) { self.effect_decls.push((fid, k)) }
                             fns.insert(f.name.clone(), fid);
                         }
                         TypeAlias(_, _) => {}
@@ -985,6 +990,7 @@ impl Sema {
                             })
                             test_attr(sub, false)?
                             panic_handler_attr(sub, false)?
+                            for k in effect_attrs(sub) { self.effect_decls.push((fid, k)) }
                             if fns.contains(f.name) {
                                 return Err(ty_err(f.name_span, ("`" + f.name.as_str() +
                                     "` is defined twice in this impl").as_str()))
@@ -3571,6 +3577,16 @@ fn panic_handler_attr(item: ast.Item, free: bool) -> Result(bool, Diag) {
     Ok(false)
 }
 
+// `#[no_alloc]` (0) and `#[no_panic]` (1) on a function.
+fn effect_attrs(item: ast.Item) -> Vec(i64) {
+    var out = Vec(i64).new()
+    for a in item.attrs {
+        if a.name == "no_alloc" { out.push(0) }
+        if a.name == "no_panic" { out.push(1) }
+    }
+    out
+}
+
 fn has_attr(item: ast.Item, name: str) -> bool {
     for a in item.attrs {
         if a.name == name {
@@ -3835,6 +3851,18 @@ fn compile_inner(
             })
         }
     }
+    // The instances of the functions marked `#[no_alloc]` or `#[no_panic]`.
+    var effects = Vec((u32, i64)).new()
+    for i, info in s.inst_info {
+        match info {
+            Some(x) => {
+                for e in s.effect_decls {
+                    if e.0 == x.decl { effects.push((i as u32, e.1)) }
+                }
+            }
+            None => {}
+        }
+    }
     Ok(mir.Program {
         fns: mem.replace(&s.out, Vec(mir.Function).new())
         types: mem.replace(&s.types, Types.new())
@@ -3848,6 +3876,7 @@ fn compile_inner(
         target: tgt
         codegen: codegen
         audited: Vec(Vec((i64, i64))).new()
+        effects: effects
     })
 }
 
