@@ -480,6 +480,38 @@ entry or is not preserved, an off-by-one loop). The generator's
 interpreter tests run in CI on both targets, and the trusted parts and their
 sizes are listed in the design.
 
+### 7. Ideas from the sibling languages
+
+The sibling repositories (Shalem, Ruach, Tekel, Aporia, Tohu, ASL) solve
+some of jihoo's problems from other directions. Done, each with its tests:
+
+- From Shalem: integer cuts in certificates and constant division in the
+  model ([design](verification.md#open-questions)); what is known of a
+  kept check's value; chained comparisons in clauses; `std.modint`.
+- From Ruach: `Box.map`, reuse of an allocation that ownership already
+  says nothing else refers to, as a library function rather than a
+  compiler pass. Ruach's and Shalem's C benchmarks, compared with clang
+  and GCC ([versus C](../../benchmarks/versus-c/README.md)).
+- From Tekel and Aporia, which audit every run against what was claimed
+  of it: `--audit-proved`.
+- `#[no_alloc]` and `#[no_panic]`
+  ([contracts](../language/contracts.md#functions-that-do-not-allocate-or-panic)),
+  a first step toward Tekel's costs in types: a fact about everything a
+  function calls, checked over the call graph after verification.
+
+Next, in order:
+
+1. `decreases` on loops and recursive calls, and `prove p` statements
+   (facts proved where they stand, at no cost, as lemmas for later
+   checks), as Shalem has. Both need an obligation that is not a check or
+   a cut point in MIR, and old values at a loop's head.
+2. `/` and `%` by constants in clauses (`invariant i % 2 == 0`), which
+   needs a quotient variable in `mir.Spec`; the cuts then prove
+   loops that step by two.
+3. Compile-time cost bounds: Tekel's amortized analysis over the MIR
+   interpreter's steps, so that `comptime` work states its budget and a
+   bound is known before evaluation starts.
+
 ## 0.1: the rewrite
 
 Done ([design](redesign.md)):
