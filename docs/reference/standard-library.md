@@ -219,6 +219,7 @@ nodes.
 | module | |
 |--------|---|
 | `std.iter` | lazy iterator adapters, consumers, slice iteration and `range` |
+| `std.modint` | `Mod(N)`, the integers modulo `N` (`+ - *`, `pow`, `inv`), and `div_euclid`/`rem_euclid`, which round down where `/` and `%` round toward zero |
 | `std.io` | printing and `BufRead`, `StrReader`, `BufReader` for buffered UTF-8 lines |
 | `std.fmt` | `format`, `write`, `print`, `println`, `eprintln` with patterns, and the `Format` trait ([formatting](#formatting)) |
 | `std.float` | exact decimal digits of floats: shortest, fixed and exponent forms |
