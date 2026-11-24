@@ -67,7 +67,7 @@ fn main() {
     println(twice(l))
 }
 
-//> 63:13: kept integer overflow in main (call)
+//> 63:13: kept integer overflow in main (call), known -2^64..=2^64 - 2
 //> 19:32: proved integer overflow in Gauge.up
 //> 24:25: proved integer overflow in Gauge.down
 //> 27:28: proved integer overflow in Gauge.room

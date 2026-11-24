@@ -1,0 +1,78 @@
+// `decreases d` on a function: every call to itself passes arguments for
+// which `d` is smaller, and `d` is not negative on entry, so the recursion
+// ends. Calls through other functions are not followed. A tuple is
+// compared in order: Ackermann's function ends because each call makes
+// `m` smaller, or keeps it and makes `n` smaller.
+
+fn fact(n: i64) -> i64
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { 1 } else { n *% fact(n - 1) }
+}
+
+fn gcd(a: i64, b: i64) -> i64
+    requires a >= 0 && b >= 0
+    decreases b
+{
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+fn bsearch(xs: [i64], key: i64, lo: i64, hi: i64) -> i64
+    requires 0 <= lo <= hi <= xs.len
+    decreases hi - lo
+{
+    if lo >= hi { return lo }
+    let mid = lo + (hi - lo) / 2
+    if xs[mid] < key { bsearch(xs, key, mid + 1, hi) } else { bsearch(xs, key, lo, mid) }
+}
+
+fn ack(m: i64, n: i64) -> i64
+    requires m >= 0 && n >= 0
+    ensures result >= 0
+    decreases (m, n)
+{
+    if m == 0 { return n + 1 }
+    if n == 0 { return ack(m - 1, 1) }
+    ack(m - 1, ack(m, n - 1))
+}
+
+// A loop's measure can be a tuple too.
+fn walk(n: i64) -> i64
+    requires n >= 0
+{
+    var i = n
+    var j = 3
+    var steps = 0
+    while i > 0
+        invariant i >= 0 && j >= 0
+        decreases (i, j)
+    {
+        if j > 0 { j -= 1 } else {
+            i -= 1
+            j = 3
+        }
+        steps +%= 1
+    }
+    steps
+}
+
+fn main() {
+    println(fact(5))
+    println(gcd(12, 18))
+    println(bsearch([1, 3, 5, 7], 5, 0, 4))
+    println(ack(2, 3))
+    println(walk(2))
+}
+
+//> 11:38: proved integer overflow in fact
+//> 26:20: proved integer overflow in bsearch
+//> 26:15: proved integer overflow in bsearch
+//> 27:8: proved index out of bounds in bsearch
+//> 27:41: proved integer overflow in bsearch
+//> 35:24: kept integer overflow in ack (argument), known 1..=2^63
+//> 36:28: proved integer overflow in ack
+//> 37:9: proved integer overflow in ack
+//> 37:23: proved integer overflow in ack
+//> 51:20: proved integer overflow in walk
+//> 52:13: proved integer overflow in walk

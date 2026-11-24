@@ -73,7 +73,7 @@ From loosest to tightest:
 |-----------|---|
 | `\|\|` | or, short-circuit |
 | `&&` | and, short-circuit |
-| `== != < <= > >=` | comparisons (they do not chain) |
+| `== != < <= > >=` | comparisons (they do not chain, except `< <= > >=` in contracts) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |

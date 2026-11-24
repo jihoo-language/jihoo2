@@ -182,33 +182,127 @@ fn nearest(facts: [Lin], level: [i64], cap: i64) -> Vec(bool) {
 }
 
 // The variable whose elimination makes the fewest new rows, or -1 when no
-// row has a variable left.
+// row has a variable left. A variable whose coefficients are all 1 or -1
+// comes first: eliminating it loses no integer points (the Omega test's
+// exact elimination), while eliminating `k` from `x = 2k` forgets that
+// `x` is even, which a cut needs later.
 fn pick(rows: [Row], n: i64) -> i64 {
     var pos = Vec(i64).filled(n, 0)
     var neg = Vec(i64).filled(n, 0)
+    var exact = Vec(bool).filled(n, true)
     for r in rows {
         for t in r.lin.terms {
             if t.1 > 0 { pos[t.0] += 1 } else { neg[t.0] += 1 }
+            if t.1 != 1 && t.1 != -1 { exact[t.0] = false }
         }
     }
     var best = -1
     var best_cost = 0
+    var best_exact = false
     for v in 0..n {
         if pos[v] + neg[v] > 0 {
             let cost = pos[v] * neg[v] - pos[v] - neg[v]
-            if best < 0 || cost < best_cost {
+            let better = if exact[v] != best_exact { exact[v] } else { cost < best_cost }
+            if best < 0 || better {
                 best = v
                 best_cost = cost
+                best_exact = exact[v]
             }
         }
     }
     best
 }
 
-fn certificate(r: Row, m: i64) -> linear.Certificate {
-    var weights = Vec(i128).filled(m, 0)
-    for w in r.weights { weights[w.0] = w.1 }
-    linear.Certificate { weights }
+// A cut on its way to a certificate: the weights of the rows it sums, by
+// their numbers in the prover (the cuts after the `m` facts and claim).
+struct Pending {
+    weights: Vec((i64, i128))
+    divisor: i128
+}
+
+// The integers between rationals: when a row's coefficients share a
+// factor its constant does not, the row divided by it may round its
+// constant down (a cut), which elimination over the rationals cannot.
+// The row becomes the cut itself.
+fn tighten(sink r: Row, inout cuts: Vec(Pending), m: i64) -> Row {
+    if r.lin.terms.len() == 0 || cuts.len() >= linear.MAX_CUTS { return r }
+    var g: i128 = 0
+    for t in r.lin.terms { g = gcd(g, t.1) }
+    if g <= 1 || r.lin.constant % g == 0 { return r }
+    var terms = Vec((i64, i128)).with_capacity(r.lin.terms.len())
+    for t in r.lin.terms { terms.push((t.0, t.1 / g)) }
+    var c = r.lin.constant / g
+    if r.lin.constant % g < 0 { c -= 1 }
+    var weights = Vec((i64, i128)).new()
+    weights.push((m + cuts.len(), 1))
+    cuts.push(Pending { weights: r.weights.clone(), divisor: g })
+    Row { lin: Lin { terms, constant: c }, weights }
+}
+
+// The certificate of the contradiction `r`, with the cuts it rests on
+// (directly or through other cuts) and no others.
+fn certificate(r: Row, m: i64, cuts: [Pending]) -> linear.Certificate {
+    var need = Vec(bool).filled(cuts.len, false)
+    for w in r.weights {
+        if w.0 >= m { need[w.0 - m] = true }
+    }
+    var j = cuts.len
+    while j > 0 {
+        j -= 1
+        if need[j] {
+            for w in cuts[j].weights {
+                if w.0 >= m { need[w.0 - m] = true }
+            }
+        }
+    }
+    var index = Vec(i64).filled(cuts.len, -1)
+    var kept = 0
+    for k in 0..cuts.len {
+        if need[k] {
+            index[k] = m + kept
+            kept += 1
+        }
+    }
+    var out = Vec(linear.Cut).new()
+    for k in 0..cuts.len {
+        if need[k] {
+            let ws = dense(cuts[k].weights.as_slice(), m + out.len(), m, index.as_slice())
+            out.push(linear.Cut { weights: ws, divisor: cuts[k].divisor })
+        }
+    }
+    let weights = dense(r.weights.as_slice(), m + kept, m, index.as_slice())
+    linear.Certificate { weights, cuts: out }
+}
+
+// Sparse weights by the prover's row numbers as `len` dense ones by the
+// certificate's.
+fn dense(ws: [(i64, i128)], len: i64, m: i64, index: [i64]) -> Vec(i128) {
+    var out = Vec(i128).filled(len, 0)
+    for w in ws {
+        let k = if w.0 < m { w.0 } else { index[w.0 - m] }
+        out[k] = w.1
+    }
+    out
+}
+
+// Which facts (and the negated claim) a certificate rests on, through its
+// cuts too.
+pub fn uses(c: linear.Certificate, m: i64) -> Vec(bool) {
+    var need = Vec(bool).filled(c.weights.len(), false)
+    for k, w in c.weights {
+        if w > 0 { need[k] = true }
+    }
+    var j = c.cuts.len()
+    while j > 0 {
+        j -= 1
+        if need[m + j] {
+            for k, w in c.cuts[j].weights {
+                if w > 0 { need[k] = true }
+            }
+        }
+    }
+    need.truncate(m)
+    need
 }
 
 // Most claims follow from a few facts near them, and elimination over all
@@ -269,17 +363,22 @@ fn prove_with(
         }
     }
     var rows = Vec(Row).new()
+    var cuts = Vec(Pending).new()
     for i in 0..m {
         if (i == g.facts.len() && !latest) || (i < g.facts.len() && used[i]) {
             var weights = Vec((i64, i128)).new()
             weights.push((i, 1))
             let lin = if i < g.facts.len() { facts[i].clone() } else { claim.scale(-1).shift(-1) }
-            rows.push(Row { lin, weights })
+            rows.push(tighten(Row { lin, weights }, &cuts, m))
         }
     }
     loop {
         for r in rows {
-            if r.lin.is_constant() && r.lin.constant < 0 { return Ok(certificate(r, m)) }
+            if r.lin.is_constant() && r.lin.constant < 0 { return Ok(certificate(
+                r,
+                m,
+                cuts.as_slice()
+            )) }
         }
         let v = pick(rows.as_slice(), n)
         if v < 0 { return Err("no linear proof") }
@@ -300,7 +399,7 @@ fn prove_with(
                         match combine(p, 0 - b, q, a) {
                             Some(r) => {
                                 entries += r.lin.terms.len() + r.weights.len()
-                                next.push(r)
+                                next.push(tighten(r, &cuts, m))
                             }
                             None => {}
                         }
@@ -378,7 +477,133 @@ fn differences(g: linear.Goal) -> Option(linear.Certificate) {
         y = e.0
         if y == x { break }
     }
-    Some(linear.Certificate { weights })
+    Some(linear.Certificate.of(weights))
+}
+
+// For a report on a goal that was not proved: the least and greatest
+// values of `x` that its facts allow, in every case (goal) together, as
+// far as propagating bounds through the facts finds them. None for an
+// unbounded side, or one past the numbers kept.
+pub fn known(goals: [linear.Goal], x: Lin) -> (Option(i128), Option(i128)) {
+    var lo: Option(i128) = None
+    var hi: Option(i128) = None
+    for k, g in goals {
+        let (l, h) = range_of(g.facts.as_slice(), x)
+        if k == 0 {
+            lo = l
+            hi = h
+        } else {
+            lo = match (lo, l) {
+                (Some(a), Some(b)) => Some(if a < b { a } else { b })
+                _ => None
+            }
+            hi = match (hi, h) {
+                (Some(a), Some(b)) => Some(if a > b { a } else { b })
+                _ => None
+            }
+        }
+    }
+    (lo, hi)
+}
+
+// Numbers past this are not kept: bounds stay where products fit.
+const BOUND: i128 = 1 << 100
+
+fn floor_div(a: i128, b: i128) -> i128 {
+    let q = a / b
+    if (a % b != 0) && ((a < 0) != (b < 0)) { q - 1 } else { q }
+}
+
+// The least value of `k * v` given its bounds, or None.
+fn least(k: i128, lo: Option(i128), hi: Option(i128)) -> Option(i128) {
+    let b = if k > 0 { lo } else { hi }
+    match b {
+        Some(v) => if forms.abs(v) <= BOUND / forms.abs(k) { Some(k * v) } else { None }
+        None => None
+    }
+}
+
+fn range_of(facts: [Lin], x: Lin) -> (Option(i128), Option(i128)) {
+    var n = 0
+    for f in facts {
+        for t in f.terms {
+            if t.0 + 1 > n { n = t.0 + 1 }
+        }
+    }
+    for t in x.terms {
+        if t.0 + 1 > n { n = t.0 + 1 }
+    }
+    var lo = Vec(Option(i128)).filled(n, None)
+    var hi = Vec(Option(i128)).filled(n, None)
+    // Each fact `sum(a_i * x_i) + c >= 0` bounds each of its variables by
+    // the bounds of the others; a few rounds carry bounds along chains.
+    for _ in 0..4 {
+        var changed = false
+        for f in facts {
+            if f.terms.len() > 8 { continue }
+            for j, tj in f.terms {
+                // The greatest value of the other terms.
+                var rest: Option(i128) = Some(f.constant)
+                for i, ti in f.terms {
+                    if i != j {
+                        let m = least(0 - ti.1, lo[ti.0], hi[ti.0])
+                        rest = match (rest, m) {
+                            (Some(r), Some(v)) => if forms.abs(r) <= BOUND && forms.abs(v) <=
+                                BOUND { Some(r - v) } else { None }
+                            _ => None
+                        }
+                    }
+                }
+                // a_j * x_j >= -rest.
+                let Some(r) = rest else { continue }
+                let a = tj.1
+                let v = tj.0
+                if a > 0 {
+                    // x_j >= ceil(-r / a)
+                    let b = 0 - floor_div(r, a)
+                    match lo[v] {
+                        Some(old) => if b > old {
+                            lo[v] = Some(b)
+                            changed = true
+                        }
+                        None => {
+                            lo[v] = Some(b)
+                            changed = true
+                        }
+                    }
+                } else {
+                    // x_j <= floor(r / -a)
+                    let b = floor_div(r, 0 - a)
+                    match hi[v] {
+                        Some(old) => if b < old {
+                            hi[v] = Some(b)
+                            changed = true
+                        }
+                        None => {
+                            hi[v] = Some(b)
+                            changed = true
+                        }
+                    }
+                }
+            }
+        }
+        if !changed { break }
+    }
+    var min: Option(i128) = Some(x.constant)
+    var max: Option(i128) = Some(x.constant)
+    for t in x.terms {
+        let l = least(t.1, lo[t.0], hi[t.0])
+        let h = least(0 - t.1, lo[t.0], hi[t.0])
+        min = match (min, l) {
+            (Some(a), Some(b)) => Some(a + b)
+            _ => None
+        }
+        max = match (max, h) {
+            (Some(a), Some(b)) => Some(a - b)
+            _ => None
+        }
+    }
+    (min, max)
 }
 
 // Sorts and removes duplicates.
@@ -403,6 +628,44 @@ fn finds_a_negative_cycle() {
     assert(linear.check(g, c).is_ok(), "checked")
     let h = linear.Goal { facts: g.facts.clone(), claim: Lin.of(1).shift(-3) }
     assert(differences(h).is_none(), "not provable")
+}
+
+#[test]
+fn proves_by_a_cut() {
+    // 2x = 2y + 1 has no integer solution: x - y >= 1 and x - y <= 0
+    // after rounding, which the rationals (x - y = 1/2) do not give.
+    var facts = Vec(Lin).new()
+    facts.push(Lin.of(1).scale(2).minus(Lin.of(2).scale(2)).shift(-1))
+    facts.push(Lin.of(2).scale(2).minus(Lin.of(1).scale(2)).shift(1))
+    let g = linear.Goal { facts, claim: Lin.num(-1) }
+    let c = prove(g).unwrap()
+    assert(c.cuts.len() > 0, "with a cut")
+    assert(linear.check(g, c).is_ok(), "checked")
+    // An even number 2k is not 7: k <= 3 or k >= 4.
+    var even = Vec(Lin).new()
+    even.push(Lin.of(1).minus(Lin.of(2).scale(2)))
+    even.push(Lin.of(2).scale(2).minus(Lin.of(1)))
+    even.push(Lin.of(1).shift(-7))
+    let h = linear.Goal { facts: even, claim: Lin.of(1).shift(-8) }
+    let d = prove(h).unwrap()
+    assert(linear.check(h, d).is_ok(), "x = 2k and x >= 7 give x >= 8")
+}
+
+#[test]
+fn knows_a_sum() {
+    // x and y in 0..=10, and y <= x - 3: x + y is in 3..=17.
+    var facts = Vec(Lin).new()
+    facts.push(Lin.of(0))
+    facts.push(Lin.of(0).scale(-1).shift(10))
+    facts.push(Lin.of(1))
+    facts.push(Lin.of(1).scale(-1).shift(10))
+    facts.push(Lin.of(0).minus(Lin.of(1)).shift(-3))
+    var goals = Vec(linear.Goal).new()
+    goals.push(linear.Goal { facts, claim: Lin.num(-1) })
+    let (lo, hi) = known(goals.as_slice(), Lin.of(0).plus(Lin.of(1)))
+    assert(lo.unwrap() == 3 && hi.unwrap() == 17, "3..=17")
+    let (l2, h2) = known(goals.as_slice(), Lin.of(2))
+    assert(l2.is_none() && h2.is_none(), "an unknown variable")
 }
 
 #[test]

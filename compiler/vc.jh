@@ -83,6 +83,10 @@ pub enum Rvalue {
     // `+% -%`, and `+ -` without overflow checks: modulo the type's size.
     AddWrap(Operand, Operand)
     SubWrap(Operand, Operand)
+    // `/` and `%`, which round toward zero; followed when the divisor is a
+    // positive constant.
+    Div(Operand, Operand)
+    Rem(Operand, Operand)
     Compare(Cmp, Operand, Operand)
     // `!b` and `a && b` on bools.
     Not(Operand)
@@ -107,6 +111,8 @@ pub enum Stmt {
     Assign(i64, Rvalue, (i64, i64), Site)
     // A type's invariant must hold here (a writer's drop), at the span.
     Check(Holds, (i64, i64))
+    // The `k`th `prove` statement's fact: proved here, then assumed.
+    Prove(Fact, i64, (i64, i64))
 }
 
 pub enum Term {
@@ -206,20 +212,28 @@ pub struct Fact {
     pub stated: bool
     pub ors: Vec(Vec(Cond))
     pub partial: bool
+    // Quotients the fact names: variable `v` is `a / k` (toward zero) for
+    // `(v, a, k)`, in order, each use defining it anew (`define`).
+    pub defs: Vec((i64, Lin, i128))
 }
 
 impl Clone for Fact {
     fn clone(self) -> Fact {
+        var defs = Vec((i64, Lin, i128)).new()
+        for d in self.defs { defs.push((d.0, d.1.clone(), d.2)) }
         Fact {
             op: self.op, a: self.a.clone(), b: self.b.clone(), stated: self.stated,
-            ors: self.ors.clone(), partial: self.partial
+            ors: self.ors.clone(), partial: self.partial, defs
         }
     }
 }
 
 impl Fact {
     pub fn compare(op: Cmp, sink a: Lin, sink b: Lin) -> Fact {
-        Fact { op, a, b, stated: true, ors: Vec(Vec(Cond)).new(), partial: false }
+        Fact {
+            op, a, b, stated: true, ors: Vec(Vec(Cond)).new(), partial: false,
+            defs: Vec((i64, Lin, i128)).new()
+        }
     }
 
     pub fn is_or(self) -> bool { self.ors.len() > 0 || self.partial }
@@ -257,14 +271,17 @@ pub fn fact(op: Cmp, a: Operand, b: Operand) -> Fact {
 pub fn unstated(op: Cmp) -> Fact {
     Fact {
         op, a: Lin.num(0), b: Lin.num(0), stated: false, ors: Vec(Vec(Cond)).new(),
-        partial: false
+        partial: false, defs: Vec((i64, Lin, i128)).new()
     }
 }
 
 // One of the conjunctions holds, or with `partial`, one left out.
 pub fn disjunction(sink ors: Vec(Vec(Cond)), partial: bool) -> Fact {
     if ors.len() == 0 { return unstated(Cmp.Eq) }
-    Fact { op: Cmp.Eq, a: Lin.num(0), b: Lin.num(0), stated: false, ors, partial }
+    Fact {
+        op: Cmp.Eq, a: Lin.num(0), b: Lin.num(0), stated: false, ors, partial,
+        defs: Vec((i64, Lin, i128)).new()
+    }
 }
 
 // A struct's invariant at a place, as a fact over the function's
@@ -296,10 +313,15 @@ pub struct Callee {
     pub entries: Vec((i64, i64))
     pub requires: Vec(Fact)
     pub ensures: Vec(Fact)
+    // The `decreases` measure over the parameters (None when the model
+    // cannot state it) and its span: none or one.
+    pub measure: Vec((Option(Lin), (i64, i64)))
 }
 
 impl Clone for Callee {
     fn clone(self) -> Callee {
+        var measure = Vec((Option(Lin), (i64, i64))).new()
+        for x in self.measure { measure.push((copy(x.0), x.1)) }
         Callee {
             symbol: self.symbol.clone(),
             kinds: self.kinds.clone(),
@@ -309,7 +331,8 @@ impl Clone for Callee {
             fields: self.fields.clone(),
             entries: self.entries.clone(),
             requires: self.requires.clone(),
-            ensures: self.ensures.clone()
+            ensures: self.ensures.clone(),
+            measure: measure
         }
     }
 }
@@ -324,6 +347,9 @@ pub struct Function {
     // and with no facts, any block where following every path costs too
     // much. Control reaching one checks its facts and stops there.
     pub invariants: Vec((i64, Vec(Fact)))
+    // A loop head's `decreases` measure over the variables (None when the
+    // model cannot state it), and its span.
+    pub decreases: Vec((i64, Option(Lin), (i64, i64)))
     pub callee: Callee
     // Small, with a call that never returns: record the paths to it.
     pub liftable: bool
@@ -357,6 +383,12 @@ pub enum Source {
     Lift(i64, i64, Site)
     // A writer's obligation of the type's invariant.
     TypeInvariant(i64)
+    // The `k`th `prove` statement.
+    Proof(i64)
+    // The `k`th `decreases` measure.
+    Decreases(i64)
+    // The function's own `decreases`, at a call to itself in the block.
+    Recursion(i64)
 }
 
 // What a fact on a path rests on, besides the path itself: an assumption
@@ -392,6 +424,10 @@ pub struct Obligation {
     pub used: Vec(Tag)
     // The facts of all its goals.
     pub size: i64
+    // Unproved: the least and greatest values the path's facts allow for
+    // the checked value (the result of `+ - *`, an index), as far as
+    // bounds propagation finds them, for reports.
+    pub known: (Option(i128), Option(i128))
 }
 
 // What `generate` does with each obligation: proves it at once and keeps
@@ -411,8 +447,8 @@ pub fn settle(goals: [linear.Goal], tags: [Vec(Tag)]) -> (bool, Vec(Tag)) {
     for i, goal in goals {
         let Ok(c) = fm.prove(goal) else { return (false, used) }
         if linear.check(goal, c).is_err() { return (false, used) }
-        for k, w in c.weights {
-            if w > 0 && i < tags.len && k < tags[i].len() {
+        for k, w in fm.uses(c, goal.facts.len() + 1) {
+            if w && i < tags.len && k < tags[i].len() {
                 match tags[i][k] {
                     Path => {}
                     t => used.push(t)
@@ -515,6 +551,8 @@ struct Path {
     steps: i64
     // The path starts at the function's entry.
     from_entry: bool
+    // The block the path starts at: the entry or a cut point.
+    head: i64
 }
 
 impl Clone for Path {
@@ -522,7 +560,7 @@ impl Clone for Path {
         Path {
             block: self.block, state: self.state.clone(), facts: self.facts.clone(),
             tags: self.tags.clone(), ors: self.ors.clone(), or_tags: self.or_tags.clone(),
-            origin: self.origin, steps: self.steps, from_entry: self.from_entry
+            origin: self.origin, steps: self.steps, from_entry: self.from_entry, head: self.head
         }
     }
 }
@@ -556,6 +594,8 @@ struct Gen {
     // never return, and the sites a path from a cut point reaches.
     panics: Vec(Panic)
     blocked: Vec(Site)
+    // The value the obligations being generated check, if one is.
+    subject: Option(Lin)
 }
 
 fn copy_source(s: Source) -> Source {
@@ -566,6 +606,9 @@ fn copy_source(s: Source) -> Source {
         Ensures(j) => Source.Ensures(j)
         Lift(b, f, s) => Source.Lift(b, f, s)
         TypeInvariant(t) => Source.TypeInvariant(t)
+        Proof(k) => Source.Proof(k)
+        Decreases(k) => Source.Decreases(k)
+        Recursion(b) => Source.Recursion(b)
     }
 }
 
@@ -694,6 +737,13 @@ impl Gen {
         for x in goals { size += x.facts.len() }
         let (proved, used) = settle(goals.as_slice(), goal_tags.as_slice())
         if !proved && cut.0 >= 0 { self.wanted[cut.0][cut.1] = false }
+        var known: (Option(i128), Option(i128)) = (None, None)
+        if !proved {
+            match &self.subject {
+                Some(x) => known = fm.known(goals.as_slice(), x)
+                None => {}
+            }
+        }
         self.out.push(Obligation {
             what: "bb" + p.block.to_string() + ": " + what
             at: self.at
@@ -704,6 +754,7 @@ impl Gen {
             proved
             used
             size
+            known
         })
     }
 
@@ -730,6 +781,12 @@ impl Gen {
     // `c` must hold on this path: each of its linear parts, or for `!=`,
     // `==` must be impossible.
     fn require(inout self, p: Path, what: str, c: Cond) {
+        self.subject = if c.a.is_constant() { None } else { Some(c.a.clone()) }
+        self.require_cond(p, what, c)
+        self.subject = None
+    }
+
+    fn require_cond(inout self, p: Path, what: str, c: Cond) {
         match c.op {
             Ne => {
                 let eq = lins(Cmp.Eq, c.a, c.b).unwrap()
@@ -746,7 +803,14 @@ impl Gen {
     // not is impossible. With no such case, it holds trivially.
     fn require_bool(inout self, p: Path, what: str, no: [Vec(Cond)]) {
         if no.len == 0 { self.obligation(p, what, Lin.num(0)) }
+        // What the condition compares first (the index of `i < len`) is
+        // what a report gives the range of.
+        let mine = self.subject.is_none()
+        if mine && no.len > 0 && no[0].len() > 0 && !no[0][0].a.is_constant() {
+            self.subject = Some(no[0][0].a.clone())
+        }
         for conj in no { self.refute(p, what, conj_lins(conj.as_slice()).as_slice()) }
+        if mine { self.subject = None }
     }
 
     // The fact must hold on this path. A single conjunction gives a goal
@@ -754,6 +818,14 @@ impl Gen {
     // of every alternative it can state cannot all hold (one it cannot
     // state is left out, which only makes the claim stronger).
     fn require_fact(inout self, p: Path, what: str, x: Fact, map: [Option(Lin)]) {
+        if x.defs.len() > 0 {
+            var q = p.clone()
+            let m = define(&self, &q, x, map)
+            self.require_defined(q, what, x, m.as_slice())
+        } else { self.require_defined(p, what, x, map) }
+    }
+
+    fn require_defined(inout self, p: Path, what: str, x: Fact, map: [Option(Lin)]) {
         var known = Vec(Vec(Cond)).new()
         for alt in alternatives(x, map).into_iter() {
             match alt {
@@ -1022,7 +1094,45 @@ fn alternatives(x: Fact, map: [Option(Lin)]) -> Vec(Option(Vec(Cond))) {
 
 // The fact holds on this path, resting on `tag`. An alternative the map
 // cannot state could be the one that holds, so then nothing is assumed.
-fn assume_fact(inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
+// The map with each quotient the fact names defined: a new variable `q`
+// with `a - k * q` between 0 and `k - 1` when `a >= 0`, and between
+// `1 - k` and 0 when `a <= 0`, as `/` rounds. One whose dividend the map
+// cannot state stays unknown.
+fn define(inout g: Gen, inout p: Path, x: Fact, map: [Option(Lin)]) -> Vec(Option(Lin)) {
+    var m = Vec(Option(Lin)).with_capacity(map.len)
+    for y in map { m.push(copy(y)) }
+    for d in x.defs {
+        while m.len() <= d.0 { m.push(None) }
+        let Some(a) = substitute(d.1, m.as_slice()) else { continue }
+        if a.magnitude() > linear.MAX_VALUE { continue }
+        let k = d.2
+        let q = g.fresh(Kind.Int(0 - (1 << 64), 1 << 64), why_code("div"))
+        let r = a.minus(q.scale(k))
+        var up = Vec(Cond).new()
+        up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: a.clone() })
+        up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: r.clone() })
+        up.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(k - 1) })
+        var down = Vec(Cond).new()
+        down.push(Cond { op: Cmp.Le, a: a.clone(), b: Lin.num(0) })
+        down.push(Cond { op: Cmp.Le, a: Lin.num(1 - k), b: r.clone() })
+        down.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(0) })
+        var dnf = Vec(Vec(Cond)).new()
+        dnf.push(up)
+        dnf.push(down)
+        assume_dnf(&p, dnf.as_slice(), Tag.Path)
+        m[d.0] = Some(q)
+    }
+    m
+}
+
+fn assume_fact(inout g: Gen, inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
+    if x.defs.len() > 0 {
+        let m = define(&g, &p, x, map)
+        assume_defined(&p, x, m.as_slice(), tag)
+    } else { assume_defined(&p, x, map, tag) }
+}
+
+fn assume_defined(inout p: Path, x: Fact, map: [Option(Lin)], tag: Tag) {
     var d = Vec(Vec(Cond)).new()
     for alt in alternatives(x, map).into_iter() {
         let Some(conj) = alt else { return }
@@ -1136,7 +1246,7 @@ pub fn unassigned(f: Function) -> Vec(bool) {
         for st in b.stmts {
             match st {
                 Assign(dst, _, _, _) => if dst >= 0 && dst < out.len() { out[dst] = false }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {
@@ -1160,7 +1270,7 @@ pub fn unassigned(f: Function) -> Vec(bool) {
 
 // A path starting at `block`: every variable is its own, inside its range,
 // and `facts` hold, resting on `tag`.
-fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Path {
+fn start(inout g: Gen, f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Path {
     var p = Path {
         block,
         state: Vec(Sym).with_capacity(f.kinds.len()),
@@ -1173,7 +1283,8 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
         from_entry: match tag {
             Requires => block == 0
             _ => false
-        }
+        },
+        head: block
     }
     for v, k in f.kinds {
         match k {
@@ -1205,7 +1316,7 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
             for v in x.names() {
                 if v >= entry_map.len() || entry_map[v].is_none() { all = false }
             }
-            if all { assume_fact(&p, x, entry_map.as_slice(), Tag.Requires) }
+            if all { assume_fact(&g, &p, x, entry_map.as_slice(), Tag.Requires) }
         }
     }
     // The invariants of what the parameters hold, on entry, and at a cut
@@ -1217,9 +1328,9 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
                 if v >= fixed.len || !fixed[v] { all = false }
             }
         }
-        if all { assume_fact(&p, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
+        if all { assume_fact(&g, &p, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
     }
-    for x in facts { assume_fact(&p, x, map.as_slice(), tag) }
+    for x in facts { assume_fact(&g, &p, x, map.as_slice(), tag) }
     p
 }
 
@@ -1377,8 +1488,10 @@ fn arithmetic(inout g: Gen, f: Function, p: Path, dst: i64, sink r: Option(Lin))
     let Int(lo, hi) = f.kinds[dst] else { return Sym.Unknown }
     match r {
         Some(x) => {
+            g.subject = Some(x.clone())
             g.obligation(p, "no overflow", x.shift(0 - lo))
             g.obligation(p, "no overflow", x.scale(-1).shift(hi))
+            g.subject = None
             Sym.Num(x)
         }
         None => {
@@ -1432,6 +1545,8 @@ fn assign(inout g: Gen, f: Function, inout p: Path, dst: i64, rv: Rvalue) {
         }
         AddWrap(a, b) => wrapping(&g, f, &p, dst, a, b, 1)
         SubWrap(a, b) => wrapping(&g, f, &p, dst, a, b, -1)
+        Div(a, b) => dividing(&g, f, &p, dst, a, b, false)
+        Rem(a, b) => dividing(&g, f, &p, dst, a, b, true)
         Compare(op, a, b) => compare(g, p, op, a, b)
         Not(a) => match bools(p, a) {
             Some(x) => Sym.Bool(x.1.clone(), x.0.clone())
@@ -1456,6 +1571,8 @@ fn assign(inout g: Gen, f: Function, inout p: Path, dst: i64, rv: Rvalue) {
         Opaque(w) => w
         Cast(_) => WHY_CAST
         AddWrap(_, _) | SubWrap(_, _) => why_code("wrap")
+        Div(_, _) => why_code("div")
+        Rem(_, _) => why_code("rem")
         _ => WHY_UNSTATED
     }
     havoc_or(&g, f, &p, dst, value, why)
@@ -1505,6 +1622,97 @@ fn wrapping(
     d.push(fits)
     if up >= 0 { d.push(above) }
     if up <= 0 { d.push(below) }
+    assume_dnf(&p, d.as_slice(), Tag.Path)
+    Sym.Num(r)
+}
+
+// `a / k` or `a % k` for a constant `k > 0`: a new quotient `q`, whose
+// remainder `r = a - k * q` is between 0 and `k - 1` when `a >= 0`, and
+// between `1 - k` and 0 when `a <= 0` (division rounds toward zero). The
+// value is `q`, or `r` for `%`. Unknown for other divisors.
+fn dividing(
+    inout g: Gen,
+    f: Function,
+    inout p: Path,
+    dst: i64,
+    a: Operand,
+    b: Operand,
+    rem: bool
+) -> Sym {
+    let Int(_, _) = f.kinds[dst] else { return Sym.Unknown }
+    let Some(y) = term(&g, f, p, b, dst) else { return Sym.Unknown }
+    if !y.is_constant() { return dividing_by(&g, f, &p, dst, a, y, rem) }
+    if y.constant < 1 || y.constant > 1 << 32 { return Sym.Unknown }
+    let k = y.constant
+    let Some(x) = term(&g, f, p, a, dst) else { return Sym.Unknown }
+    if x.magnitude() > linear.MAX_VALUE { return Sym.Unknown }
+    let q = g.fresh(f.kinds[dst], why_code("div"))
+    let r = x.minus(q.scale(k))
+    var up = Vec(Cond).new()
+    up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: x.clone() })
+    up.push(Cond { op: Cmp.Le, a: Lin.num(0), b: r.clone() })
+    up.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(k - 1) })
+    var down = Vec(Cond).new()
+    down.push(Cond { op: Cmp.Le, a: x.clone(), b: Lin.num(0) })
+    down.push(Cond { op: Cmp.Le, a: Lin.num(1 - k), b: r.clone() })
+    down.push(Cond { op: Cmp.Le, a: r.clone(), b: Lin.num(0) })
+    var d = Vec(Vec(Cond)).new()
+    d.push(up)
+    // A value that cannot be negative (an unsigned one, a length) has
+    // only the first case.
+    let nonneg = match a {
+        Local(l) => match f.kinds[l] {
+            Int(lo, _) => lo >= 0
+            Other => false
+        }
+        Const(c) => c >= 0
+        Opaque(_) => match f.kinds[dst] {
+            Int(lo, _) => lo >= 0
+            Other => false
+        }
+    }
+    if !nonneg { d.push(down) }
+    assume_dnf(&p, d.as_slice(), Tag.Path)
+    if rem { Sym.Num(r) } else { Sym.Num(q) }
+}
+
+// `a / b` or `a % b` for a divisor that is not a constant: a new variable
+// for the result, which has the sign of `a` (or is 0) and, for `%`, is
+// smaller than `|b|` and no larger than `|a|`; for `/`, no larger than
+// `|a|`. `b == 0` traps before, so it is no case. A value whose type is
+// unsigned has only the cases where it is not negative.
+fn dividing_by(
+    inout g: Gen,
+    f: Function,
+    inout p: Path,
+    dst: i64,
+    a: Operand,
+    y: Lin,
+    rem: bool
+) -> Sym {
+    let Some(x) = term(&g, f, p, a, dst) else { return Sym.Unknown }
+    if x.magnitude() > linear.MAX_VALUE || y.magnitude() > linear.MAX_VALUE { return Sym.Unknown }
+    let r = g.fresh(f.kinds[dst], why_code(if rem { "rem" } else { "div" }))
+    let unsigned = match f.kinds[dst] {
+        Int(lo, _) => lo >= 0
+        Other => false
+    }
+    var d = Vec(Vec(Cond)).new()
+    for sa in [1 as i128, -1] {
+        for sb in [1 as i128, -1] {
+            if unsigned && (sa < 0 || sb < 0) { continue }
+            // a's sign, b's sign: `sa * a >= 0`, `sb * b >= 1`.
+            var c = Vec(Cond).new()
+            c.push(Cond { op: Cmp.Ge, a: x.scale(sa), b: Lin.num(0) })
+            c.push(Cond { op: Cmp.Ge, a: y.scale(sb), b: Lin.num(1) })
+            // The result's sign is a's: `0 <= sa * r <= sa * a`.
+            c.push(Cond { op: Cmp.Ge, a: r.scale(sa), b: Lin.num(0) })
+            c.push(Cond { op: Cmp.Le, a: r.scale(sa), b: x.scale(sa) })
+            // A remainder is smaller than the divisor: `sa * r <= sb * b - 1`.
+            if rem { c.push(Cond { op: Cmp.Le, a: r.scale(sa), b: y.scale(sb).shift(-1) }) }
+            d.push(c)
+        }
+    }
     assume_dnf(&p, d.as_slice(), Tag.Path)
     Sym.Num(r)
 }
@@ -1622,6 +1830,19 @@ fn parameters(inout g: Gen, p: Path, c: Callee, site: CallSite) -> Vec(Option(Li
     pre
 }
 
+// A form over the parameters, of their values on entry, on this path:
+// each parameter through its entry variable, which on a path from the
+// entry is the parameter itself.
+fn at_entry(f: Function, p: Path, m: Lin) -> Option(Lin) {
+    var map = Vec(Option(Lin)).with_capacity(f.kinds.len())
+    for v in 0..f.kinds.len() { map.push(Some(Lin.of(v))) }
+    for e in f.callee.entries {
+        if e.0 < map.len() && e.1 < map.len() { map[e.0] = Some(Lin.of(e.1)) }
+    }
+    let Some(x) = substitute(m, map.as_slice()) else { return None }
+    substitute(x, state_map(p).as_slice())
+}
+
 // A call: the variables lent to it and its result get new values. When the
 // callee has a contract, its `requires` must hold here, with the arguments
 // for its parameters, and its `ensures` holds after, over the new values.
@@ -1644,6 +1865,36 @@ fn call(
         let what = "requires of " + c.symbol.as_str()
         g.source = Source.Requires(q.block, site.callee)
         for x in c.requires { g.require_fact(q, what.as_str(), x, pre.as_slice()) }
+        // A call to itself: the measure of the arguments is smaller than
+        // that of the parameters on entry, which is not negative.
+        if c.symbol == f.callee.symbol && c.measure.len() > 0 {
+            g.at = c.measure[0].1
+            g.source = Source.Recursion(q.block)
+            var old = Vec(Lin).new()
+            var now = Vec(Lin).new()
+            var known = true
+            for mz in c.measure {
+                let entry = match &mz.0 {
+                    Some(m) => at_entry(f, q, m)
+                    None => None
+                }
+                let args = match &mz.0 {
+                    Some(m) => substitute(m, pre.as_slice())
+                    None => None
+                }
+                match (entry, args) {
+                    (Some(e), Some(a)) => {
+                        old.push(e)
+                        now.push(a)
+                    }
+                    _ => known = false
+                }
+            }
+            if known { smaller(&g, q, old.as_slice(), now.as_slice()) } else {
+                g.unknown(q, "decreases")
+            }
+            g.at = nowhere()
+        }
     }
     q.block = next
     q.steps += 1
@@ -1716,7 +1967,7 @@ fn call(
             }
             None => {}
         }
-        for x in c.ensures { assume_fact(&q, x, post.as_slice(), Tag.Ensures(site.callee)) }
+        for x in c.ensures { assume_fact(&g, &q, x, post.as_slice(), Tag.Ensures(site.callee)) }
     }
     for y in lent { q.state[y.0] = Sym.Num(y.1.clone()) }
     if dst >= 0 {
@@ -1727,7 +1978,7 @@ fn call(
     }
     if site.after.len() > 0 {
         let map = state_map(q)
-        for h in site.after { assume_fact(&q, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
+        for h in site.after { assume_fact(&g, &q, h.fact, map.as_slice(), Tag.TypeInvariant(h.ty)) }
     }
     q
 }
@@ -1852,6 +2103,113 @@ fn moved(sink p: Path, block: i64) -> Path {
     q
 }
 
+// A path back to a loop head with a `decreases` measure: the measure was
+// not negative when the path left the head, and is smaller now. The
+// measure at the start is over the variables themselves (a path from a
+// cut point starts with every variable as itself); a path from another
+// cut point, an inner loop's head, does not know it, and fails.
+fn decreasing(inout g: Gen, f: Function, p: Path) {
+    // The measure's parts at this head, compared in order.
+    var old = Vec(Lin).new()
+    var now = Vec(Lin).new()
+    var known = true
+    var first = -1
+    for k, d in f.decreases {
+        if d.0 != p.block { continue }
+        if first < 0 {
+            first = k
+            g.at = d.2
+        }
+        let Some(m) = d.1 else {
+            known = false
+            continue
+        }
+        let x = if p.head == p.block { substitute(m, state_map(p).as_slice()) } else { None }
+        match x {
+            Some(x) => {
+                old.push(m.clone())
+                now.push(x)
+            }
+            None => known = false
+        }
+    }
+    if first < 0 { return }
+    // A path into the loop from before it (the entry, an earlier loop) is
+    // not an iteration.
+    if p.head != p.block && !in_loop(f, p.block, p.head) {
+        g.at = nowhere()
+        return
+    }
+    g.source = Source.Decreases(first)
+    if known { smaller(&g, p, old.as_slice(), now.as_slice()) } else { g.unknown(p, "decreases") }
+    g.at = nowhere()
+}
+
+// A measure went down: each part of `old` is not negative, and `new` is
+// smaller in order (the first part that differs is smaller), proved by
+// refuting every way it is not: equal up to a part that is larger, or
+// equal throughout.
+fn smaller(inout g: Gen, p: Path, old: [Lin], new: [Lin]) {
+    for o in old { g.obligation(p, "decreases", o.clone()) }
+    if old.len == 1 {
+        g.obligation(p, "decreases", old[0].minus(new[0]).shift(-1))
+        return
+    }
+    var no = Vec(Vec(Cond)).new()
+    for k in 0..old.len + 1 {
+        var c = Vec(Cond).new()
+        for j in 0..k {
+            if j < old.len { c.push(Cond { op: Cmp.Eq, a: new[j].clone(), b: old[j].clone() }) }
+        }
+        if k < old.len { c.push(Cond { op: Cmp.Gt, a: new[k].clone(), b: old[k].clone() }) }
+        no.push(c)
+    }
+    g.require_bool(p, "decreases", no.as_slice())
+}
+
+// `c` is in the natural loop whose head is `h`: every path from the
+// entry to `c` passes `h` (`h` dominates `c`), and `c` leads back to `h`.
+fn in_loop(f: Function, h: i64, c: i64) -> bool {
+    if c == h { return true }
+    !reaches_avoiding(f, 0, c, h) && reaches_avoiding(f, c, h, -1)
+}
+
+// A path from `a` to `b`, of at least one step unless `a` is `b`, that
+// does not pass the block `avoid`.
+fn reaches_avoiding(f: Function, a: i64, b: i64, avoid: i64) -> bool {
+    if a == avoid { return false }
+    if a == b && avoid >= 0 { return true }
+    var seen = Vec(bool).filled(f.blocks.len(), false)
+    var work = Vec(i64).new()
+    for x in successors(f.blocks[a].term) { work.push(x) }
+    loop {
+        let Some(x) = work.pop() else { break }
+        if x == b { return true }
+        if x < 0 || x >= seen.len() || seen[x] || x == avoid { continue }
+        seen[x] = true
+        for y in successors(f.blocks[x].term) { work.push(y) }
+    }
+    false
+}
+
+fn successors(t: Term) -> Vec(i64) {
+    var out = Vec(i64).new()
+    match t {
+        Goto(x) => out.push(x)
+        Switch(_, z, o) => {
+            out.push(z)
+            out.push(o)
+        }
+        Assert(_, _, next, _) => out.push(next)
+        Any(bs) => {
+            for x in bs { out.push(x) }
+        }
+        Call(_, next, _) => out.push(next)
+        _ => {}
+    }
+    out
+}
+
 // Follows every path from `first` to its end: a return, a cut point or a
 // trap.
 fn walk(
@@ -1878,6 +2236,7 @@ fn walk(
                 Some(i) => {
                     let what = "invariant of bb" + p.block.to_string()
                     holds(&g, p, what.as_str(), f.invariants[i].1.as_slice(), i)
+                    decreasing(&g, f, p)
                     continue
                 }
                 None => {}
@@ -1903,6 +2262,14 @@ fn walk(
                     var one = Vec(Holds).new()
                     one.push(h.clone())
                     invariants_hold(&g, p, "invariant", one.as_slice())
+                    g.at = nowhere()
+                }
+                Prove(x, k, at) => {
+                    g.at = at
+                    g.source = Source.Proof(k)
+                    let map = state_map(p)
+                    g.require_fact(p, "prove", x, map.as_slice())
+                    assume_fact(&g, &p, x, map.as_slice(), Tag.Path)
                     g.at = nowhere()
                 }
             }
@@ -2008,20 +2375,16 @@ pub fn generate(
         ranges: f.kinds.clone(),
         origins: Vec(i64).filled(f.kinds.len(), WHY_OTHER), mark: Vec(i64).filled(f.kinds.len(), 0),
         stamp: 0, at: nowhere(), source: Source.Ensures(0), panics: Vec(Panic).new(),
-        blocked: Vec(Site).new()
+        blocked: Vec(Site).new(), subject: None
     }
     let fixed = unassigned(f)
     if f.blocks.len() > 0 {
-        walk(&g, f, contracts, lifts, start(f, fixed.as_slice(), 0, f.requires(), Tag.Requires))
+        let first = start(&g, f, fixed.as_slice(), 0, f.requires(), Tag.Requires)
+        walk(&g, f, contracts, lifts, first)
         for k, inv in f.invariants {
             if g.errors.len() == 0 {
-                walk(
-                    &g,
-                    f,
-                    contracts,
-                    lifts,
-                    start(f, fixed.as_slice(), inv.0, inv.1.as_slice(), Tag.Cut(k))
-                )
+                let at = start(&g, f, fixed.as_slice(), inv.0, inv.1.as_slice(), Tag.Cut(k))
+                walk(&g, f, contracts, lifts, at)
             }
         }
     }

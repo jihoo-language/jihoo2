@@ -1,0 +1,47 @@
+// Clauses divide by constants: `a / k` is a quotient rounded toward zero,
+// defined anew each time the clause is used, and `a % k` is `a - k * (a / k)`.
+// A loop that steps by two keeps `i` even, so `i < n` with an even `n`
+// leaves room for `xs[i + 1]`: the integer cuts prove it.
+
+fn pairs(xs: [i64]) -> i64 {
+    var s = 0
+    var i = 0
+    let n = xs.len / 2 * 2
+    while i < n
+        invariant 0 <= i <= n <= xs.len && i % 2 == 0 && n % 2 == 0
+        decreases n - i
+    {
+        s +%= xs[i] +% xs[i + 1]
+        i += 2
+    }
+    s
+}
+
+fn half(x: i64) -> i64
+    requires x >= 0
+    ensures result * 2 <= x && x < result * 2 + 2
+{
+    x / 2
+}
+
+fn even(x: i64) -> i64
+    requires x % 2 == 0
+{
+    let one = [5]
+    one[x - x / 2 * 2]
+}
+
+fn main() {
+    println(pairs([1, 2, 3, 4, 5]))
+    println(half(7))
+    println(even(8))
+}
+
+//> 9:13: proved integer overflow in pairs
+//> 14:15: proved index out of bounds in pairs
+//> 14:27: proved integer overflow in pairs
+//> 14:24: proved index out of bounds in pairs
+//> 15:9: proved integer overflow in pairs
+//> 31:13: proved integer overflow in even
+//> 31:9: proved integer overflow in even
+//> 31:5: proved index out of bounds in even

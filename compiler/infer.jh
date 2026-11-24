@@ -189,7 +189,7 @@ fn interesting(f: vc.Function) -> Vec(bool) {
                     }
                     _ => {}
                 }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
     }
@@ -204,7 +204,7 @@ fn assigned_in(f: vc.Function) -> Vec(i64) {
         for s in b.stmts {
             match s {
                 Assign(dst, _, _, _) => here.push(dst)
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {
@@ -251,7 +251,7 @@ fn compared_with(f: vc.Function, moving: [bool]) -> Vec(bool) {
                     }
                     _ => {}
                 }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
     }
@@ -275,7 +275,7 @@ fn copied_from(f: vc.Function, count: [i64]) -> Vec(Vec(i64)) {
                     Use(Local(w)) => if count[dst] == 1 { out[dst].push(w) }
                     _ => {}
                 }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {

@@ -1,0 +1,10 @@
+// In a clause, `< <= > >=` chain; `==` and `!=` do not, since
+// `a == b == c` reads two ways.
+// error: only `< <= > >=` chain in a contract; use `&&`
+fn f(a: i64) -> i64
+    requires 0 <= a == 1
+{
+    a
+}
+
+fn main() { println(f(1)) }

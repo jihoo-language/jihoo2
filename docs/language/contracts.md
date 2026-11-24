@@ -73,11 +73,12 @@ A clause compares integers, or joins comparisons with `&&`, `||` and `!`:
 ```text
 clause = compare | clause "&&" clause | clause "||" clause | "!" clause
        | "(" clause ")"
-compare = term cmp term
+compare = term cmp term { ( "<" | "<=" | ">" | ">=" ) term }
 cmp    = "<" | "<=" | ">" | ">=" | "==" | "!="
 term   = integer | place | place ".len" "(" ")" | "old" "(" place ")"
        | "old" "(" place ".len" "(" ")" ")"
-       | term ( "+" | "-" ) term | term "*" term | "-" term | "(" term ")"
+       | term ( "+" | "-" ) term | term "*" term | term ( "/" | "%" ) integer
+       | "-" term | "(" term ")"
 place  = ( name | "result" ) { "." field }
 ```
 
@@ -89,9 +90,17 @@ place  = ( name | "result" ) { "." field }
   an `ensures result == ...` over `self`: `v.len()` for a `Vec` is
   `v.len`, and `s.len()` for a `String` is its bytes' length.
 - One side of `*` must be a constant: the verifier's arithmetic is linear.
+  `/` and `%` divide by a constant from 1 to 2^32 and round toward zero, as
+  in code: `a / k` is a quotient the verifier defines anew each time it
+  uses the clause, and `a % k` is `a - k * (a / k)`, so
+  `invariant i % 2 == 0` keeps a counter even. A type's `invariant`
+  cannot divide yet.
 - **The arithmetic is exact.** `x + 1 <= hi` in a clause cannot overflow,
   and integers of different types compare by value: `i <= xs.len` holds
   for `i: u64`.
+- **Order comparisons chain**, as in mathematics: `0 <= lo <= i < xs.len`
+  is `0 <= lo && lo <= i && i < xs.len`, each term read once. `==` and
+  `!=` do not chain, and outside contracts no comparison does.
 - `&&` at the top of a clause makes it several clauses. Below `||`, a
   clause is a few cases, each a conjunction of comparisons (`!` turns
   `!(a < b)` into `a >= b` and `!(p && q)` into `!p || !q`); one with more
@@ -233,3 +242,128 @@ it. A panic that the function rules out itself, as after
 `if x == x + 1 { panic(...) }`, is removed from it.
 
 See [Grammar](../reference/grammar.md#files) for where clauses go.
+
+## Steps and termination
+
+`prove p`, a statement, is a clause the verifier proves where it stands
+and assumes after: a lemma for the checks that follow, or a claim about
+the code that the build keeps true. It does nothing when the program runs,
+and one that is not proved is a compile error, as a contract is. Elsewhere
+`prove` is an ordinary name.
+
+`decreases d` after a `while` loop's invariants says that the loop ends:
+on every path from the loop's head back to it (`continue` included), `d`
+was not negative when the iteration began and is smaller now.
+
+```jihoo
+fn gcd(a: i64, b: i64) -> i64
+    requires a >= 0 && b >= 0
+{
+    var x = a
+    var y = b
+    while y != 0
+        invariant x >= 0 && y >= 0
+        decreases y
+    {
+        let t = x % y        // 0 <= t < y
+        x = y
+        y = t
+    }
+    x
+}
+```
+
+`d` is a term as in clauses. An inner loop's `decreases` is proved like
+any other; an outer loop's is not yet when its iterations pass an inner
+loop's head, where the value `d` had when the iteration began is not
+known (put the inner loop in a function of its own). `for` loops end
+anyway.
+
+On a function, after `requires` and `ensures`, `decreases d` over the
+parameters says that its recursion ends: at every call to itself, `d` of
+the parameters on entry is not negative and `d` of the arguments is
+smaller.
+
+```jihoo
+fn bsearch(xs: [i64], key: i64, lo: i64, hi: i64) -> i64
+    requires 0 <= lo <= hi <= xs.len
+    decreases hi - lo
+{
+    if lo >= hi { return lo }
+    let mid = lo + (hi - lo) / 2
+    if xs[mid] < key { bsearch(xs, key, mid + 1, hi) } else { bsearch(xs, key, lo, mid) }
+}
+```
+
+Only direct calls count: recursion through another function, a closure
+or a pointer is not checked.
+
+A measure can be a tuple, compared in order: `decreases (m, n)` goes down
+when `m` does, or when `m` stays and `n` does, and every part is not
+negative where it starts. Ackermann's function needs it, and so does a
+loop that resets an inner counter when an outer one steps:
+
+```jihoo
+fn ack(m: i64, n: i64) -> i64
+    requires m >= 0 && n >= 0
+    ensures result >= 0
+    decreases (m, n)
+{
+    if m == 0 { return n + 1 }
+    if n == 0 { return ack(m - 1, 1) }
+    ack(m - 1, ack(m, n - 1))
+}
+```
+
+## Functions that do not allocate or panic
+
+`#[no_alloc]` says that a function, and everything it calls, does not
+allocate; `#[no_panic]` that it cannot stop the program: no check is left
+in it or its callees, and nothing it calls panics, traps or never
+returns. Both are checked on the program as code generation sees it,
+after verification removed what it proved, so a function whose bounds and
+overflow checks are all proved is `#[no_panic]` with nothing else written:
+
+```jihoo
+#[no_panic]
+#[no_alloc]
+fn sum(xs: [i64]) -> i64 {
+    var s = 0
+    for i in 0..xs.len { s +%= xs[i] }
+    s
+}
+
+#[no_panic]
+fn first(xs: [i64]) -> i64
+    requires xs.len > 0      // without it, `xs[0]` keeps its check
+{
+    xs[0]
+}
+```
+
+A function that breaks its attribute is a compile error that follows the
+calls to the reason:
+
+```text
+error: app.jh:14:4: `wrapped` is `#[no_alloc]`, but it may allocate
+note: app.jh:15:5: `wrapped` calls `helper`
+note: app.jh:9:5: `helper` calls `Vec(i64).push`
+...
+note: lib/std/sys.jh:25:15: `alloc_bytes` allocates
+```
+
+What counts:
+
+- Allocating is calling the standard library's allocator (`sys.alloc_bytes`
+  and `realloc_bytes`, in every profile) or C's `malloc`, `calloc`,
+  `realloc`, `aligned_alloc` and `posix_memalign`. Other C functions are
+  taken to do neither, unless their type says they never return.
+- A drop runs the `Drop` impls of the value's type and of its parts, so
+  those count; a `dyn` value's destructor is not known.
+- A call through a `fnptr`, a `fn` value or a `dyn fn` may do anything. A
+  `comptime` closure parameter is inlined, and so is checked as written.
+- In a `--release` build `+ - *` wrap and have no checks; division by a
+  value that is not a nonzero constant may still trap.
+- `check --verify` and every command that generates code check them.
+  With `--no-verify`, which keeps every check on purpose, only
+  `#[no_alloc]` is checked.

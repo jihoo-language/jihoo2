@@ -39,6 +39,7 @@ once the program has none.
 | `--release` | integer overflow wraps instead of trapping |
 | `--no-verify` | skip [verification](#verification): keep every check, and do not prove contracts (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--verify` | also prove contracts in `check` (code generation always does, unless `--no-verify`) |
+| `--audit-proved` | keep the checks verification proves, each failing with the message of a verifier bug instead of the program's (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--target x86_64\|aarch64` | the machine to compile for (Linux, or UEFI for a `#![uefi]` program) |
 | `-I <dir>` | also look for modules in `<dir>` |
 | `-o <file>` | the output |
@@ -419,11 +420,15 @@ does not. It also proves [contracts](../language/contracts.md). `verify`
 prints one line per check that stays, at the check's position, with what
 it is, the function, and where the values it depends on come from (the
 reasons of the [model](#verification-model), plus `argument`, `loop` and
-`call`):
+`call`), and what is known of the checked value: the range the facts on
+the path give the result of `+ - *` or the index, as far as propagating
+bounds through them finds it, with numbers near a power of two past 2^32
+written as `2^k` plus or minus the rest. A range wider than the type says
+what a `requires` or `invariant` would have to rule out:
 
 ```text
-app.jh:9:9: kept integer overflow in sum (loop, load)
-app.jh:12:5: kept index out of bounds in first (argument, call)
+app.jh:9:9: kept integer overflow in sum (loop, load), known 0..=2^33 - 2
+app.jh:12:5: kept index out of bounds in first (argument, call), known 2..=12
 app.jh:14:5: unproved `requires` of bump in unchecked
 app.jh:56:13: unproved `ensures` in wrong
 42 of 57 checks proved in 31 functions (0 not followed everywhere)
@@ -450,6 +455,13 @@ returns becomes `unreachable` (so its branch goes away), and a call that
 proved its callee's panics away calls a copy of the callee without them.
 The program does the same, without their cost. `JIHOO_VERIFY_TRACE=1`
 prints the time each function took on standard error.
+
+`--audit-proved` tests the verifier instead: the build proves the program
+as usual but keeps every check, and a proved one that fails says
+`..., which verification proved impossible: a verifier bug, please report
+it`. A program and its tests built this way and run on real inputs check
+the proofs where the differential test of jihoo-proofs checks them on
+random ones.
 
 ## Verification model
 
@@ -536,7 +548,9 @@ pointer or borrow), `field`, `variant`, `element`, `aggregate` (a local that
 is not an integer), `escaped` (a local whose address is taken, `&x` for an
 `inout` parameter or `&raw`, since it may change through that pointer,
 except a borrow only passed to one call, as `bump(&x)` passes it),
-`wrap` (`*%`, and `*` with `--release`), `div`, `rem`,
+`wrap` (`*%`, and `*` with `--release`), `div`, `rem` (which
+`jihoo verify` follows for a positive constant divisor, as a quotient and
+a remainder; this format does not yet),
 `shift`, `bits`, `neg`, `bool`, `pointer`, `tag`, `constant` and `length`. A `switch`
 the model does not follow is `(any blocks...)`. Each check ends with
 `(at lo hi)`, the byte range where compile-time evaluation reports it

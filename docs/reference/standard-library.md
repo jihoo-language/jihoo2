@@ -206,13 +206,20 @@ A hash map with open addressing, for keys with `Hash` and `Eq`. `new`,
 ## `Box(T)`
 
 A value on the heap: `Box.new(x)`, `unbox`. Field access, method calls and
-patterns see through it.
+patterns see through it. `b.map(fn(x) { ... })` gives the closure the value
+and keeps its result in the same allocation, so a pass that rewrites a
+tree node by node (`Add(a, b) => Expr.Add(a.map(f), b.map(f))`) reuses
+every node instead of freeing it and allocating another, as a
+reference-counted language does with a cell nothing else refers to. It
+is about 15% faster than `Box.new(f(b.unbox()))` on a tree of a million
+nodes.
 
 ## Modules
 
 | module | |
 |--------|---|
 | `std.iter` | lazy iterator adapters, consumers, slice iteration and `range` |
+| `std.modint` | `Mod(N)`, the integers modulo `N` (`+ - *`, `pow`, `inv`), and `div_euclid`/`rem_euclid`, which round down where `/` and `%` round toward zero |
 | `std.io` | printing and `BufRead`, `StrReader`, `BufReader` for buffered UTF-8 lines |
 | `std.fmt` | `format`, `write`, `print`, `println`, `eprintln` with patterns, and the `Format` trait ([formatting](#formatting)) |
 | `std.float` | exact decimal digits of floats: shortest, fixed and exponent forms |

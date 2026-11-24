@@ -45,5 +45,5 @@ fn main() {
 }
 
 //> 18:16: kept index out of bounds in first (unstated)
-//> 26:33: kept integer overflow in after (argument, call)
-//> 37:20: kept integer overflow in next (argument)
+//> 26:33: kept integer overflow in after (argument, call), known -2^63 + 1..=2^63 + 8
+//> 37:20: kept integer overflow in next (argument), known -2^63 + 1..=2^63

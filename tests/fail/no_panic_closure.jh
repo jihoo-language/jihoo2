@@ -1,0 +1,10 @@
+// A call through a closure value may do anything.
+// verify
+// error: `apply` is `#[no_panic]`, but it may stop the program
+// error: calls a function value, which may do anything
+#[no_panic]
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+    f(x)
+}
+
+fn main() { println(apply(fn(x) { x }, 1)) }

@@ -47,6 +47,8 @@ pub struct Parser {
     lists: Vec(u32)
     separators: Vec(u32)
     clauses: Vec(u32)
+    // Parsing a contract clause, where `a <= b < c` chains.
+    clause: bool
 }
 
 pub fn parse_module(file: u32, sink toks: Vec(Token)) -> Result(Module, Diag) {
@@ -74,7 +76,8 @@ fn parse_with_layout(
     collect: bool
 ) -> Result(FormatModule, Diag) {
     var p = Parser { toks: toks, i: 0, depth: 0, collect_layout: collect,
-        lists: Vec(u32).new(), separators: Vec(u32).new(), clauses: Vec(u32).new() }
+        lists: Vec(u32).new(), separators: Vec(u32).new(), clauses: Vec(u32).new(),
+        clause: false }
     var attrs = Vec(String).new()
     while p.at(Tok.HashBang) {
         p.bump()
@@ -483,11 +486,14 @@ impl Parser {
         }
         var requires = Vec(Expr).new()
         var ensures = Vec(Expr).new()
+        var decreases = Vec(Expr).new()
         loop {
             if self.word("requires") {
-                requires.push(self.expr_ns()?)
+                requires.push(self.clause_expr()?)
             } else if self.word("ensures") {
-                ensures.push(self.expr_ns()?)
+                ensures.push(self.clause_expr()?)
+            } else if decreases.len() == 0 && self.word("decreases") {
+                decreases.push(self.clause_expr()?)
             } else { break }
         }
         let body = if self.at(Tok.LBrace) { Some(self.block()?) } else { None }
@@ -495,7 +501,7 @@ impl Parser {
         if variadic && !is_extern {
             return Err(Diag.new(name_span, "only extern functions can have `...` parameters"))
         }
-        if body.is_none() && (requires.len() > 0 || ensures.len() > 0) {
+        if body.is_none() && (requires.len() > 0 || ensures.len() > 0 || decreases.len() > 0) {
             return Err(Diag.new(name_span, "a function without a body cannot have a contract"))
         }
         if is_extern && body.is_some() {
@@ -516,6 +522,7 @@ impl Parser {
             is_unsafe: is_unsafe
             requires: requires
             ensures: ensures
+            decreases: decreases
         })
     }
 
@@ -534,8 +541,17 @@ impl Parser {
     // its fields.
     fn invariants(inout self) -> Result(Vec(Expr), Diag) {
         var out = Vec(Expr).new()
-        while self.word("invariant") { out.push(self.expr_ns()?) }
+        while self.word("invariant") { out.push(self.clause_expr()?) }
         Ok(out)
+    }
+
+    // A contract clause: an expression in which order comparisons chain,
+    // `0 <= i < n` being `0 <= i && i < n`, as in mathematics.
+    fn clause_expr(inout self) -> Result(Expr, Diag) {
+        self.clause = true
+        let e = self.expr_ns()
+        self.clause = false
+        e
     }
 
     fn param_list(inout self) -> Result((Vec(Param), bool), Diag) {
@@ -846,23 +862,44 @@ impl Parser {
                 }
                 StmtKind.Let(ast.LetStmt { kind: kind, pat: pat, ty: ty, value: value, els: els })
             }
-            _ => {
-                let e = self.expr()?
-                if self.at(Tok.Assign) && !self.nl() {
-                    self.bump()
-                    let v = self.expr()?
-                    StmtKind.Assign(e, v)
-                } else if self.at(Tok.OpAssign) && !self.nl() {
-                    let op = self.toks[self.i].op
-                    self.bump()
-                    let v = self.expr()?
-                    StmtKind.OpAssign(op, e, v)
-                } else {
-                    StmtKind.Expr(e)
-                }
-            }
+            Ident => if self.text() == "prove" && self.starts_clause() {
+                self.bump()
+                StmtKind.Prove(self.clause_expr()?)
+            } else { self.expr_stmt()? }
+            _ => self.expr_stmt()?
         }
         Ok(Stmt { kind: kind, span: start.to(self.prev_span()) })
+    }
+
+    // `prove` followed on its line by what starts a clause: a name, a
+    // number or `-`. `prove(x)` and `prove = 1` use a name `prove`.
+    fn starts_clause(self) -> bool {
+        let next = self.toks[min(self.i + 1, self.toks.len() - 1)]
+        if next.nl_before { return false }
+        match next.tok {
+            Ident | Int | Minus => true
+            _ => false
+        }
+    }
+
+    // An expression statement, or an assignment.
+    fn expr_stmt(inout self) -> Result(StmtKind, Diag) {
+        let kind = {
+            let e = self.expr()?
+            if self.at(Tok.Assign) && !self.nl() {
+                self.bump()
+                let v = self.expr()?
+                StmtKind.Assign(e, v)
+            } else if self.at(Tok.OpAssign) && !self.nl() {
+                let op = self.toks[self.i].op
+                self.bump()
+                let v = self.expr()?
+                StmtKind.OpAssign(op, e, v)
+            } else {
+                StmtKind.Expr(e)
+            }
+        }
+        Ok(kind)
     }
 
     // ---- expressions ----
@@ -955,7 +992,13 @@ impl Parser {
                 match self.binop() {
                     Some((op2, p2)) => {
                         if p2 == prec && op2.is_compare() {
-                            return Err(self.error("comparisons do not chain; use `&&`"))
+                            if !self.clause || !is_order(op) || !is_order(op2) {
+                                return Err(self.error(if self.clause {
+                                    "only `< <= > >=` chain in a contract; use `&&`"
+                                } else { "comparisons do not chain outside contracts; use `&&`" }))
+                            }
+                            lhs = self.chain(op, lhs, rhs, prec, ns)?
+                            continue
                         }
                     }
                     None => {}
@@ -966,6 +1009,38 @@ impl Parser {
         }
         self.depth -= 1
         Ok(lhs)
+    }
+
+    // `a < b <= c ...` in a clause, `b` and `c` read once each, as
+    // `a < b && b <= c && ...`, where `a op b` has just been read.
+    fn chain(
+        inout self,
+        op: Op,
+        sink a: Expr,
+        sink b: Expr,
+        prec: i64,
+        ns: bool
+    ) -> Result(Expr, Diag) {
+        var mid = b.clone()
+        let sp = a.span.to(b.span)
+        var all = Expr { kind: ExprKind.Binary(op, Box.new(a), Box.new(b)), span: sp }
+        loop {
+            let Some((o, p)) = self.binop() else { break }
+            if p != prec || !o.is_compare() { break }
+            if !is_order(o) { return Err(self.error(
+                "only `< <= > >=` chain in a contract; use `&&`"
+            )) }
+            self.bump()
+            let next = self.expr_bp(prec, ns)?
+            let csp = mid.span.to(next.span)
+            let cmp = Expr {
+                kind: ExprKind.Binary(o, Box.new(mid), Box.new(next.clone())), span: csp
+            }
+            let asp = all.span.to(csp)
+            all = Expr { kind: ExprKind.Binary(Op.LogAnd, Box.new(all), Box.new(cmp)), span: asp }
+            mid = next
+        }
+        Ok(all)
     }
 
     fn range_end(self) -> bool {
@@ -1216,8 +1291,10 @@ impl Parser {
                 self.bump()
                 let c = self.expr_ns()?
                 let inv = self.invariants()?
+                var dec = Vec(Expr).new()
+                if self.word("decreases") { dec.push(self.clause_expr()?) }
                 let b = self.block()?
-                ExprKind.While(Box.new(c), inv, b)
+                ExprKind.While(Box.new(c), inv, dec, b)
             }
             Loop => {
                 self.bump()
@@ -1574,3 +1651,5 @@ fn one(s: str) -> Vec(String) {
     v.push(s.to_string())
     v
 }
+
+fn is_order(op: Op) -> bool { op == Op.Lt || op == Op.Le || op == Op.Gt || op == Op.Ge }

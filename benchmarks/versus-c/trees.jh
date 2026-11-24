@@ -1,0 +1,38 @@
+import std.fmt
+
+// A node is one allocation, as in C, whether or not it has children.
+enum Tree {
+    Leaf
+    Node(Box(Tree), Box(Tree))
+}
+
+fn make(d: i64) -> Box(Tree) {
+    if d == 0 { return Box.new(Tree.Leaf) }
+    Box.new(Tree.Node(make(d - 1), make(d - 1)))
+}
+
+fn check(t: Tree) -> i64 {
+    match t {
+        Node(l, r) => 1 + check(l) + check(r)
+        Leaf => 1
+    }
+}
+
+fn main() {
+    let max = 20
+    let s = make(max + 1)
+    fmt.println("stretch tree of depth {} check: {}", (max + 1, check(s)))
+    let long = make(max)
+    var d = 4
+    while d <= max {
+        let n = 1 << (max - d + 4)
+        var acc = 0
+        for _ in 0..n {
+            let t = make(d)
+            acc += check(t)
+        }
+        fmt.println("{} trees of depth {} check: {}", (n, d, acc))
+        d += 2
+    }
+    fmt.println("long lived tree of depth {} check: {}", (max, check(long)))
+}

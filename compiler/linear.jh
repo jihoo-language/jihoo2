@@ -104,9 +104,26 @@ pub struct Goal {
 }
 
 // One non-negative weight per fact, then one for the negated claim
-// `-claim - 1 >= 0`.
+// `-claim - 1 >= 0`, then one per cut.
 pub struct Certificate {
     pub weights: Vec(i128)
+    pub cuts: Vec(Cut)
+}
+
+// A fact derived from the earlier rows (the facts, the negated claim and
+// the cuts before it): their weighted sum, `sum(k_v * x_v) + c >= 0`, has
+// every `k_v` divisible by `divisor`, so over the integers
+// `sum(k_v / divisor * x_v) + floor(c / divisor) >= 0` (a Chvátal-Gomory
+// cut). It is what makes `2x >= 1` and `2x <= 1` contradict.
+pub struct Cut {
+    pub weights: Vec(i128)
+    pub divisor: i128
+}
+
+impl Certificate {
+    pub fn of(sink weights: Vec(i128)) -> Certificate {
+        Certificate { weights, cuts: Vec(Cut).new() }
+    }
 }
 
 // The generator and the provers keep their numbers within these bounds,
@@ -116,6 +133,7 @@ pub struct Certificate {
 pub const MAX_VALUE: i128 = 1 << 65
 pub const MAX_WEIGHT: i128 = 1 << 50
 pub const MAX_FACTS: i64 = 2047
+pub const MAX_CUTS: i64 = 64
 
 // A form is well made: its terms are by increasing variable and none is
 // zero. `add_scaled` relies on it, so the checker checks it of its inputs.
@@ -133,52 +151,46 @@ fn sorted(x: Lin) -> bool {
 }
 
 // Sound because an integer point satisfying the facts and the negated claim
-// makes the weighted sum non-negative, while the sum is a negative constant.
-// Every sum is exact: one that does not fit an i128 rejects the
-// certificate. Returns the number of facts used.
+// satisfies every cut (see `Cut`), and so makes the final weighted sum
+// non-negative, while the sum is a negative constant. Every sum is exact:
+// one that does not fit an i128 rejects the certificate. Returns the
+// number of rows used.
 pub fn check(g: Goal, c: Certificate) -> Result(i64, str) {
     let n = g.facts.len()
     if n > MAX_FACTS { return Err("too many facts to check") }
-    if c.weights.len() != n + 1 {
-        return Err("a certificate needs one weight per fact and one for the claim")
+    if c.cuts.len() > MAX_CUTS { return Err("too many cuts to check") }
+    if c.weights.len() != n + 1 + c.cuts.len() {
+        return Err("a certificate needs one weight per fact, one for the claim and one per cut")
     }
     var i = 0
     while i < n
-        invariant 0 <= i && c.weights.len() == n + 1 && g.facts.len() == n
+        invariant 0 <= i && g.facts.len() == n
     {
         if !sorted(g.facts[i]) { return Err("a fact is not a well-made form") }
         i += 1
     }
     if !sorted(g.claim) { return Err("the claim is not a well-made form") }
-    i = 0
-    while i < n + 1
-        invariant 0 <= i && c.weights.len() == n + 1 && g.facts.len() == n
-    {
-        if c.weights[i] < 0 { return Err("negative weight") }
-        i += 1
-    }
     // The negated claim, -claim - 1 >= 0.
     let Some(negated) = Lin.num(-1).add_scaled(g.claim, -1) else {
         return Err("the claim's numbers are too large to check")
     }
-    let Some(first) = Lin.num(0).add_scaled(negated, c.weights[n]) else {
-        return Err("the weighted sum does not fit an i128")
-    }
-    var sum = first
-    i = 0
-    while i < n
-        invariant 0 <= i && c.weights.len() == n + 1 && g.facts.len() == n
+    var derived = Vec(Lin).new()
+    var j = 0
+    while j < c.cuts.len()
+        invariant 0 <= j
     {
-        // Both are read on every pass, even when the fact is skipped.
-        let f = g.facts[i]
-        let w = c.weights[i]
-        if w != 0 {
-            let Some(s) = sum.add_scaled(f, w) else {
-                return Err("the weighted sum does not fit an i128")
-            }
-            sum = s
+        let cut = c.cuts[j]
+        let rows = derived.as_slice()
+        let Ok(sum) = weighted(g.facts.as_slice(), negated, rows, cut.weights.as_slice()) else {
+            return Err("a cut's weighted sum is not well made")
         }
-        i += 1
+        let Ok(next) = divide(sum, cut.divisor) else { return Err("a cut does not divide") }
+        derived.push(next)
+        j += 1
+    }
+    let rows = derived.as_slice()
+    let Ok(sum) = weighted(g.facts.as_slice(), negated, rows, c.weights.as_slice()) else {
+        return Err("the weighted sum is not well made")
     }
     if !sum.is_constant() { return Err("the weighted facts do not cancel") }
     if sum.constant >= 0 { return Err("the weighted facts are not contradictory") }
@@ -193,10 +205,91 @@ pub fn check(g: Goal, c: Certificate) -> Result(i64, str) {
     Ok(used)
 }
 
-fn weights(ws: [i128]) -> Certificate {
+// The weighted sum of the rows: the facts, the negated claim, then the
+// cuts derived so far. The weights are non-negative, one per row.
+fn weighted(facts: [Lin], negated: Lin, cuts: [Lin], ws: [i128]) -> Result(Lin, str) {
+    let n = facts.len
+    if n > MAX_FACTS || cuts.len > MAX_CUTS || ws.len != n + 1 + cuts.len {
+        return Err("a cut needs one weight per row before it")
+    }
+    var sum = Lin.num(0)
+    var i = 0
+    while i < ws.len
+        invariant 0 <= i && ws.len == n + 1 + cuts.len && facts.len == n
+    {
+        let w = ws[i]
+        if w < 0 { return Err("negative weight") }
+        if w != 0 {
+            let big = "the weighted sum does not fit an i128"
+            if i < n {
+                let Some(x) = sum.add_scaled(facts[i], w) else { return Err(big) }
+                sum = x
+            } else if i == n {
+                let Some(x) = sum.add_scaled(negated, w) else { return Err(big) }
+                sum = x
+            } else {
+                let Some(x) = sum.add_scaled(cuts[i - n - 1], w) else { return Err(big) }
+                sum = x
+            }
+        }
+        i += 1
+    }
+    Ok(sum)
+}
+
+// `sum >= 0` with every coefficient divisible by `d` gives
+// `sum / d >= 0` with the constant rounded down: the terms take only
+// multiples of `d`, so the constant's remainder cannot help them.
+fn divide(sum: Lin, d: i128) -> Result(Lin, str) {
+    if d < 1 { return Err("a cut's divisor is not positive") }
+    var terms = Vec((i64, i128)).with_capacity(sum.terms.len())
+    var i = 0
+    while i < sum.terms.len()
+        invariant 0 <= i
+    {
+        let t = sum.terms[i]
+        if t.1 % d != 0 { return Err("a cut's terms are not divisible by its divisor") }
+        terms.push((t.0, t.1 / d))
+        i += 1
+    }
+    var q = sum.constant / d
+    if sum.constant % d < 0 {
+        let Some(r) = add(q, -1) else { return Err("a cut's constant does not fit an i128") }
+        q = r
+    }
+    Ok(Lin { terms, constant: q })
+}
+
+fn vector(ws: [i128]) -> Vec(i128) {
     var w = Vec(i128).new()
     for x in ws { w.push(x) }
-    Certificate { weights: w }
+    w
+}
+
+fn weights(ws: [i128]) -> Certificate { Certificate.of(vector(ws)) }
+
+#[test]
+fn checks_a_cut() {
+    // 2x - 1 >= 0 and -2x + 1 >= 0 hold for x = 1/2 only, so no integer:
+    // the first divided by 2 is x - 1 >= 0 (the constant rounded down),
+    // and 1 * (x - 1) + 1/2 * (-2x + 1) = -1/2, doubled -2 + 1 = -1.
+    var facts = Vec(Lin).new()
+    facts.push(Lin.num(-1).add_scaled(Lin.of(0), 2).unwrap())
+    facts.push(Lin.num(1).add_scaled(Lin.of(0), -2).unwrap())
+    let g = Goal { facts, claim: Lin.num(0) }
+    assert(check(g, weights([1, 1, 0])).is_err(), "no rational contradiction")
+    var cuts = Vec(Cut).new()
+    cuts.push(Cut { weights: vector([1, 0, 0]), divisor: 2 })
+    let c = Certificate { weights: vector([0, 1, 0, 2]), cuts }
+    assert(check(g, c).is_ok(), "the cut contradicts")
+    var bad = Vec(Cut).new()
+    bad.push(Cut { weights: vector([1, 0, 0]), divisor: 4 })
+    let d = Certificate { weights: vector([0, 1, 0, 2]), cuts: bad }
+    assert(check(g, d).is_err(), "terms not divisible")
+    var late = Vec(Cut).new()
+    late.push(Cut { weights: vector([1, 0, 0, 1]), divisor: 2 })
+    let e = Certificate { weights: vector([0, 1, 0, 2]), cuts: late }
+    assert(check(g, e).is_err(), "a cut cannot use itself")
 }
 
 #[test]

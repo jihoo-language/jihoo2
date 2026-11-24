@@ -102,7 +102,7 @@ jihoo run tests/runner.jh                    # the tests
 | `bootstrap` | checksum-pinned release archives used as the self-hosting seed |
 | `tests/run`, `tests/fail` | programs and their expected output or error; `tests/runner.jh` runs them |
 | `examples` | example programs, which the website shows |
-| `benchmarks` | backend and iterator fusion benchmarks, with recorded measurements |
+| `benchmarks` | backend, iterator fusion and [versus C](benchmarks/versus-c/README.md) benchmarks, with recorded measurements |
 | `docs` | the documentation, one Markdown file per page |
 | `site` | the website ([site/README.md](site/README.md)) |
 
@@ -183,8 +183,16 @@ that a small trusted checker accepts. Every build verifies: it removes
 the proved checks, and an unproved contract is a compile error
 (`--no-verify` keeps every check). It runs on the compiler's own source
 (`jihoo verify compiler/main.jh`), and CI fails if it proves fewer; no
-check is left in the trusted checker itself. The verifier is not proved
-sound.
+check is left in the trusted checker itself. Certificates may round over
+the integers (Chvátal–Gomory cuts), `/` and `%` by constants are followed,
+clauses chain order comparisons (`0 <= lo <= i < xs.len`), and a kept check
+says what is known of its value (`known 0..=2^33 - 2`). The verifier is
+not proved sound; `--audit-proved` keeps the checks it proves, failing as
+verifier bugs, to test it on real inputs. `#[no_alloc]` and `#[no_panic]`
+are checked through every call, after the proved checks are gone.
+`std.modint` has the integers modulo `N`, and `Box.map` rewrites a value
+in its own allocation. [Benchmarks against C](benchmarks/versus-c/README.md)
+compare with clang and GCC on the programs Ruach and Shalem use.
 
 Buffered UTF-8 input (`std.io.BufRead`, `StrReader`, `BufReader`) and
 Unicode scalar decoding/iteration (`std.utf8`) support streaming parsers.

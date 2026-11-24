@@ -686,6 +686,35 @@ impl Tests {
         Ok(())
     }
 
+    // `--audit-proved` keeps the checks verification proves, with the
+    // message of a verifier bug: tests/verify/audit.jh has two, an index
+    // and an overflow check, in the IR it writes, and none without it.
+    fn audited(self) -> Result((), String) {
+        let ll = self.temp("audited.ll")
+        let path = "tests/verify/audit.jh"
+        for audit in [true, false] {
+            let o = if audit {
+                exec(self.compiler.as_str(), ["emit-llvm", "--audit-proved", path, "-o", ll.as_str()])
+            } else {
+                exec(self.compiler.as_str(), ["emit-llvm", path, "-o", ll.as_str()])
+            }
+            if !o.status.success() { return Err("emit-llvm failed:\n" + o.stderr.as_str()) }
+            let ir = read_file(ll.as_str())?
+            var n = 0
+            for line in ir.as_str().lines() {
+                if line.contains("a verifier bug") { n += 1 }
+            }
+            let want = if audit { 2 } else { 0 }
+            if n != want {
+                return Err(
+                    "expected " + want.to_string() + " audited checks, found " + n.to_string() +
+                        (if audit { "" } else { " without --audit-proved" })
+                )
+            }
+        }
+        Ok(())
+    }
+
     // `jihoo verify --all` on the file: its `//>` lines are what it says
     // of the checks in the file itself, without the file's path.
     fn verify_one(self, path: str) -> Result((), String) {
@@ -1541,6 +1570,8 @@ fn main() -> i32 {
             t.check("verify: the compiler verifies itself", sv)
             let e = t.erased()
             t.check("verify: proved checks are absent from the IR", e)
+            let au = t.audited()
+            t.check("verify: --audit-proved keeps proved checks as verifier bugs", au)
             // `+ - *` wrap in `--release` builds, and std's and the
             // compiler's contracts must hold there too.
             let o = exec(t.compiler.as_str(), ["verify", "--release", "compiler/main.jh"])

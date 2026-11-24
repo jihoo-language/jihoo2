@@ -447,6 +447,15 @@ and moves into the compiler once its trust boundary is stated.
    `linear.jh` is kept. The compiler proves 1,145 of its bounds and
    overflow checks, and its contracts and `std`'s hold in both overflow
    modes.
+   Done: integers and division
+   ([design](verification.md#open-questions)). Certificates may list
+   Chvátal–Gomory cuts, which the checker checks (still with no check
+   kept in it), so parity and rounding goals are no longer lost, and `/`
+   and `%` by a positive constant are a quotient and a remainder instead
+   of opaque values, which proves a binary search's midpoint in bounds
+   (`tests/verify/division.jh`, the approach of the sibling Shalem's
+   prover). The compiler proves 1,239 of its bounds and overflow checks
+   (1,228 without them).
 7. The releases. A 0.4.x release that parses contracts lets `lib/std`
    state its contracts (step 5) before 0.5.0, since the seed compiles
    `lib/std`; contracts' syntax is fixed from then on. 0.5.0 comes when
@@ -470,6 +479,47 @@ unproved ones remain. `tests/fail` has a case for every rejected contract
 entry or is not preserved, an off-by-one loop). The generator's
 interpreter tests run in CI on both targets, and the trusted parts and their
 sizes are listed in the design.
+
+### 7. Ideas from the sibling languages
+
+The sibling repositories (Shalem, Ruach, Tekel, Aporia, Tohu, ASL) solve
+some of jihoo's problems from other directions. Done, each with its tests:
+
+- From Shalem: integer cuts in certificates and constant division in the
+  model ([design](verification.md#open-questions)); what is known of a
+  kept check's value; chained comparisons in clauses; `std.modint`.
+- From Ruach: `Box.map`, reuse of an allocation that ownership already
+  says nothing else refers to, as a library function rather than a
+  compiler pass. Ruach's and Shalem's C benchmarks, compared with clang
+  and GCC ([versus C](../../benchmarks/versus-c/README.md)).
+- From Tekel and Aporia, which audit every run against what was claimed
+  of it: `--audit-proved`.
+- `#[no_alloc]` and `#[no_panic]`
+  ([contracts](../language/contracts.md#functions-that-do-not-allocate-or-panic)),
+  a first step toward Tekel's costs in types: a fact about everything a
+  function calls, checked over the call graph after verification.
+
+Next, in order:
+
+1. Done: `prove p` statements and `decreases` on `while` loops
+   ([contracts](../language/contracts.md#steps-and-termination)), with
+   `/` and `%` by a variable followed (the result has the sign of what is
+   divided, and a remainder is smaller than the divisor), so Euclid's
+   loop is proved to end. The compiler proves 1,262 of its bounds and
+   overflow checks. Done: `decreases` on functions, proved at each call
+   to itself against the parameters' values on entry. Left: an outer
+   loop's `decreases` across an inner loop's head, which needs the
+   measure's value at the start of the iteration as a variable, and recursion
+   through other functions. Done: measures that are tuples, compared in
+   order, for loops and functions (Ackermann's function is proved to end).
+2. Done: `/` and `%` by constants in clauses (`invariant i % 2 == 0`).
+   A quotient is a variable of the function's model (`SpecVar.Quot`,
+   `Contract.quots`) that each use of the clause defines anew with the
+   facts of division (`vc.Fact.defs`), so the cuts prove loops that step
+   by two (`tests/verify/clause_division.jh`).
+3. Compile-time cost bounds: Tekel's amortized analysis over the MIR
+   interpreter's steps, so that `comptime` work states its budget and a
+   bound is known before evaluation starts.
 
 ## 0.1: the rewrite
 

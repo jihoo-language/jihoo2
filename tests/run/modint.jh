@@ -1,0 +1,47 @@
+// Fibonacci numbers modulo a prime by squaring a 2x2 matrix of `Mod(P)`:
+// F(10^18) in 60 squarings.
+import std.modint
+
+type F = modint.Mod(998244353)
+
+struct Mat {
+    a: F
+    b: F
+    c: F
+    d: F
+}
+
+impl Mat {
+    fn mul(self, y: Mat) -> Mat {
+        Mat {
+            a: self.a * y.a + self.b * y.c, b: self.a * y.b + self.b * y.d,
+            c: self.c * y.a + self.d * y.c, d: self.c * y.b + self.d * y.d
+        }
+    }
+}
+
+fn fib(n: u64) -> F {
+    var result = Mat { a: F.one(), b: F.zero(), c: F.zero(), d: F.one() }
+    var base = Mat { a: F.one(), b: F.one(), c: F.one(), d: F.zero() }
+    var k = n
+    while k > 0 {
+        if k % 2 == 1 { result = result * base }
+        base = base * base
+        k = k / 2
+    }
+    result.b
+}
+
+fn main() {
+    println(fib(90))
+    println(fib(1000000000000000000))
+    println(F.of(3).inv().unwrap())
+    println(modint.div_euclid(-7, 2))
+    println(modint.rem_euclid(-7, 2))
+}
+
+//> 532862916
+//> 23849548
+//> 332748118
+//> -4
+//> 1

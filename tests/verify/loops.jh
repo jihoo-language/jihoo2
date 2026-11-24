@@ -35,7 +35,7 @@ fn main() {
 //> 28:18: proved index out of bounds in main
 //> 28:18: proved integer overflow in main
 //> 9:14: proved index out of bounds in sum
-//> 9:9: kept integer overflow in sum (loop, load)
+//> 9:9: kept integer overflow in sum (loop, load), known -2^64..=2^64 - 2
 //> 10:9: proved integer overflow in sum
-//> 19:13: kept index out of bounds in last (loop)
+//> 19:13: kept index out of bounds in last (loop), known 0..=2^63 - 1
 //> 20:9: proved integer overflow in last

@@ -1,0 +1,10 @@
+// A clause divides only by a constant: the verifier's arithmetic is
+// linear.
+// error: a contract divides only by a constant from 1 to 2^32
+fn f(x: i64, k: i64) -> i64
+    requires x / k > 0
+{
+    x
+}
+
+fn main() { println(f(4, 2)) }

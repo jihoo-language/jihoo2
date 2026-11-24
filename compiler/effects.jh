@@ -1,0 +1,245 @@
+// `#[no_alloc]` and `#[no_panic]`: a function, and everything it can
+// call, does not allocate, or cannot stop the program. Checked on the
+// program as it is compiled, after verification removed the checks it
+// proved, so a function whose bounds and overflow checks are all proved
+// can be `#[no_panic]`. A call through a pointer or a closure value, or a
+// drop of a `dyn` value, may do anything, and so breaks both.
+
+import diag
+import lex
+import mir
+import types
+
+type Types = types.Types
+
+pub const NO_ALLOC: i64 = 0
+pub const NO_PANIC: i64 = 1
+
+// Why a function has an effect: a callee that has it (`callee`, called at
+// `span`), or a reason of its own (`what`, at `span`).
+struct Why {
+    callee: i64
+    what: String
+    span: diag.Span
+}
+
+fn own(what: str, span: diag.Span) -> Option(Why) {
+    Some(Why { callee: -1, what: what.to_string(), span })
+}
+
+// The allocator: C's, or the standard library's in each profile.
+fn allocator(f: mir.Function) -> bool {
+    match f.linkage {
+        Extern => f.symbol == "malloc" || f.symbol == "calloc" || f.symbol == "realloc" ||
+            f.symbol == "aligned_alloc" || f.symbol == "posix_memalign"
+        _ => f.symbol.as_str().starts_with("std.sys.alloc_bytes.") ||
+            f.symbol.as_str().starts_with("std.sys.realloc_bytes.")
+    }
+}
+
+// The effect of one function's own code, and its direct callees with the
+// spans of the calls.
+fn direct(
+    p: mir.Program,
+    i: i64,
+    kind: i64,
+    inout callees: Vec((i64, diag.Span))
+) -> Option(Why) {
+    let f = p.fns[i]
+    if kind == NO_ALLOC && allocator(f) { return own("allocates", f.span) }
+    let Some(b) = f.body else {
+        // A C function: what it does is not known, except that it does not
+        // return when its type says so.
+        if kind == NO_PANIC && f.sig.ret == types.NEVER { return own("never returns", f.span) }
+        return None
+    }
+    var why: Option(Why) = None
+    for blk in b.blocks {
+        for st in blk.stmts {
+            match st {
+                // A drop runs the `Drop` impls of the value's type and its parts.
+                Drop(place, span) => {
+                    var seen = Vec(u32).new()
+                    var fs = Vec(i64).new()
+                    let known = match place_type(p.types, b, place) {
+                        Some(t) => drops(p, t, &seen, &fs)
+                        None => false
+                    }
+                    if !known && why.is_none() {
+                        why = own("drops a value whose destructor is not known here", span)
+                    }
+                    for x in fs { callees.push((x, span)) }
+                }
+                Assign(_, rv, span) => if kind == NO_PANIC && why.is_none() {
+                    match rv {
+                        Bin(op, _, y) => {
+                            let over = p.checked && (
+                                op == lex.Op.Add || op == lex.Op.Sub || op == lex.Op.Mul
+                            )
+                            let div = (op == lex.Op.Div || op == lex.Op.Rem) && !nonzero(y)
+                            if over {
+                                why = own("has an overflow check", span)
+                            } else if div { why = own("may divide by zero", span) }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        match blk.term {
+            Assert(_, msg, _, span) => if kind == NO_PANIC && why.is_none() {
+                why = own(("has a check (" + msg.as_str() + ")").as_str(), span)
+            }
+            Call(callee, _, _, _, span) => match callee {
+                Fn(c) => callees.push((c as i64, span))
+                Ptr(_) | Closure(_) => if why.is_none() {
+                    why = own("calls a function value, which may do anything", span)
+                }
+                Intrinsic(x) => match x {
+                    Trap => if kind == NO_PANIC && why.is_none() { why = own("traps", span) }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    why
+}
+
+// The `Drop` impls that dropping a value of type `t` runs; false when one
+// is not known (a `dyn` value's).
+fn drops(p: mir.Program, t: u32, inout seen: Vec(u32), inout out: Vec(i64)) -> bool {
+    for x in seen {
+        if x == t { return true }
+    }
+    seen.push(t)
+    match p.drop_impls.get(t) {
+        Some(f) => out.push(f as i64)
+        None => {}
+    }
+    match p.types.kind(t).clone() {
+        Dyn(_) | DynFn(_) => return false
+        Tuple(ts) => {
+            for x in ts {
+                if !drops(p, x, &seen, &out) { return false }
+            }
+        }
+        Lambda(_, e, _) => return drops(p, e, &seen, &out)
+        Array(e, n) => if n > 0 { return drops(p, e, &seen, &out) }
+        Adt(_) => match p.types.variants(t) {
+            Some(vs) => {
+                for v in vs {
+                    for x in v.fields {
+                        if !drops(p, x, &seen, &out) { return false }
+                    }
+                }
+            }
+            None => {
+                for x in p.types.field_tys(t) {
+                    if !drops(p, x, &seen, &out) { return false }
+                }
+            }
+        }
+        _ => {}
+    }
+    true
+}
+
+// The type of a place through fields and borrows; None otherwise.
+fn place_type(t: Types, b: mir.Body, pl: mir.Place) -> Option(u32) {
+    var ty = b.locals[pl.local as i64].ty
+    for x in pl.proj {
+        match x {
+            Deref => match t.pointee(ty) {
+                Some(y) => ty = y
+                None => return None
+            }
+            Field(k) => {
+                let fs = t.field_tys(ty)
+                if (k as i64) >= fs.len() { return None }
+                ty = fs[k as i64]
+            }
+            _ => return None
+        }
+    }
+    Some(ty)
+}
+
+fn nonzero(o: mir.Operand) -> bool {
+    match o {
+        Const(c) => match c {
+            Int(v, _) => v != 0
+            _ => false
+        }
+        _ => false
+    }
+}
+
+// The marked functions that have the effect they rule out, as errors,
+// each with the chain of calls that leads to it.
+// `panics`: check `#[no_panic]` too (not with `--no-verify`, which keeps
+// every check).
+pub fn check(p: mir.Program, panics: bool) -> Vec(diag.Diag) {
+    var out = Vec(diag.Diag).new()
+    for kind in [NO_ALLOC, NO_PANIC] {
+        if kind == NO_PANIC && !panics { continue }
+        var marked = false
+        for e in p.effects {
+            if e.1 == kind { marked = true }
+        }
+        if !marked { continue }
+        let n = p.fns.len()
+        var why = Vec(Option(Why)).with_capacity(n)
+        var calls = Vec(Vec((i64, diag.Span))).with_capacity(n)
+        for i in 0..n {
+            var cs = Vec((i64, diag.Span)).new()
+            why.push(direct(p, i, kind, &cs))
+            calls.push(cs)
+        }
+        // A caller of a function with the effect has it, to a fixed point.
+        var changed = true
+        while changed {
+            changed = false
+            for i in 0..n {
+                if why[i].is_some() { continue }
+                for c in calls[i] {
+                    if why[c.0].is_some() {
+                        why[i] = Some(Why { callee: c.0, what: String.new(), span: c.1 })
+                        changed = true
+                        break
+                    }
+                }
+            }
+        }
+        let attr = if kind == NO_ALLOC { "#[no_alloc]" } else { "#[no_panic]" }
+        let effect = if kind == NO_ALLOC { "it may allocate" } else { "it may stop the program" }
+        for e in p.effects {
+            if e.1 != kind { continue }
+            let i = e.0 as i64
+            if why[i].is_none() { continue }
+            var d = diag.Diag.new(
+                p.fns[i].span,
+                ("`" + p.fns[i].name.as_str() + "` is `" + attr + "`, but " + effect).as_str()
+            )
+            // The chain of calls to the reason, a few steps of it.
+            var at = i
+            var steps = 0
+            loop {
+                let Some(w) = why[at] else { break }
+                let name = "`" + p.fns[at].name.as_str() + "`"
+                if w.callee < 0 {
+                    d = d.note(Some(w.span), (name + " " + w.what.as_str()).as_str())
+                    break
+                }
+                let callee = "`" + p.fns[w.callee].name.as_str() + "`"
+                d = d.note(Some(w.span), (name + " calls " + callee.as_str()).as_str())
+                at = w.callee
+                steps += 1
+                if steps >= 8 { break }
+            }
+            out.push(d)
+        }
+    }
+    out
+}

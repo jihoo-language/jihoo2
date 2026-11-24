@@ -84,14 +84,14 @@ fn main() {
 }
 
 //> 80:13: kept integer overflow in main (call)
-//> 82:13: kept integer overflow in main (call)
+//> 82:13: kept integer overflow in main (call), known -2^64..=2^64 - 2
 //> 24:9: proved integer overflow in Buf.bump
 //> 29:13: kept panic in Buf.at (argument)
-//> 31:9: kept index out of bounds in Buf.at (argument)
-//> 59:9: kept integer overflow in sum (loop, call)
+//> 31:9: kept index out of bounds in Buf.at (argument), known 0..=2^63 - 1
+//> 59:9: kept integer overflow in sum (loop, call), known -2^64..=2^64 - 2
 //> 60:9: proved integer overflow in sum
 //> 59:14: proved index out of bounds in sum
 //> 66:5: kept index out of bounds in off (argument, call)
-//> 71:13: kept integer overflow in differ (argument)
+//> 71:13: kept integer overflow in differ (argument), known -2^63 + 1..=2^63
 //> 73:9: proved panic in differ
 //> 48:13: unproved `ensures` in wrong

@@ -1,0 +1,18 @@
+// `#[no_alloc]` covers everything a function calls: the error follows the
+// calls to the allocator.
+// verify
+// error: `wrapped` is `#[no_alloc]`, but it may allocate
+// error: `helper` calls `Vec(i64).push`
+// error: `alloc_bytes` allocates
+fn helper(n: i64) -> Vec(i64) {
+    var v = Vec(i64).new()
+    v.push(n)
+    v
+}
+
+#[no_alloc]
+fn wrapped(n: i64) -> i64 {
+    helper(n).len()
+}
+
+fn main() { println(wrapped(1)) }

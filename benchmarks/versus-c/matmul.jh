@@ -1,0 +1,23 @@
+import std.fmt
+
+fn main() {
+    let n = 1000
+    var a = Vec(f64).filled(n * n, 0.0)
+    var b = Vec(f64).filled(n * n, 0.0)
+    var c = Vec(f64).filled(n * n, 0.0)
+    for i in 0..n * n {
+        a[i] = (i % 7) as f64
+        b[i] = (i % 5) as f64
+    }
+    for i in 0..n {
+        for k in 0..n {
+            let aik = a[i * n + k]
+            for j in 0..n {
+                c[i * n + j] = c[i * n + j] + aik * b[k * n + j]
+            }
+        }
+    }
+    var tr = 0.0
+    for i in 0..n { tr = tr + c[i * n + i] }
+    fmt.println("{:.1}", (tr,))
+}

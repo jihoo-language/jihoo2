@@ -1,0 +1,26 @@
+// An outer loop's iteration that passes an inner loop's head reaches its
+// own head from there, where the measure's value when the iteration began
+// is not known: not proved yet.
+// verify
+// error: unproved `decreases` in tri
+fn tri(n: i64) -> i64 {
+    var s = 0
+    var i = 0
+    while i < n
+        invariant 0 <= i
+        decreases n - i
+    {
+        var j = 0
+        while j < i
+            invariant 0 <= j
+            decreases i - j
+        {
+            s +%= 1
+            j += 1
+        }
+        i += 1
+    }
+    s
+}
+
+fn main() { println(tri(4)) }

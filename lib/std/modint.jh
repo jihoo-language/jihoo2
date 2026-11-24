@@ -1,0 +1,146 @@
+// Integers modulo a constant, and Euclidean division.
+//
+// `Mod(N)` is the ring of integers modulo `N`, for 2 <= N < 2^63: `+ - *`
+// stay in the ring, `pow` raises to a power by squaring, and `inv` is the
+// inverse of a unit. An integer goes in by reduction (`Mod(N).of`, the map
+// from the integers onto the ring), and `value` is its representative in
+// `0..N`. The idea and the bounds are those of Shalem's `Z/n`.
+
+// The representative, always in `0..N`.
+pub struct Mod(N: u64) {
+    v: u64
+}
+
+impl(N: u64) Mod(N) {
+    // `x` reduced modulo N; a negative `x` goes to `N - |x| mod N`.
+    pub fn of(x: i64) -> Mod(N) {
+        let n = N as i128
+        Mod(N) { v: rem_euclid128(x as i128, n) as u64 }
+    }
+
+    pub fn zero() -> Mod(N) { Mod(N) { v: 0 } }
+    pub fn one() -> Mod(N) { Mod(N) { v: 1 } }
+
+    pub fn value(self) -> u64 { self.v }
+
+    pub fn add(self, o: Mod(N)) -> Mod(N) {
+        let s = self.v as u128 + o.v as u128
+        Mod(N) { v: (s % N as u128) as u64 }
+    }
+
+    pub fn sub(self, o: Mod(N)) -> Mod(N) {
+        let s = self.v as u128 + N as u128 - o.v as u128
+        Mod(N) { v: (s % N as u128) as u64 }
+    }
+
+    pub fn mul(self, o: Mod(N)) -> Mod(N) {
+        let p = self.v as u128 * o.v as u128
+        Mod(N) { v: (p % N as u128) as u64 }
+    }
+
+    pub fn neg(self) -> Mod(N) { Mod(N).zero() - self }
+
+    // self^k, by squaring: about 2 log2(k) products.
+    pub fn pow(self, k: u64) -> Mod(N) {
+        var result = Mod(N).one()
+        var base = self
+        var e = k
+        while e > 0 {
+            if e % 2 == 1 { result = result * base }
+            base = base * base
+            e = e / 2
+        }
+        result
+    }
+
+    // The `y` with `self * y == 1`, when there is one (when the value and
+    // N have no common factor).
+    pub fn inv(self) -> Option(Mod(N)) {
+        // Extended Euclid on (v, N): r = s * v (mod N) throughout.
+        var r0 = N as i128
+        var r1 = self.v as i128
+        var s0: i128 = 0
+        var s1: i128 = 1
+        while r1 != 0 {
+            let q = r0 / r1
+            let r2 = r0 - q * r1
+            r0 = r1
+            r1 = r2
+            let s2 = s0 - q * s1
+            s0 = s1
+            s1 = s2
+        }
+        if r0 != 1 { return None }
+        Some(Mod(N) { v: rem_euclid128(s0, N as i128) as u64 })
+    }
+}
+
+impl(N: u64) Eq for Mod(N) {
+    fn eq(self, o: Mod(N)) -> bool { self.v == o.v }
+}
+
+impl(N: u64) Show for Mod(N) {
+    fn show(self, inout out: String) { self.v.show(&out) }
+}
+
+// Division that rounds down, as `/` does for a positive divisor only:
+// `div_euclid(-7, 2)` is -4 and `rem_euclid(-7, 2)` is 1, with
+// `a == b * div_euclid(a, b) + rem_euclid(a, b)` and
+// `0 <= rem_euclid(a, b) < |b|`. `/` and `%` round toward zero.
+pub fn div_euclid(a: i64, b: i64) -> i64 {
+    let q = a / b
+    if a % b < 0 {
+        if b > 0 { q - 1 } else { q + 1 }
+    } else { q }
+}
+
+pub fn rem_euclid(a: i64, b: i64) -> i64 {
+    let r = a % b
+    if r < 0 {
+        if b > 0 { r + b } else { r - b }
+    } else { r }
+}
+
+fn rem_euclid128(a: i128, b: i128) -> i128 {
+    let r = a % b
+    if r < 0 { r + b } else { r }
+}
+
+type F7 = Mod(7)
+type P = Mod(998244353)
+
+#[test]
+fn ring() {
+    let a = F7.of(5)
+    let b = F7.of(4)
+    assert((a + b).value() == 2, "5 + 4 = 2 mod 7")
+    assert((b - a).value() == 6, "4 - 5 = 6 mod 7")
+    assert((a * b).value() == 6, "5 * 4 = 6 mod 7")
+    assert(F7.of(-1).value() == 6, "-1 reduces to 6")
+    assert(a.neg().value() == 2, "-5 = 2 mod 7")
+    assert(a == F7.of(12), "5 = 12 mod 7")
+    assert(a.pow(6) == F7.one(), "Fermat")
+}
+
+#[test]
+fn inverses() {
+    for x in 1..7 {
+        let a = F7.of(x)
+        assert(a * a.inv().unwrap() == F7.one(), "a unit of Z/7")
+    }
+    assert(F7.zero().inv().is_none(), "0 is not a unit")
+    assert(Mod(12).of(4).inv().is_none(), "4 and 12 share 4")
+    assert(Mod(12).of(5).inv().unwrap().value() == 5, "5 * 5 = 25 = 1 mod 12")
+    let big = P.of(123456789)
+    assert(big * big.inv().unwrap() == P.one(), "a large prime modulus")
+    assert(P.of(3).pow(998244352) == P.one(), "Fermat mod 998244353")
+}
+
+#[test]
+fn euclidean() {
+    assert(div_euclid(-7, 2) == -4 && rem_euclid(-7, 2) == 1, "-7 / 2")
+    assert(div_euclid(7, -2) == -3 && rem_euclid(7, -2) == 1, "7 / -2")
+    assert(div_euclid(-7, -2) == 4 && rem_euclid(-7, -2) == 1, "-7 / -2")
+    assert(div_euclid(7, 2) == 3 && rem_euclid(7, 2) == 1, "7 / 2")
+    assert(div_euclid(-8, 2) == -4 && rem_euclid(-8, 2) == 0, "-8 / 2")
+}

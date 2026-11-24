@@ -330,6 +330,8 @@ pub enum SpecVar {
     Deref(u32)
     Len(u32)
     Field(u32, Vec(u32))
+    // `Contract.quots[i]`: a quotient, `a / k` rounded toward zero.
+    Quot(u32)
 }
 
 impl Clone for SpecVar {
@@ -339,6 +341,7 @@ impl Clone for SpecVar {
             Deref(l) => SpecVar.Deref(l)
             Len(l) => SpecVar.Len(l)
             Field(l, path) => SpecVar.Field(l, path.clone())
+            Quot(i) => SpecVar.Quot(i)
         }
     }
 }
@@ -411,6 +414,15 @@ pub struct Contract {
     pub ensures: Vec(Clause)
     // A loop's head block and what holds each time control reaches it.
     pub invariants: Vec((u32, Clause))
+    // `prove` statements: a block and what holds at its start.
+    pub proofs: Vec((u32, Clause))
+    // A `while` loop's head and its `decreases` measure, which every
+    // iteration makes smaller and which is never negative there.
+    pub decreases: Vec((u32, Spec, Span))
+    // The quotients clauses divide by: `a / k` for a constant `k > 0`.
+    pub quots: Vec((Spec, i128))
+    // The function's `decreases` measure, over its parameters on entry.
+    pub measure: Vec((Spec, Span))
 }
 
 impl Contract {
@@ -418,7 +430,11 @@ impl Contract {
         Contract {
             requires: Vec(Clause).new(),
             ensures: Vec(Clause).new(),
-            invariants: Vec((u32, Clause)).new()
+            invariants: Vec((u32, Clause)).new(),
+            proofs: Vec((u32, Clause)).new(),
+            decreases: Vec((u32, Spec, Span)).new(),
+            quots: Vec((Spec, i128)).new(),
+            measure: Vec((Spec, Span)).new()
         }
     }
 }
@@ -427,10 +443,22 @@ impl Clone for Contract {
     fn clone(self) -> Contract {
         var invariants = Vec((u32, Clause)).new()
         for x in self.invariants { invariants.push((x.0, x.1.clone())) }
+        var proofs = Vec((u32, Clause)).new()
+        for x in self.proofs { proofs.push((x.0, x.1.clone())) }
+        var measure = Vec((Spec, Span)).new()
+        for x in self.measure { measure.push((x.0.clone(), x.1)) }
+        var quots = Vec((Spec, i128)).new()
+        for x in self.quots { quots.push((x.0.clone(), x.1)) }
+        var decreases = Vec((u32, Spec, Span)).new()
+        for x in self.decreases { decreases.push((x.0, x.1.clone(), x.2)) }
         Contract {
             requires: self.requires.clone(),
             ensures: self.ensures.clone(),
-            invariants: invariants
+            invariants: invariants,
+            proofs: proofs,
+            decreases: decreases,
+            quots: quots,
+            measure: measure
         }
     }
 }
@@ -485,6 +513,13 @@ pub struct Program {
     pub target: target.Target
     // Kernel settings: no red zone, general registers only.
     pub codegen: target.Codegen
+    // With `--audit-proved`, per function, the overflow checks verification
+    // proved (block, statement), kept and reported as a verifier bug if
+    // they fail. Empty otherwise.
+    pub audited: Vec(Vec((i64, i64)))
+    // The instances of functions marked `#[no_alloc]` (0) or
+    // `#[no_panic]` (1), which `effects.check` checks.
+    pub effects: Vec((u32, i64))
 }
 
 // ---- printing ----

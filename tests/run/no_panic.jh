@@ -1,0 +1,47 @@
+// Functions that neither allocate nor stop the program, everything they
+// call included: the verifier proves their bounds and overflow checks,
+// which are then gone, so `#[no_panic]` holds.
+
+#[no_panic]
+#[no_alloc]
+fn sum(xs: [i64]) -> i64 {
+    var s = 0
+    for i in 0..xs.len { s +%= xs[i] }
+    s
+}
+
+#[no_panic]
+fn first(xs: [i64]) -> i64
+    requires xs.len > 0
+{
+    xs[0]
+}
+
+#[no_panic]
+fn clamp(x: i64, lo: i64, hi: i64) -> i64
+    requires lo <= hi
+{
+    if x < lo { lo } else if x > hi { hi } else { x }
+}
+
+// A `comptime` closure is inlined: no call through a value is left.
+#[no_alloc]
+fn count(xs: [i64], comptime keep: fn(i64) -> bool) -> i64 {
+    var n = 0
+    for i in 0..xs.len {
+        if keep(xs[i]) { n +%= 1 }
+    }
+    n
+}
+
+fn main() {
+    let v = [3, 1, 4, 1, 5]
+    println(sum(v))
+    //> 14
+    println(first(v))
+    //> 3
+    println(clamp(9, 0, 5))
+    //> 5
+    println(count(v, fn(x) { x > 2 }))
+    //> 3
+}

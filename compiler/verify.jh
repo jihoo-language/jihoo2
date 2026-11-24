@@ -38,6 +38,9 @@ pub struct Check {
     pub retarget: i64
     // CHECK, PANIC or CALL.
     pub kind: i64
+    // Unproved: the range the facts give the checked value, as far as the
+    // report finds it (`vc.Obligation.known`).
+    pub known: (Option(i128), Option(i128))
 }
 
 // What a check is: a bounds or overflow check, a call that never returns
@@ -92,6 +95,7 @@ struct Result1 {
     used: Vec(vc.Tag)
     // The check's span, `vc.nowhere()` for a contract's clauses.
     at: (i64, i64)
+    known: (Option(i128), Option(i128))
 }
 
 // What one function's obligations came to.
@@ -117,7 +121,8 @@ fn prove_all(f: vc.Function, contracts: [Option(vc.Callee)], lifts: [Option(vc.L
             source: copy_source(o.source),
             depends: o.depends.clone(),
             used: o.used.clone(),
-            at: o.at
+            at: o.at,
+            known: o.known
         })
     }
     var callees = Vec(i64).new()
@@ -217,6 +222,9 @@ fn copy_source(s: vc.Source) -> vc.Source {
         Ensures(j) => vc.Source.Ensures(j)
         Lift(b, f, s) => vc.Source.Lift(b, f, s)
         TypeInvariant(t) => vc.Source.TypeInvariant(t)
+        Proof(k) => vc.Source.Proof(k)
+        Decreases(k) => vc.Source.Decreases(k)
+        Recursion(b) => vc.Source.Recursion(b)
     }
 }
 
@@ -398,7 +406,7 @@ fn sites(p: mir.Program, f: vc.Function) -> Vec((i64, i64)) {
                     Add(_, _) | Sub(_, _) | Mul(_, _) => if at.0 >= 0 { out.push(site) }
                     _ => {}
                 }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {
@@ -437,7 +445,8 @@ pub fn verify(p: mir.Program) -> Report {
         let m = obligations.model_of(p, f, ifaces.as_slice())
         match &m {
             Some(x) => {
-                if x.callee.requires.len() > 0 || x.callee.ensures.len() > 0 {
+                if x.callee.requires.len() > 0 || x.callee.ensures.len() > 0 ||
+                    x.callee.measure.len() > 0 {
                     contracts.push(Some(x.callee.clone()))
                 } else { contracts.push(None) }
             }
@@ -606,11 +615,13 @@ pub fn verify(p: mir.Program) -> Report {
             var all = true
             var any = false
             var depends = Vec(i64).new()
+            var known: (Option(i128), Option(i128)) = (None, None)
             for r in o.results {
                 match r.source {
                     Check(x) => if x.0 == s.0 && x.1 == s.1 {
                         any = true
                         if !valid(a, i, o, r) {
+                            if all { known = r.known }
                             all = false
                             for d in r.depends {
                                 var have = false
@@ -632,6 +643,7 @@ pub fn verify(p: mir.Program) -> Report {
                 span: site_span(b, s.0, s.1),
                 proved: all && any,
                 depends,
+                known,
                 retarget: -1,
                 kind: if s.1 >= 0 { CHECK } else { match b.blocks[s.0].term {
                     Call(_, _, _, _, _) => PANIC
@@ -677,6 +689,7 @@ pub fn verify(p: mir.Program) -> Report {
                 span: site_span(b, c, -1),
                 proved,
                 depends,
+                known: (None, None),
                 retarget: g,
                 kind: CALL
             })
@@ -720,6 +733,14 @@ pub fn verify(p: mir.Program) -> Report {
                 Requires(block, callee) => Some((
                     site_span(b, block, -1),
                     "unproved `requires` of " + p.fns[callee].name.as_str()
+                ))
+                Proof(k) => Some((b.contract.proofs[k].1.span, "unproved `prove`".to_string()))
+                Decreases(k) => Some(
+                    (b.contract.decreases[k].2, "unproved `decreases`".to_string())
+                )
+                Recursion(block) => Some((
+                    site_span(b, block, -1),
+                    "unproved `decreases` at this call of " + f.name.as_str() + " to itself"
                 ))
                 TypeInvariant(ty) => Some((
                     if r.at.0 >= 0 {
@@ -842,6 +863,33 @@ pub fn erase(inout p: mir.Program, r: Report) {
     }
 }
 
+// `--audit-proved`: every check stays, and one that was proved says so
+// when it fails, as a bug of the verifier rather than of the program. A
+// way to test the verifier on real programs: run them, and their tests,
+// built this way.
+pub fn audit(inout p: mir.Program, r: Report) {
+    let n = p.fns.len()
+    p.audited = Vec(Vec((i64, i64))).filled(n, Vec((i64, i64)).new())
+    for c in r.checks {
+        if !c.proved || c.retarget >= 0 { continue }
+        let i = c.function as i64
+        if c.stmt >= 0 {
+            p.audited[i].push((c.block, c.stmt))
+            continue
+        }
+        let Some(b) = mem.replace(&p.fns[i].body, None) else { continue }
+        var body = b
+        match body.blocks[c.block].term {
+            Assert(cond, msg, next, at) => {
+                let m = msg.as_str() + ", which verification proved impossible: a verifier bug, please report it"
+                body.blocks[c.block].term = mir.Term.Assert(cond.clone(), m, next, at)
+            }
+            _ => {}
+        }
+        p.fns[i].body = Some(body)
+    }
+}
+
 fn erase_one(inout body: mir.Body, block: i64, stmt: i64) {
     if stmt < 0 {
         match body.blocks[block].term {
@@ -893,6 +941,32 @@ pub fn errors(p: mir.Program, r: Report) -> Vec(diag.Diag) {
     out
 }
 
+// A number of a report, as `2^k` plus or minus a little when it is near
+// a power of two past 2^32 (a type's range, a sum of two): `2^64 - 2`.
+pub fn number(n: i128) -> String {
+    let a = if n < 0 { 0 - n } else { n }
+    if a < 1 << 32 { return n.to_string() }
+    for k in 32..127 {
+        let p: i128 = 1 << k
+        let d = a - p
+        if d > -65536 && d < 65536 {
+            var s = if n < 0 { String.from("-2^") } else { String.from("2^") }
+            s.push_str(k.to_string().as_str())
+            // -(2^k + d) is -2^k - d.
+            let off = if n < 0 { 0 - d } else { d }
+            if off > 0 {
+                s.push_str(" + ")
+                s.push_str(off.to_string().as_str())
+            } else if off < 0 {
+                s.push_str(" - ")
+                s.push_str((0 - off).to_string().as_str())
+            }
+            return s
+        }
+    }
+    n.to_string()
+}
+
 // One line per check, then a summary.
 pub fn text(p: mir.Program, sources: diag.Sources, r: Report, all: bool) -> String {
     var out = String.new()
@@ -910,6 +984,17 @@ pub fn text(p: mir.Program, sources: diag.Sources, r: Report, all: bool) -> Stri
                 out.push_str(vc.why_name(d))
             }
             out.push(')')
+        }
+        if !c.proved {
+            match c.known {
+                (Some(lo), Some(hi)) => {
+                    out.push_str(", known ")
+                    out.push_str(number(lo).as_str())
+                    out.push_str("..=")
+                    out.push_str(number(hi).as_str())
+                }
+                _ => {}
+            }
         }
         out.push('\n')
     }
@@ -972,4 +1057,14 @@ pub fn machine(p: mir.Program, r: Report) -> String {
         out.push_str(if r.ensures[i] { " proved\n" } else { " unproved\n" })
     }
     out
+}
+
+#[test]
+fn numbers_near_powers_of_two() {
+    assert(number(17) == "17", "small")
+    assert(number(8589934590) == "2^33 - 2", "2^33 - 2")
+    assert(number(0 - (1 << 64)) == "-2^64", "-2^64")
+    assert(number((1 << 63) - 1) == "2^63 - 1", "i64 max")
+    assert(number(0 - (1 << 63) + 1) == "-2^63 + 1", "-2^63 + 1")
+    assert(number(12345678901234) == "12345678901234", "not near")
 }

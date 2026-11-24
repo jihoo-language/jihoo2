@@ -53,8 +53,12 @@ MIR ──▶ obligation generator ──▶ goals ──▶ prover ──▶ ce
 A goal is *these facts imply that claim*. For the checks MIR inserts today,
 the facts and claims are linear integer inequalities, and the certificate is
 a list of Farkas weights: non-negative multipliers for the facts and the
-negated claim whose sum is a negative constant. The checker multiplies and
-adds; it decides nothing else. A Fourier–Motzkin or simplex prover finds the
+negated claim whose sum is a negative constant. A certificate may also
+list *cuts* (Chvátal–Gomory): a weighted sum of the rows before it whose
+coefficients share a divisor `d`, divided by `d` with its constant rounded
+down, which holds over the integers though not over the rationals
+(`2x >= 1` gives `x >= 1`). The checker multiplies, adds and divides
+exactly; it decides nothing else. A Fourier–Motzkin or simplex prover finds the
 weights. Loops are cut at their heads by invariants; each path from the entry,
 or a loop head, to a check, a return or a loop head gives the goals on that
 path.
@@ -537,8 +541,18 @@ unproved contract. With `reserve`'s shorter fast path the compiler proves
   Functions too large to lift need `requires` the callers meet, or
   contracts that are the first users of 0.6's lemmas.
 - **Integers.** Fourier–Motzkin is complete over the rationals, not the
-  integers: a goal that needs parity or rounding is lost (never wrongly
-  proved). Cutting planes or a bounded integer search fix that later.
+  integers. The prover rounds a row whose coefficients share a factor
+  its constant lacks (a cut the checker checks), and eliminates first the
+  variables whose coefficients are all 1 or -1, which loses no integer
+  points (the Omega test's exact elimination): `x - 2 * (x / 2)` is 0 for
+  an even `x`. Goals that need the Omega test's dark shadows or a search
+  are still lost (never wrongly proved).
+- **Division.** `a / k` and `a % k` by a positive constant are a fresh
+  quotient `q` and the remainder `a - k * q`, between 0 and `k - 1` when
+  `a >= 0` and between `1 - k` and 0 when `a <= 0`, so a binary search's
+  `lo + (hi - lo) / 2` is in bounds (`tests/verify/division.jh`). Other
+  divisors stay opaque, and clauses cannot use `/` or `%` yet: an
+  invariant such as `i % 2 == 0` needs a quotient variable in clauses.
 - **Invariant inference.** Untrusted candidates (the loop condition, the
   initial values, bounds of indices) kept only when they check: most loops
   over `0..n` should need no annotation.
