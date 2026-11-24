@@ -81,6 +81,6 @@ fn main() {
 //> 40:5: proved index out of bounds in of_string
 //> 40:5: proved index out of bounds in of_string
 //> 40:5: proved integer overflow in of_string
-//> 46:5: kept index out of bounds in unchecked (argument)
+//> 46:5: kept index out of bounds in unchecked (argument), known 0..=2^63 - 1
 //> 46:5: proved index out of bounds in unchecked
 //> 46:5: proved integer overflow in unchecked

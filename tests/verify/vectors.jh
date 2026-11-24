@@ -38,13 +38,13 @@ fn main() {
     println(sum(v) + first_two(v) + built() + at(v, 4))
 }
 
-//> 38:13: kept integer overflow in main (call)
-//> 38:13: kept integer overflow in main (call)
-//> 38:13: kept integer overflow in main (call)
-//> 10:9: kept integer overflow in sum (loop, load)
+//> 38:13: kept integer overflow in main (call), known -2^64..=2^64 - 2
+//> 38:13: kept integer overflow in main (call), known -27670116110564327424..=27670116110564327421
+//> 38:13: kept integer overflow in main (call), known -2^65..=2^65 - 4
+//> 10:9: kept integer overflow in sum (loop, load), known -2^64..=2^64 - 2
 //> 11:9: proved integer overflow in sum
 //> 10:14: proved index out of bounds in sum
-//> 20:5: kept integer overflow in first_two (load)
+//> 20:5: kept integer overflow in first_two (load), known -2^64..=2^64 - 2
 //> 20:5: proved index out of bounds in first_two
 //> 20:12: proved index out of bounds in first_two
 //> 24:5: kept index out of bounds in at (argument)

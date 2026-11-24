@@ -66,4 +66,4 @@ fn main() {
 //> 40:13: proved integer overflow in even_part
 //> 40:9: proved integer overflow in even_part
 //> 40:5: proved index out of bounds in even_part
-//> 48:5: kept index out of bounds in ratio (div)
+//> 48:5: kept index out of bounds in ratio (div), known 0..=2^63 - 1

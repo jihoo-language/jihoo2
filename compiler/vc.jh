@@ -396,6 +396,10 @@ pub struct Obligation {
     pub used: Vec(Tag)
     // The facts of all its goals.
     pub size: i64
+    // Unproved: the least and greatest values the path's facts allow for
+    // the checked value (the result of `+ - *`, an index), as far as
+    // bounds propagation finds them, for reports.
+    pub known: (Option(i128), Option(i128))
 }
 
 // What `generate` does with each obligation: proves it at once and keeps
@@ -560,6 +564,8 @@ struct Gen {
     // never return, and the sites a path from a cut point reaches.
     panics: Vec(Panic)
     blocked: Vec(Site)
+    // The value the obligations being generated check, if one is.
+    subject: Option(Lin)
 }
 
 fn copy_source(s: Source) -> Source {
@@ -698,6 +704,13 @@ impl Gen {
         for x in goals { size += x.facts.len() }
         let (proved, used) = settle(goals.as_slice(), goal_tags.as_slice())
         if !proved && cut.0 >= 0 { self.wanted[cut.0][cut.1] = false }
+        var known: (Option(i128), Option(i128)) = (None, None)
+        if !proved {
+            match &self.subject {
+                Some(x) => known = fm.known(goals.as_slice(), x)
+                None => {}
+            }
+        }
         self.out.push(Obligation {
             what: "bb" + p.block.to_string() + ": " + what
             at: self.at
@@ -708,6 +721,7 @@ impl Gen {
             proved
             used
             size
+            known
         })
     }
 
@@ -734,6 +748,12 @@ impl Gen {
     // `c` must hold on this path: each of its linear parts, or for `!=`,
     // `==` must be impossible.
     fn require(inout self, p: Path, what: str, c: Cond) {
+        self.subject = if c.a.is_constant() { None } else { Some(c.a.clone()) }
+        self.require_cond(p, what, c)
+        self.subject = None
+    }
+
+    fn require_cond(inout self, p: Path, what: str, c: Cond) {
         match c.op {
             Ne => {
                 let eq = lins(Cmp.Eq, c.a, c.b).unwrap()
@@ -750,7 +770,14 @@ impl Gen {
     // not is impossible. With no such case, it holds trivially.
     fn require_bool(inout self, p: Path, what: str, no: [Vec(Cond)]) {
         if no.len == 0 { self.obligation(p, what, Lin.num(0)) }
+        // What the condition compares first (the index of `i < len`) is
+        // what a report gives the range of.
+        let mine = self.subject.is_none()
+        if mine && no.len > 0 && no[0].len() > 0 && !no[0][0].a.is_constant() {
+            self.subject = Some(no[0][0].a.clone())
+        }
         for conj in no { self.refute(p, what, conj_lins(conj.as_slice()).as_slice()) }
+        if mine { self.subject = None }
     }
 
     // The fact must hold on this path. A single conjunction gives a goal
@@ -1381,8 +1408,10 @@ fn arithmetic(inout g: Gen, f: Function, p: Path, dst: i64, sink r: Option(Lin))
     let Int(lo, hi) = f.kinds[dst] else { return Sym.Unknown }
     match r {
         Some(x) => {
+            g.subject = Some(x.clone())
             g.obligation(p, "no overflow", x.shift(0 - lo))
             g.obligation(p, "no overflow", x.scale(-1).shift(hi))
+            g.subject = None
             Sym.Num(x)
         }
         None => {
@@ -2065,7 +2094,7 @@ pub fn generate(
         ranges: f.kinds.clone(),
         origins: Vec(i64).filled(f.kinds.len(), WHY_OTHER), mark: Vec(i64).filled(f.kinds.len(), 0),
         stamp: 0, at: nowhere(), source: Source.Ensures(0), panics: Vec(Panic).new(),
-        blocked: Vec(Site).new()
+        blocked: Vec(Site).new(), subject: None
     }
     let fixed = unassigned(f)
     if f.blocks.len() > 0 {

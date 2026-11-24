@@ -47,7 +47,7 @@ fn main() {
 }
 
 //> 15:13: proved index out of bounds in total
-//> 29:13: kept integer overflow in zip (load)
+//> 29:13: kept integer overflow in zip (load), known -2^64 + 1..=2^64 - 1
 //> 29:13: proved index out of bounds in zip
 //> 29:22: proved index out of bounds in zip
 //> 37:28: proved trap in wrap

@@ -419,11 +419,15 @@ does not. It also proves [contracts](../language/contracts.md). `verify`
 prints one line per check that stays, at the check's position, with what
 it is, the function, and where the values it depends on come from (the
 reasons of the [model](#verification-model), plus `argument`, `loop` and
-`call`):
+`call`), and what is known of the checked value: the range the facts on
+the path give the result of `+ - *` or the index, as far as propagating
+bounds through them finds it, with numbers near a power of two past 2^32
+written as `2^k` plus or minus the rest. A range wider than the type says
+what a `requires` or `invariant` would have to rule out:
 
 ```text
-app.jh:9:9: kept integer overflow in sum (loop, load)
-app.jh:12:5: kept index out of bounds in first (argument, call)
+app.jh:9:9: kept integer overflow in sum (loop, load), known 0..=2^33 - 2
+app.jh:12:5: kept index out of bounds in first (argument, call), known 2..=12
 app.jh:14:5: unproved `requires` of bump in unchecked
 app.jh:56:13: unproved `ensures` in wrong
 42 of 57 checks proved in 31 functions (0 not followed everywhere)

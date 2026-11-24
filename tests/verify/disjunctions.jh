@@ -60,11 +60,11 @@ fn main() {
     println(calls(30) + unchecked(30))
 }
 
-//> 59:13: kept integer overflow in main (call)
-//> 59:13: kept integer overflow in main (call)
-//> 59:13: kept integer overflow in main (call)
-//> 59:13: kept integer overflow in main (call)
-//> 60:13: kept integer overflow in main (call)
+//> 59:13: kept integer overflow in main (call), known -2^63 - 1..=2^63
+//> 59:13: kept integer overflow in main (call), known -2^64 - 1..=2^64 - 1
+//> 59:13: kept integer overflow in main (call), known -2^64..=27670116110564327422
+//> 59:13: kept integer overflow in main (call), known -2^64 + 1..=2^65 - 3
+//> 60:13: kept integer overflow in main (call), known -2^64..=2^64 - 2
 //> 34:5: proved integer overflow in next
 //> 52:5: proved integer overflow in calls
 //> 24:13: unproved `ensures` in wrong

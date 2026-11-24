@@ -206,43 +206,43 @@ fn main() {
 //> 72:9: proved integer overflow in grow
 //> 73:9: proved integer overflow in grow
 //> 74:9: kept integer overflow in grow (unstated)
-//> 75:9: kept integer overflow in grow (unstated)
-//> 76:9: kept integer overflow in grow (unstated)
-//> 77:9: kept integer overflow in grow (unstated)
-//> 78:9: kept integer overflow in grow (unstated)
-//> 79:9: kept integer overflow in grow (unstated)
-//> 80:9: kept integer overflow in grow (unstated)
-//> 81:9: kept integer overflow in grow (unstated)
-//> 82:9: kept integer overflow in grow (unstated)
-//> 83:9: kept integer overflow in grow (unstated)
-//> 84:9: kept integer overflow in grow (unstated)
-//> 85:9: kept integer overflow in grow (unstated)
-//> 86:9: kept integer overflow in grow (unstated)
-//> 87:9: kept integer overflow in grow (unstated)
-//> 88:9: kept integer overflow in grow (unstated)
-//> 89:9: kept integer overflow in grow (unstated)
-//> 90:9: kept integer overflow in grow (unstated)
-//> 91:9: kept integer overflow in grow (unstated)
-//> 92:9: kept integer overflow in grow (unstated)
-//> 93:9: kept integer overflow in grow (unstated)
-//> 94:9: kept integer overflow in grow (unstated)
-//> 95:9: kept integer overflow in grow (unstated)
-//> 96:9: kept integer overflow in grow (unstated)
-//> 97:9: kept integer overflow in grow (unstated)
-//> 98:9: kept integer overflow in grow (unstated)
-//> 99:9: kept integer overflow in grow (unstated)
-//> 100:9: kept integer overflow in grow (unstated)
-//> 101:9: kept integer overflow in grow (unstated)
-//> 102:9: kept integer overflow in grow (unstated)
-//> 103:9: kept integer overflow in grow (unstated)
-//> 104:9: kept integer overflow in grow (unstated)
-//> 105:9: kept integer overflow in grow (unstated)
-//> 106:9: kept integer overflow in grow (unstated)
-//> 107:9: kept integer overflow in grow (unstated)
-//> 108:9: kept integer overflow in grow (unstated)
-//> 109:9: kept integer overflow in grow (unstated)
-//> 110:9: kept integer overflow in grow (unstated)
-//> 111:9: kept integer overflow in grow (unstated)
+//> 75:9: kept integer overflow in grow (unstated), known -2^64..=2^64 - 2
+//> 76:9: kept integer overflow in grow (unstated), known -2^65..=2^65 - 4
+//> 77:9: kept integer overflow in grow (unstated), known -2^66..=2^66 - 8
+//> 78:9: kept integer overflow in grow (unstated), known -2^67..=2^67 - 16
+//> 79:9: kept integer overflow in grow (unstated), known -2^68..=2^68 - 32
+//> 80:9: kept integer overflow in grow (unstated), known -2^69..=2^69 - 64
+//> 81:9: kept integer overflow in grow (unstated), known -2^70..=2^70 - 128
+//> 82:9: kept integer overflow in grow (unstated), known -2^71..=2^71 - 256
+//> 83:9: kept integer overflow in grow (unstated), known -2^72..=2^72 - 512
+//> 84:9: kept integer overflow in grow (unstated), known -2^73..=2^73 - 1024
+//> 85:9: kept integer overflow in grow (unstated), known -2^74..=2^74 - 2048
+//> 86:9: kept integer overflow in grow (unstated), known -2^75..=2^75 - 4096
+//> 87:9: kept integer overflow in grow (unstated), known -2^76..=2^76 - 8192
+//> 88:9: kept integer overflow in grow (unstated), known -2^77..=2^77 - 16384
+//> 89:9: kept integer overflow in grow (unstated), known -2^78..=2^78 - 32768
+//> 90:9: kept integer overflow in grow (unstated), known -2^79..=604462909807314587287552
+//> 91:9: kept integer overflow in grow (unstated), known -2^80..=1208925819614629174575104
+//> 92:9: kept integer overflow in grow (unstated), known -2^81..=2417851639229258349150208
+//> 93:9: kept integer overflow in grow (unstated), known -2^82..=4835703278458516698300416
+//> 94:9: kept integer overflow in grow (unstated), known -2^83..=9671406556917033396600832
+//> 95:9: kept integer overflow in grow (unstated), known -2^84..=19342813113834066793201664
+//> 96:9: kept integer overflow in grow (unstated), known -2^85..=38685626227668133586403328
+//> 97:9: kept integer overflow in grow (unstated), known -2^86..=77371252455336267172806656
+//> 98:9: kept integer overflow in grow (unstated), known -2^87..=154742504910672534345613312
+//> 99:9: kept integer overflow in grow (unstated), known -2^88..=309485009821345068691226624
+//> 100:9: kept integer overflow in grow (unstated), known -2^89..=618970019642690137382453248
+//> 101:9: kept integer overflow in grow (unstated), known -2^90..=1237940039285380274764906496
+//> 102:9: kept integer overflow in grow (unstated), known -2^91..=2475880078570760549529812992
+//> 103:9: kept integer overflow in grow (unstated), known -2^92..=4951760157141521099059625984
+//> 104:9: kept integer overflow in grow (unstated), known -2^93..=9903520314283042198119251968
+//> 105:9: kept integer overflow in grow (unstated), known -2^94..=19807040628566084396238503936
+//> 106:9: kept integer overflow in grow (unstated), known -2^95..=39614081257132168792477007872
+//> 107:9: kept integer overflow in grow (unstated), known -2^96..=79228162514264337584954015744
+//> 108:9: kept integer overflow in grow (unstated), known -2^97..=158456325028528675169908031488
+//> 109:9: kept integer overflow in grow (unstated), known -2^98..=316912650057057350339816062976
+//> 110:9: kept integer overflow in grow (unstated), known -2^99..=633825300114114700679632125952
+//> 111:9: kept integer overflow in grow (unstated), known -2^100..=1267650600228229401359264251904
 //> 112:9: kept integer overflow in grow (unstated)
 //> 113:9: kept integer overflow in grow (unstated)
 //> 114:9: kept integer overflow in grow (unstated)

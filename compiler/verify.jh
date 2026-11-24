@@ -38,6 +38,9 @@ pub struct Check {
     pub retarget: i64
     // CHECK, PANIC or CALL.
     pub kind: i64
+    // Unproved: the range the facts give the checked value, as far as the
+    // report finds it (`vc.Obligation.known`).
+    pub known: (Option(i128), Option(i128))
 }
 
 // What a check is: a bounds or overflow check, a call that never returns
@@ -92,6 +95,7 @@ struct Result1 {
     used: Vec(vc.Tag)
     // The check's span, `vc.nowhere()` for a contract's clauses.
     at: (i64, i64)
+    known: (Option(i128), Option(i128))
 }
 
 // What one function's obligations came to.
@@ -117,7 +121,8 @@ fn prove_all(f: vc.Function, contracts: [Option(vc.Callee)], lifts: [Option(vc.L
             source: copy_source(o.source),
             depends: o.depends.clone(),
             used: o.used.clone(),
-            at: o.at
+            at: o.at,
+            known: o.known
         })
     }
     var callees = Vec(i64).new()
@@ -606,11 +611,13 @@ pub fn verify(p: mir.Program) -> Report {
             var all = true
             var any = false
             var depends = Vec(i64).new()
+            var known: (Option(i128), Option(i128)) = (None, None)
             for r in o.results {
                 match r.source {
                     Check(x) => if x.0 == s.0 && x.1 == s.1 {
                         any = true
                         if !valid(a, i, o, r) {
+                            if all { known = r.known }
                             all = false
                             for d in r.depends {
                                 var have = false
@@ -632,6 +639,7 @@ pub fn verify(p: mir.Program) -> Report {
                 span: site_span(b, s.0, s.1),
                 proved: all && any,
                 depends,
+                known,
                 retarget: -1,
                 kind: if s.1 >= 0 { CHECK } else { match b.blocks[s.0].term {
                     Call(_, _, _, _, _) => PANIC
@@ -677,6 +685,7 @@ pub fn verify(p: mir.Program) -> Report {
                 span: site_span(b, c, -1),
                 proved,
                 depends,
+                known: (None, None),
                 retarget: g,
                 kind: CALL
             })
@@ -893,6 +902,32 @@ pub fn errors(p: mir.Program, r: Report) -> Vec(diag.Diag) {
     out
 }
 
+// A number of a report, as `2^k` plus or minus a little when it is near
+// a power of two past 2^32 (a type's range, a sum of two): `2^64 - 2`.
+pub fn number(n: i128) -> String {
+    let a = if n < 0 { 0 - n } else { n }
+    if a < 1 << 32 { return n.to_string() }
+    for k in 32..127 {
+        let p: i128 = 1 << k
+        let d = a - p
+        if d > -65536 && d < 65536 {
+            var s = if n < 0 { String.from("-2^") } else { String.from("2^") }
+            s.push_str(k.to_string().as_str())
+            // -(2^k + d) is -2^k - d.
+            let off = if n < 0 { 0 - d } else { d }
+            if off > 0 {
+                s.push_str(" + ")
+                s.push_str(off.to_string().as_str())
+            } else if off < 0 {
+                s.push_str(" - ")
+                s.push_str((0 - off).to_string().as_str())
+            }
+            return s
+        }
+    }
+    n.to_string()
+}
+
 // One line per check, then a summary.
 pub fn text(p: mir.Program, sources: diag.Sources, r: Report, all: bool) -> String {
     var out = String.new()
@@ -910,6 +945,17 @@ pub fn text(p: mir.Program, sources: diag.Sources, r: Report, all: bool) -> Stri
                 out.push_str(vc.why_name(d))
             }
             out.push(')')
+        }
+        if !c.proved {
+            match c.known {
+                (Some(lo), Some(hi)) => {
+                    out.push_str(", known ")
+                    out.push_str(number(lo).as_str())
+                    out.push_str("..=")
+                    out.push_str(number(hi).as_str())
+                }
+                _ => {}
+            }
         }
         out.push('\n')
     }
@@ -972,4 +1018,14 @@ pub fn machine(p: mir.Program, r: Report) -> String {
         out.push_str(if r.ensures[i] { " proved\n" } else { " unproved\n" })
     }
     out
+}
+
+#[test]
+fn numbers_near_powers_of_two() {
+    assert(number(17) == "17", "small")
+    assert(number(8589934590) == "2^33 - 2", "2^33 - 2")
+    assert(number(0 - (1 << 64)) == "-2^64", "-2^64")
+    assert(number((1 << 63) - 1) == "2^63 - 1", "i64 max")
+    assert(number(0 - (1 << 63) + 1) == "-2^63 + 1", "-2^63 + 1")
+    assert(number(12345678901234) == "12345678901234", "not near")
 }
