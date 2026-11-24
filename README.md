@@ -108,7 +108,10 @@ jihoo run tests/runner.jh                    # the tests
 
 ## Status
 
-Version 0.5: the 0.1 rewrite, which broke compatibility with everything
+jihoo2 version 0.1: jihoo's development line after 0.5.0 without the
+dependent core, with versions starting again at 0.1.0
+([roadmap](docs/internals/roadmap.md#direction)). It keeps jihoo's 0.1
+rewrite, which broke compatibility with everything
 before it ([why](docs/internals/redesign.md)), with a self-hosted compiler
 and checking, testing, diagnostic and formatting tools. Native (libc) and
 freestanding (no libc, static) programs for x86_64 and aarch64 Linux, and
@@ -138,7 +141,7 @@ The compiler uses its own threads: it elaborates, infers borrow effects and
 checks borrows one function per thread, the costliest first, and emits
 large programs in parallel code generation units, with the same output as
 one thread. On 8 CPUs, `jihoo check` of the compiler takes 0.53 s and a
-full `-O2` build 15.2 s, against 17.0 s and 36.8 s at 0.2.1
+full `-O2` build 15.2 s, against 17.0 s and 36.8 s at jihoo 0.2.1
 ([phase timings](docs/reference/command-line.md#phase-timings),
 [roadmap](docs/internals/roadmap.md#4-parallel-compilation-03)).
 
@@ -274,4 +277,5 @@ the directories given. The output is reparsed and must retain the same syntax tr
 server built on the same checking and diagnostics: errors in unsaved
 documents, go to definition and formatting.
 
-Next ([roadmap](docs/internals/roadmap.md)): application-driven library work.
+Next ([roadmap](docs/internals/roadmap.md)): application-driven library work,
+and a jihoo2 release so that the compiler can use what came after 0.1.0.

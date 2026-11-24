@@ -2,12 +2,26 @@
 
 ## Direction
 
-jihoo should make real systems programs easy to develop while retaining
+jihoo2 is [jihoo](https://github.com/jihoo-language/jihoo) without
+dependent types. The dependent core (`#![dependent_core]`, `jihoo core`,
+`.jhc` files), its `lib/dependent` libraries and its Lean proofs were
+removed rather than switched off; they continue in jihoo. Ordinary code,
+type families, histories and divisor types are unchanged, and the
+[verifier over MIR](#6-verification-05) is the only way programs are
+proved.
+
+jihoo2 should make real systems programs easy to develop while retaining
 memory safety without lifetime annotations, a garbage collector or implicit
 reference counting. Compile-time generation with independently checked
 results continues outside the language's repository, in
 [jihoo-proofs](https://github.com/jihoolang/jihoo-proofs), until it has a
 stable library interface.
+
+Versions start again at 0.1.0: jihoo2 0.1.0 is jihoo's development line
+after 0.5.0 without the dependent core, built from the jihoo 0.5.0 seed,
+and it is now jihoo2's own seed. The versions in the headings below (0.1
+to 0.5) are jihoo's releases, whose work jihoo2 inherits; jihoo2's own
+releases are named as such.
 
 Keep ownership and parameter conventions stable. Borrowing views remain
 tracked by the compiler; long-lived owned data refers to other data by
@@ -18,14 +32,19 @@ Use complementary applications to guide changes: the self-hosted
 compiler exercises large programs and generic data structures; Banana, the
 sibling `../banana` terminal, exercises C callbacks, graphics resources,
 streaming binary input and PTYs; jihoo-proofs exercises compile-time
-evaluation and its resource limits, and is where verification (0.5) began. A need found in an application starts as a
+evaluation and its resource limits, and is where verification (jihoo 0.5)
+began. The sibling languages (Shalem, Ruach, Tekel, Aporia, Tohu, ASL)
+are a source of [ideas](#7-ideas-from-the-sibling-languages), taken one
+at a time with tests. A need found in an application starts as a
 small reproducer. Fix it in a library when possible, and change the language
 only when the existing model cannot express the required behavior safely.
 
 ## Next
 
 This is the development order, with completion criteria rather than release
-dates. Safety and runtime performance checks apply throughout.
+dates. Safety and runtime performance checks apply throughout. Sections 4
+and 5 are done and record how; the open work is in sections 1 to 3, the
+self-verification and release steps of section 6, and section 7.
 
 ### 1. Checking and editor tools
 
@@ -456,13 +475,15 @@ and moves into the compiler once its trust boundary is stated.
    (`tests/verify/division.jh`, the approach of the sibling Shalem's
    prover). The compiler proves 1,239 of its bounds and overflow checks
    (1,228 without them).
-7. The releases. A 0.4.x release that parses contracts lets `lib/std`
-   state its contracts (step 5) before 0.5.0, since the seed compiles
-   `lib/std`; contracts' syntax is fixed from then on. 0.5.0 comes when
-   jihoo can verify its own compiler, and the seed moving to it lets the
-   compiler state contracts itself. 0.4.6 verifies every build and makes
-   an unproved contract an error, so with it as the seed, stage 1 is
-   verified too.
+7. The releases. In jihoo, a 0.4.x release that parsed contracts let
+   `lib/std` state its contracts (step 5) before 0.5.0, and contracts'
+   syntax has been fixed since; 0.4.6 verified every build and made an
+   unproved contract an error. jihoo2's seed, jihoo2 0.1.0, has all of
+   that, so stage 1 is verified and `compiler/` states contracts itself
+   (`linear.jh`'s invariants). What came after 0.1.0 (`prove`,
+   `decreases`, `/` and `%` in clauses, `#[no_alloc]`, `#[no_panic]`,
+   `--audit-proved`) is used in `compiler/` only once a jihoo2 release
+   has it and the seed moves to that release.
 
 Status of the completion criteria: the `verify` suite runs `tests/run`
 with and without verification, and checks that the proved checks of
@@ -697,6 +718,10 @@ pointer without `(*p)`.
   runtime semantics. It does not verify arbitrary generated function bodies.
 - **Contracts** (which v0 had) are [0.5](#6-verification-05): obligations
   from MIR, whose semantics the generator states, checked by a small kernel.
+- **Dependent types** are not part of jihoo2: no dependent core, proof
+  terms or `.jhc` files. A property the verifier over MIR cannot state is
+  a reason to extend contracts, not to bring the dependent core back;
+  that work continues in jihoo.
 - **Generic derives**: inferred derived bounds on generic types and
   user-written derives, when concrete library users need them.
 - **Dynamic dispatch extensions**: traits with parameters, methods returning
