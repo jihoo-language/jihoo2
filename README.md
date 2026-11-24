@@ -102,7 +102,7 @@ jihoo run tests/runner.jh                    # the tests
 | `bootstrap` | checksum-pinned release archives used as the self-hosting seed |
 | `tests/run`, `tests/fail` | programs and their expected output or error; `tests/runner.jh` runs them |
 | `examples` | example programs, which the website shows |
-| `benchmarks` | backend and iterator fusion benchmarks, with recorded measurements |
+| `benchmarks` | backend, iterator fusion and [versus C](benchmarks/versus-c/README.md) benchmarks, with recorded measurements |
 | `docs` | the documentation, one Markdown file per page |
 | `site` | the website ([site/README.md](site/README.md)) |
 
