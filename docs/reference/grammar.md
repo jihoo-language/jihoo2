@@ -190,7 +190,7 @@ From loosest to tightest. Binary operators are left-associative.
 | 0 | `a..b` (a whole expression only) |
 | 1 | `\|\|` |
 | 2 | `&&` |
-| 3 | `== != < <= > >=` (they do not chain: `a < b < c` is an error) |
+| 3 | `== != < <= > >=` (they do not chain: `a < b < c` is an error, except in a [contract clause](../language/contracts.md#what-a-clause-says), where `< <= > >=` chain) |
 | 4 | `\|` |
 | 5 | `^` |
 | 6 | `&` |

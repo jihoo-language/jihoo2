@@ -1,0 +1,6 @@
+// Comparisons chain only in contract clauses.
+// error: comparisons do not chain outside contracts; use `&&`
+fn main() {
+    let x = 2
+    println(1 < x < 3)
+}

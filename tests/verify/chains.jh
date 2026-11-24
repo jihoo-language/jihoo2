@@ -1,0 +1,34 @@
+// In a contract clause, `0 <= lo <= i < xs.len` is
+// `0 <= lo && lo <= i && i < xs.len`, each term read once.
+
+fn get(xs: [i64], lo: i64, i: i64) -> i64
+    requires 0 <= lo <= i < xs.len
+{
+    xs[i] +% xs[lo]
+}
+
+fn search(xs: [i64], key: i64) -> i64 {
+    var lo = 0
+    var hi = xs.len
+    while lo < hi
+        invariant 0 <= lo <= hi <= xs.len
+    {
+        let mid = lo + (hi - lo) / 2
+        if xs[mid] < key { lo = mid + 1 } else { hi = mid }
+    }
+    lo
+}
+
+fn main() {
+    let v = [1, 2, 3]
+    println(get(v, 0, 2))
+    println(search(v, 3))
+    println(1 < 2 && 2 < 3)
+}
+
+//> 7:5: proved index out of bounds in get
+//> 7:14: proved index out of bounds in get
+//> 16:24: proved integer overflow in search
+//> 16:19: proved integer overflow in search
+//> 17:12: proved index out of bounds in search
+//> 17:33: proved integer overflow in search

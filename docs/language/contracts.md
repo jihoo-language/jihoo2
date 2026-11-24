@@ -73,7 +73,7 @@ A clause compares integers, or joins comparisons with `&&`, `||` and `!`:
 ```text
 clause = compare | clause "&&" clause | clause "||" clause | "!" clause
        | "(" clause ")"
-compare = term cmp term
+compare = term cmp term { ( "<" | "<=" | ">" | ">=" ) term }
 cmp    = "<" | "<=" | ">" | ">=" | "==" | "!="
 term   = integer | place | place ".len" "(" ")" | "old" "(" place ")"
        | "old" "(" place ".len" "(" ")" ")"
@@ -92,6 +92,9 @@ place  = ( name | "result" ) { "." field }
 - **The arithmetic is exact.** `x + 1 <= hi` in a clause cannot overflow,
   and integers of different types compare by value: `i <= xs.len` holds
   for `i: u64`.
+- **Order comparisons chain**, as in mathematics: `0 <= lo <= i < xs.len`
+  is `0 <= lo && lo <= i && i < xs.len`, each term read once. `==` and
+  `!=` do not chain, and outside contracts no comparison does.
 - `&&` at the top of a clause makes it several clauses. Below `||`, a
   clause is a few cases, each a conjunction of comparisons (`!` turns
   `!(a < b)` into `a >= b` and `!(p && q)` into `!p || !q`); one with more
