@@ -195,8 +195,6 @@ def main():
     parser.add_argument("--external", action="append", type=parse_external, default=[],
                         metavar="NAME=ENTRY[:INCLUDE...]",
                         help="also measure a program outside the checkout, e.g. a Banana entry point")
-    parser.add_argument("--proofs", type=Path, metavar="DIR",
-                        help="also measure the compile-time generation examples of a jihoo-proofs checkout")
     parser.add_argument("--baseline", type=Path, help="report to compare with")
     parser.add_argument("--max-time-regression", type=float, default=0.10)
     parser.add_argument("--max-memory-regression", type=float, default=0.10)
@@ -223,11 +221,6 @@ def main():
     targets = args.target or [HOST]
     workloads = {name: WORKLOADS[name] for name in (args.workload or WORKLOADS)}
     sources = {}
-    if args.proofs:
-        proofs = args.proofs.resolve()
-        workloads["proofs"] = (proofs, "proofs/example.jh", ["-I", "kernel"])
-        workloads["verified-codec"] = (proofs, "verified-codec/example.jh", ["-I", "proofs", "-I", "kernel"])
-        sources["jihoo-proofs"] = {"path": str(proofs), "revision": git_revision(proofs)}
     for name, workload in args.external:
         if name in workloads:
             parser.error(f"workload {name} is defined twice")

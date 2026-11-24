@@ -12,14 +12,13 @@ proved.
 
 jihoo2 should make real systems programs easy to develop while retaining
 memory safety without lifetime annotations, a garbage collector or implicit
-reference counting. Compile-time generation with independently checked
-results continues outside the language's repository, in
-[jihoo-proofs](https://github.com/jihoolang/jihoo-proofs), until it has a
-stable library interface.
+reference counting.
 
-Versions start again at 0.1.0: jihoo2 0.1.0 is jihoo's development line
-after 0.5.0 without the dependent core, built from the jihoo 0.5.0 seed,
-and it is now jihoo2's own seed. The versions in the headings below (0.1
+Versions start again at 0.1.0. jihoo2 0.1.0, released as
+[v0.1.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.1.0), is
+jihoo's development line after 0.5.0 without the dependent core, built
+from the jihoo 0.5.0 seed, and it is now jihoo2's own seed; the next
+release is 0.2.0. The versions in the headings below (0.1
 to 0.5) are jihoo's releases, whose work jihoo2 inherits; jihoo2's own
 releases are named as such.
 
@@ -31,9 +30,8 @@ within that model before adding more language mechanisms.
 Use complementary applications to guide changes: the self-hosted
 compiler exercises large programs and generic data structures; Banana, the
 sibling `../banana` terminal, exercises C callbacks, graphics resources,
-streaming binary input and PTYs; jihoo-proofs exercises compile-time
-evaluation and its resource limits, and is where verification (jihoo 0.5)
-began. The sibling languages (Shalem, Ruach, Tekel, Aporia, Tohu, ASL)
+streaming binary input and PTYs; the compiler's own source is also the
+largest program the verifier proves. The sibling languages (Shalem, Ruach, Tekel, Aporia, Tohu, ASL)
 are a source of [ideas](#7-ideas-from-the-sibling-languages), taken one
 at a time with tests. A need found in an application starts as a
 small reproducer. Fix it in a library when possible, and change the language
@@ -149,16 +147,13 @@ specialized library work; they do not by themselves require new syntax.
 - Done: [compilation time and memory](testing.md#compilation-time-and-memory).
   `scripts/benchmark_compile.py` measures `check` and full compilation
   separately on the compiler, a compile-time generation program and the
-  fusion kernels, plus jihoo-proofs (`--proofs`) and Banana (`--external`)
-  when given their checkouts. Reports record compiler revision and version,
+  fusion kernels, plus Banana or any other program (`--external`) when
+  given its checkout. Reports record compiler revision and version,
   target, options, host, elapsed time and peak process memory per sample;
   `--baseline` compares medians with a recorded report, and CI runs the
   structural `--check-only` mode on both targets.
 - Maintain the [fusion benchmark](../../benchmarks/functional-fusion/README.md)
-  and the compile-time costs jihoo-proofs records as compiler and library
-  implementations change. jihoo-proofs' programs convert the library's
-  errors with `to_string`, so they compile with the checkout's library
-  (`os.Error`) as well as with the release they pin (`String`).
+  as compiler and library implementations change.
 
 Completion: changes can be compared with a recorded baseline using a
 reproducible command. Structural and correctness checks run in CI; timing
@@ -246,11 +241,8 @@ effect in the commit and here.
    changing what is inlined where, and it would still see module-wide
    analyses (GlobalsAA) differently. Neither is done for 0.3.0; a full
    build stays about 2.4 times faster than at 0.2.1.
-5. The release: jihoo-proofs' examples compile with the checkout's
-   library again (its programs turn `os.Error` into their `String`
-   errors with `to_string`, which also works with the 0.1.3 compiler it
-   pins), README's Status describes 0.3, and this section records the
-   final numbers. The seed need not move first: `std.thread` is already
+5. The release: README's Status describes 0.3, and this section records
+   the final numbers. The seed need not move first: `std.thread` is already
    in 0.2.1.
 
 Sema's instance queue stays sequential unless measurements show it
@@ -357,9 +349,9 @@ Research ([design](verification.md)): 0.5 proves, while compiling, that
 the checks MIR inserts cannot fail and that functions meet their contracts.
 Proofs are checked and erased; a proved check is removed. A small trusted
 checker accepts certificates that untrusted provers produce, and the
-obligations come from MIR after `elab` and `check`. The work starts in
-[jihoo-proofs/obligations](https://github.com/jihoolang/jihoo-proofs/tree/main/obligations)
-and moves into the compiler once its trust boundary is stated.
+obligations come from MIR after `elab` and `check`. The work started as
+an experiment outside the compiler and moved into it once its trust
+boundary was stated.
 
 1. Started: obligations from a model of MIR's integer part, proved by
    Fourier–Motzkin and checked as Farkas certificates. `clamp`'s
@@ -373,11 +365,11 @@ and moves into the compiler once its trust boundary is stated.
    with every `assert` and checked `+ - *`, in the debug and `--release`
    overflow modes; what it cannot follow, including locals whose address is
    taken, is opaque. `tests/obligations.py` checks it with an independent
-   reader, and jihoo-proofs verifies the compiler's output with the same
-   verdicts as the hand-written models, plus an off-by-one loop and a local
-   changed through `inout` that must stay unproved. Started: the generator
-   against the interpreter. Each check carries its span; jihoo-proofs'
-   `differential.py` evaluates random inputs that meet a function's
+   reader, and the compiler's output gets the same verdicts as the
+   hand-written models, plus an off-by-one loop and a local changed
+   through `inout` that must stay unproved. Started: the generator
+   against the interpreter. Each check carries its span; a differential
+   test evaluates random inputs that meet a function's
    `requires` at compile time and fails if a check it proved fails there,
    or a proved `ensures` does not hold, in debug and `--release` builds. Two
    deliberately wrong models are caught. The test runs over all 98 programs
@@ -389,18 +381,14 @@ and moves into the compiler once its trust boundary is stated.
    `emit-obligations` prints over MIR's locals.
 3. The checker in the compiler: a pass after `check` that runs the trusted
    checker as compiled code, outside the interpreter's budget, and removes
-   proved checks. Library proofs keep using compile-time evaluation, so
-   its cost is reduced alongside (the `Vec` operations that dominate the
-   experiment). Started:
+   proved checks. Started:
    [`jihoo verify`](../reference/command-line.md#verification) lists each
    check that stays and each unproved contract clause (`--all` the proved
    ones too), and `--verify` builds without the proved checks. A proof
    counts only when what it rests on (a `requires`, a callee's `ensures`,
    a cut point) is proved, and cut points where paths meet keep the work
    linear, so it runs on the compiler itself: 378 of 2,489 checks proved
-   in 22 seconds. The `verify` suite runs `tests/run` with `--verify`, and
-   jihoo-proofs' differential test checks the compiler's verdicts against
-   the interpreter. Done: verification in parallel, proving each
+   in 22 seconds. The `verify` suite runs `tests/run` with `--verify`. Done: verification in parallel, proving each
    obligation as it is generated, which takes it on the compiler from 25
    to 3.5 seconds and 1.6 GB to 530 MB
    ([design](verification.md#verification-in-parallel)). Done:
@@ -414,10 +402,8 @@ and moves into the compiler once its trust boundary is stated.
    untrusted inference proposes the invariants of loops over `0..n`.
    Started ([contracts](../language/contracts.md)): the syntax, linear
    clauses over integers and lengths, which sema checks and
-   `emit-obligations` prints; jihoo-proofs proves them from the source,
-   modularly at calls, with `inout` integers and locals lent to a call as
-   variables, and the differential test tells failures under an unproved
-   contract from bugs. `tests/fail` has a case for each malformed
+   `emit-obligations` prints, proved modularly at calls, with `inout`
+   integers and locals lent to a call as variables. `tests/fail` has a case for each malformed
    contract. Fields, `Vec` lengths (`v.len()`) and `old` of them are
    part of clauses (step 5), and so are `||` and `!`: a clause is then a
    few cases, assumed one at a time and proved by refuting them all
@@ -478,28 +464,27 @@ and moves into the compiler once its trust boundary is stated.
 7. The releases. In jihoo, a 0.4.x release that parsed contracts let
    `lib/std` state its contracts (step 5) before 0.5.0, and contracts'
    syntax has been fixed since; 0.4.6 verified every build and made an
-   unproved contract an error. jihoo2's seed, jihoo2 0.1.0, has all of
-   that, so stage 1 is verified and `compiler/` states contracts itself
+   unproved contract an error. jihoo2's seed, the released jihoo2 0.1.0,
+   has all of that, so stage 1 is verified and `compiler/` states contracts itself
    (`linear.jh`'s invariants). What came after 0.1.0 (`prove`,
    `decreases`, `/` and `%` in clauses, `#[no_alloc]`, `#[no_panic]`,
-   `--audit-proved`) is used in `compiler/` only once a jihoo2 release
-   has it and the seed moves to that release.
+   `--audit-proved`) is used in `compiler/` once 0.2.0 is released and
+   the seed moves to it.
 
 Status of the completion criteria: the `verify` suite runs `tests/run`
 with and without verification, and checks that the proved checks of
 `tests/verify/slices.jh` are absent from its IR while the unproved one
 stays; `tests/fail` has a case for each rejected contract (`unproved_*`);
-jihoo-proofs' CI runs the differential test against the interpreter, with
-its own verdicts and the compiler's, on both targets; the design lists the
+`--audit-proved` checks proved checks on real inputs; the design lists the
 trusted parts and their sizes.
 
 Completion: every `tests/run` program compiles with the same output, with
 or without verification; proved checks are absent from optimized IR and
 unproved ones remain. `tests/fail` has a case for every rejected contract
 (wrong `ensures`, missing `requires` at a call, an invariant that fails on
-entry or is not preserved, an off-by-one loop). The generator's
-interpreter tests run in CI on both targets, and the trusted parts and their
-sizes are listed in the design.
+entry or is not preserved, an off-by-one loop). The `verify` suite runs
+in CI on both targets, and the trusted parts and their sizes are listed
+in the design.
 
 ### 7. Ideas from the sibling languages
 
@@ -607,7 +592,7 @@ Done, in the 0.1.x releases and since 0.1.3:
   JSON source diagnostics, `jihoo fmt` with syntax preservation checks
   (Next, step 1), compile-time resource reports, and `jihoo --version`.
 - **No experiments in the repository**: functional fusion is a benchmark,
-  and the proof work lives in jihoo-proofs (completed milestone 5).
+  and the proof experiments left it (completed milestone 5).
 
 ## Completed milestones
 
@@ -683,13 +668,10 @@ The repository no longer has experimental directories:
   optimized-IR checks without timing, and `tests/run` keeps the iterator,
   trap order, streaming parser and compile-time closure regressions.
 - The Horn kernel port, the general proof development and the checked codec
-  moved with their history to
-  [jihoo-proofs](https://github.com/jihoolang/jihoo-proofs), whose README
-  holds their remaining work: codec scaling, stable wire tags, an executable
-  proof consumer, and libraries. The compiler keeps what they needed from
-  it: [compile-time resource reports](../reference/command-line.md#compile-time-resource-reports)
-  and the evaluator speedups. Whether any of it belongs in the standard
-  library is decided once it has a stable interface.
+  left the repository with their history, and are not part of jihoo2. The
+  compiler keeps what they needed from it:
+  [compile-time resource reports](../reference/command-line.md#compile-time-resource-reports)
+  and the evaluator speedups.
 
 ### 6. UEFI applications (0.4.1)
 
@@ -712,10 +694,6 @@ pointer without `(*p)`.
 
 ## Verification boundaries and deferred features
 
-- **Proofs and checked generation**: jihoo-proofs checks general theorems
-  by structural induction and ground certificates bound to generated codec
-  tables, during compile-time evaluation and without language syntax or
-  runtime semantics. It does not verify arbitrary generated function bodies.
 - **Contracts** (which v0 had) are [0.5](#6-verification-05): obligations
   from MIR, whose semantics the generator states, checked by a small kernel.
 - **Dependent types** are not part of jihoo2: no dependent core, proof

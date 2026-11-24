@@ -108,9 +108,10 @@ jihoo run tests/runner.jh                    # the tests
 
 ## Status
 
-jihoo2 version 0.1: jihoo's development line after 0.5.0 without the
-dependent core, with versions starting again at 0.1.0
-([roadmap](docs/internals/roadmap.md#direction)). It keeps jihoo's 0.1
+jihoo2 version 0.1, released as
+[v0.1.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.1.0):
+jihoo's development line after 0.5.0 without the dependent core, with
+versions starting again at 0.1.0 ([roadmap](docs/internals/roadmap.md#direction)). It keeps jihoo's 0.1
 rewrite, which broke compatibility with everything
 before it ([why](docs/internals/redesign.md)), with a self-hosted compiler
 and checking, testing, diagnostic and formatting tools. Native (libc) and
@@ -173,9 +174,7 @@ External calls remain unavailable during evaluation.
 records evaluator steps, cumulative allocations and per-function costs;
 failures report resource use and the originating compile-time obligation.
 
-Proof checking at compile time (general theorems by induction, and enum codecs bound to checked tables) is developed in the
-separate [jihoo-proofs](https://github.com/jihoolang/jihoo-proofs)
-repository. [Verification](docs/reference/command-line.md#verification)
+[Verification](docs/reference/command-line.md#verification)
 is in the compiler: `jihoo verify` proves bounds and overflow checks,
 panics that cannot be reached (also at each call to a small function that
 may panic, such as `v[i]`), and
@@ -278,4 +277,4 @@ server built on the same checking and diagnostics: errors in unsaved
 documents, go to definition and formatting.
 
 Next ([roadmap](docs/internals/roadmap.md)): application-driven library work,
-and a jihoo2 release so that the compiler can use what came after 0.1.0.
+and jihoo2 0.2.0, after which the compiler can use what came after 0.1.0.
