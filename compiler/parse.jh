@@ -858,23 +858,44 @@ impl Parser {
                 }
                 StmtKind.Let(ast.LetStmt { kind: kind, pat: pat, ty: ty, value: value, els: els })
             }
-            _ => {
-                let e = self.expr()?
-                if self.at(Tok.Assign) && !self.nl() {
-                    self.bump()
-                    let v = self.expr()?
-                    StmtKind.Assign(e, v)
-                } else if self.at(Tok.OpAssign) && !self.nl() {
-                    let op = self.toks[self.i].op
-                    self.bump()
-                    let v = self.expr()?
-                    StmtKind.OpAssign(op, e, v)
-                } else {
-                    StmtKind.Expr(e)
-                }
-            }
+            Ident => if self.text() == "prove" && self.starts_clause() {
+                self.bump()
+                StmtKind.Prove(self.clause_expr()?)
+            } else { self.expr_stmt()? }
+            _ => self.expr_stmt()?
         }
         Ok(Stmt { kind: kind, span: start.to(self.prev_span()) })
+    }
+
+    // `prove` followed on its line by what starts a clause: a name, a
+    // number or `-`. `prove(x)` and `prove = 1` use a name `prove`.
+    fn starts_clause(self) -> bool {
+        let next = self.toks[min(self.i + 1, self.toks.len() - 1)]
+        if next.nl_before { return false }
+        match next.tok {
+            Ident | Int | Minus => true
+            _ => false
+        }
+    }
+
+    // An expression statement, or an assignment.
+    fn expr_stmt(inout self) -> Result(StmtKind, Diag) {
+        let kind = {
+            let e = self.expr()?
+            if self.at(Tok.Assign) && !self.nl() {
+                self.bump()
+                let v = self.expr()?
+                StmtKind.Assign(e, v)
+            } else if self.at(Tok.OpAssign) && !self.nl() {
+                let op = self.toks[self.i].op
+                self.bump()
+                let v = self.expr()?
+                StmtKind.OpAssign(op, e, v)
+            } else {
+                StmtKind.Expr(e)
+            }
+        }
+        Ok(kind)
     }
 
     // ---- expressions ----
@@ -1266,8 +1287,10 @@ impl Parser {
                 self.bump()
                 let c = self.expr_ns()?
                 let inv = self.invariants()?
+                var dec = Vec(Expr).new()
+                if self.word("decreases") { dec.push(self.clause_expr()?) }
                 let b = self.block()?
-                ExprKind.While(Box.new(c), inv, b)
+                ExprKind.While(Box.new(c), inv, dec, b)
             }
             Loop => {
                 self.bump()

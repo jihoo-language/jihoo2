@@ -1633,6 +1633,15 @@ impl sema.Sema {
                 self.let_stmt(&fb, l.kind, l.pat, l.ty, l.value, l.els, s.span)?
                 Ok(false)
             }
+            // A new block, at whose start verification proves the clause.
+            Prove(e) => {
+                var out = Vec(mir.Clause).new()
+                self.clauses(fb, e, ClauseAt.Invariant, None, &out)?
+                let at = fb.new_block()
+                fb.goto(at)
+                for c in out.into_iter() { fb.body.contract.proofs.push((at, c)) }
+                Ok(false)
+            }
             Assign(place, value) => {
                 // The value first, then the place: `c[i] = c[i] + 1` borrows
                 // `c` mutably only once the value is computed.
@@ -2859,11 +2868,15 @@ impl sema.Sema {
                 Ok(val_op(Operand.Const(r.c.clone()), r.ty))
             }
             If(c, then, els) => self.if_expr(&fb, c.deref(), then, els, exp, span)
-            While(c, inv, body) => {
+            While(c, inv, dec, body) => {
                 let head = fb.new_block()
                 let exit = fb.new_block()
                 fb.goto(head)
                 self.invariants(&fb, head, inv)?
+                for d in dec {
+                    let m = self.spec_in(fb, d, ClauseAt.Invariant, None)?
+                    fb.body.contract.decreases.push((head, m, d.span))
+                }
                 let cv = self.expr(&fb, c.deref(), Some(types.BOOL))?
                 let cv = self.coerce(&fb, cv, types.BOOL, c.span)?
                 let co = self.operand(&fb, cv, c.span)?
@@ -7280,7 +7293,7 @@ pub fn collect_names_block(b: ast.Block, inout out: Vec(String)) {
                 collect_names(a, &out)
                 collect_names(v, &out)
             }
-            Expr(e) => collect_names(e, &out)
+            Expr(e) | Prove(e) => collect_names(e, &out)
         }
     }
     match b.tail {
@@ -7353,7 +7366,7 @@ pub fn collect_names(e: ast.Expr, inout out: Vec(String)) {
                 collect_names(a.body, &out)
             }
         }
-        While(c, _, b) => {
+        While(c, _, _, b) => {
             collect_names(c.deref(), &out)
             collect_names_block(b, &out)
         }

@@ -466,6 +466,11 @@ impl Dump {
                 self.s(" ")
                 self.expr(r)
             }
+            Prove(e) => {
+                self.open("prove", st.span)
+                self.s(" ")
+                self.expr(e)
+            }
             OpAssign(op, l, r) => {
                 self.open("opassign", st.span)
                 self.s(" ")
@@ -653,11 +658,12 @@ impl Dump {
                 }
                 self.s("]")
             }
-            While(c, inv, b) => {
+            While(c, inv, dec, b) => {
                 self.open("while", sp)
                 self.s(" ")
                 self.expr(c.deref())
                 self.clauses("invariant", inv)
+                self.clauses("decreases", dec)
                 self.s(" ")
                 self.block(b)
             }

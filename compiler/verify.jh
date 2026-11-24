@@ -222,6 +222,8 @@ fn copy_source(s: vc.Source) -> vc.Source {
         Ensures(j) => vc.Source.Ensures(j)
         Lift(b, f, s) => vc.Source.Lift(b, f, s)
         TypeInvariant(t) => vc.Source.TypeInvariant(t)
+        Proof(k) => vc.Source.Proof(k)
+        Decreases(k) => vc.Source.Decreases(k)
     }
 }
 
@@ -403,7 +405,7 @@ fn sites(p: mir.Program, f: vc.Function) -> Vec((i64, i64)) {
                     Add(_, _) | Sub(_, _) | Mul(_, _) => if at.0 >= 0 { out.push(site) }
                     _ => {}
                 }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {
@@ -730,6 +732,10 @@ pub fn verify(p: mir.Program) -> Report {
                     site_span(b, block, -1),
                     "unproved `requires` of " + p.fns[callee].name.as_str()
                 ))
+                Proof(k) => Some((b.contract.proofs[k].1.span, "unproved `prove`".to_string()))
+                Decreases(k) => Some(
+                    (b.contract.decreases[k].2, "unproved `decreases`".to_string())
+                )
                 TypeInvariant(ty) => Some((
                     if r.at.0 >= 0 {
                         diag.Span.new(f.span.file, r.at.0, r.at.1)

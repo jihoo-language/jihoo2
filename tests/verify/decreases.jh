@@ -1,0 +1,69 @@
+// `decreases d` on a `while` loop: on every path back to the loop's head,
+// `d` was not negative when the iteration began and is smaller now, so the
+// loop ends. `prove p` is proved where it stands and assumed after; it does
+// nothing at run time. A remainder by a variable has the sign of what is
+// divided and is smaller than the divisor, so Euclid's loop ends.
+
+fn search(xs: [i64], key: i64) -> i64 {
+    var lo = 0
+    var hi = xs.len
+    while lo < hi
+        invariant 0 <= lo <= hi <= xs.len
+        decreases hi - lo
+    {
+        let mid = lo + (hi - lo) / 2
+        prove lo <= mid < hi
+        if xs[mid] < key { lo = mid + 1 } else { hi = mid }
+    }
+    lo
+}
+
+fn gcd(a: i64, b: i64) -> i64
+    requires a >= 0 && b >= 0
+{
+    var x = a
+    var y = b
+    while y != 0
+        invariant x >= 0 && y >= 0
+        decreases y
+    {
+        let t = x % y
+        x = y
+        y = t
+    }
+    x
+}
+
+// An inner loop's measure is proved; an outer loop's is not yet, since
+// its iterations pass the inner loop's head (see tests/fail).
+fn pairs(n: i64) -> i64
+    requires n >= 0
+{
+    var s = 0
+    for i in 0..n {
+        var j = 0
+        while j < i
+            invariant 0 <= j
+            decreases i - j
+        {
+            s +%= 1
+            j += 1
+        }
+    }
+    s
+}
+
+fn main() {
+    // `prove` is still a name elsewhere.
+    let prove = 1
+    println(search([1, 3, 5], 5) + prove)
+    println(gcd(12, 18))
+    println(pairs(4))
+}
+
+//> 59:13: kept integer overflow in main (call), known -2^63 + 1..=2^63
+//> 14:24: proved integer overflow in search
+//> 14:19: proved integer overflow in search
+//> 16:12: proved index out of bounds in search
+//> 16:33: proved integer overflow in search
+//> 50:13: proved integer overflow in pairs

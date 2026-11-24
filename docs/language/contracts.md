@@ -237,6 +237,42 @@ it. A panic that the function rules out itself, as after
 
 See [Grammar](../reference/grammar.md#files) for where clauses go.
 
+## Steps and termination
+
+`prove p`, a statement, is a clause the verifier proves where it stands
+and assumes after: a lemma for the checks that follow, or a claim about
+the code that the build keeps true. It does nothing when the program runs,
+and one that is not proved is a compile error, as a contract is. Elsewhere
+`prove` is an ordinary name.
+
+`decreases d` after a `while` loop's invariants says that the loop ends:
+on every path from the loop's head back to it (`continue` included), `d`
+was not negative when the iteration began and is smaller now.
+
+```jihoo
+fn gcd(a: i64, b: i64) -> i64
+    requires a >= 0 && b >= 0
+{
+    var x = a
+    var y = b
+    while y != 0
+        invariant x >= 0 && y >= 0
+        decreases y
+    {
+        let t = x % y        // 0 <= t < y
+        x = y
+        y = t
+    }
+    x
+}
+```
+
+`d` is a term as in clauses. An inner loop's `decreases` is proved like
+any other; an outer loop's is not yet when its iterations pass an inner
+loop's head, where the value `d` had when the iteration began is not
+known (put the inner loop in a function of its own). `decreases` on `for`
+loops, which end anyway, and on recursive calls is not there yet.
+
 ## Functions that do not allocate or panic
 
 `#[no_alloc]` says that a function, and everything it calls, does not

@@ -37,7 +37,7 @@ sep        a `,`, a `;`, or a newline before the next element
   `self`, `Self`, `null`, `fnptr`, `int`, `never`, `inline` (before `for`
   or `if`), `dyn` (before a name or `fn`) and the primitive types are
   ordinary names that the compiler gives a meaning to; `_` is a name too,
-  except in patterns. So are `requires`, `ensures` and `invariant`, which
+  except in patterns. So are `requires`, `ensures`, `invariant`, `decreases` and `prove`, which
   start [contract](../language/contracts.md) clauses only where a clause
   can stand, and `result` and `old`, which are special only inside them.
 - Some tokens are made of others: `..=` is `..` then `=`, which is how range
@@ -131,6 +131,7 @@ end      = ";" | newline | before "}"
 stmt     = ( "let" | "var" | "inout" ) pattern [ ":" type ] "=" expr [ "else" block ]
          | expr "=" expr
          | expr opassign expr
+         | "prove" cond                 `prove` then, on its line, a name, a number or `-`
          | expr
 opassign = "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
          | "+%=" | "-%=" | "*%="
@@ -164,7 +165,7 @@ primary  = literal | name | "(" ")" | "(" expr ")"
          | block | "unsafe" block | "comptime" unary
          | "if" cond block [ "else" ( if | block ) ]
          | "match" cond "{" { pattern [ "if" expr ] "=>" stmt sep } "}"
-         | "while" cond { invariant } block
+         | "while" cond { invariant } [ "decreases" expr ] block
          | "loop" { invariant } block
          | "for" [ name "," ] pattern "in" cond { invariant } block
          | "inline" "for" name "in" cond block         unrolled at compile time

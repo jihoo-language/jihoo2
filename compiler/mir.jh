@@ -411,6 +411,11 @@ pub struct Contract {
     pub ensures: Vec(Clause)
     // A loop's head block and what holds each time control reaches it.
     pub invariants: Vec((u32, Clause))
+    // `prove` statements: a block and what holds at its start.
+    pub proofs: Vec((u32, Clause))
+    // A `while` loop's head and its `decreases` measure, which every
+    // iteration makes smaller and which is never negative there.
+    pub decreases: Vec((u32, Spec, Span))
 }
 
 impl Contract {
@@ -418,7 +423,9 @@ impl Contract {
         Contract {
             requires: Vec(Clause).new(),
             ensures: Vec(Clause).new(),
-            invariants: Vec((u32, Clause)).new()
+            invariants: Vec((u32, Clause)).new(),
+            proofs: Vec((u32, Clause)).new(),
+            decreases: Vec((u32, Spec, Span)).new()
         }
     }
 }
@@ -427,10 +434,16 @@ impl Clone for Contract {
     fn clone(self) -> Contract {
         var invariants = Vec((u32, Clause)).new()
         for x in self.invariants { invariants.push((x.0, x.1.clone())) }
+        var proofs = Vec((u32, Clause)).new()
+        for x in self.proofs { proofs.push((x.0, x.1.clone())) }
+        var decreases = Vec((u32, Spec, Span)).new()
+        for x in self.decreases { decreases.push((x.0, x.1.clone(), x.2)) }
         Contract {
             requires: self.requires.clone(),
             ensures: self.ensures.clone(),
-            invariants: invariants
+            invariants: invariants,
+            proofs: proofs,
+            decreases: decreases
         }
     }
 }

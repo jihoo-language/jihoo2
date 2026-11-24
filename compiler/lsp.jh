@@ -936,7 +936,7 @@ fn block_locals(b: ast.Block, off: u32, inout out: Vec(Binding)) {
                 expr_locals(x, off, &out)
                 expr_locals(y, off, &out)
             }
-            Expr(e) => expr_locals(e, off, &out)
+            Expr(e) | Prove(e) => expr_locals(e, off, &out)
         }
     }
     match b.tail {
@@ -968,7 +968,7 @@ fn expr_locals(e: ast.Expr, off: u32, inout out: Vec(Binding)) {
             block_locals(t, off, &out)
             opt_locals(f, off, &out)
         }
-        While(c, _, b) => {
+        While(c, _, _, b) => {
             expr_locals(c, off, &out)
             block_locals(b, off, &out)
         }

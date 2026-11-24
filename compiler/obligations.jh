@@ -2531,16 +2531,30 @@ pub fn model_of(p: Program, f: mir.Function, ifaces: [Interface]) -> Option(vc.F
     for ty in writes { written.push(ty as i64) }
     var blocks = Vec(vc.Block).new()
     for i, bl in b.blocks {
+        // A `prove` statement's facts at the start of its block.
+        var stmts = Vec(vc.Stmt).new()
+        for k, x in b.contract.proofs {
+            if x.0 as i64 == i {
+                let at = (x.1.span.lo as i64, x.1.span.hi as i64)
+                stmts.push(vc.Stmt.Prove(model_clause(t, b, m, x.1), k, at))
+            }
+        }
+        for st in model_stmts(p, b, m, writes.as_slice(), i, bl).into_iter() { stmts.push(st) }
         blocks.push(vc.Block {
-            stmts: model_stmts(p, b, m, writes.as_slice(), i, bl),
+            stmts,
             term: model_term(p, b, m, writes.as_slice(), bl.term, ifaces)
         })
+    }
+    var decreases = Vec((i64, Option(linear.Lin), (i64, i64))).new()
+    for x in b.contract.decreases {
+        decreases.push((x.0 as i64, model_spec(t, b, m, x.1), (x.2.lo as i64, x.2.hi as i64)))
     }
     Some(vc.Function {
         name: f.name.clone(),
         kinds: kinds.clone(),
         blocks,
         invariants,
+        decreases,
         callee: vc.Callee {
             symbol: f.symbol.clone(), kinds, args: b.arg_count, lengths, derefs, fields,
             entries: m.entries.clone(), requires, ensures

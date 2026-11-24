@@ -1,0 +1,16 @@
+// A `continue` that skips the step is a path back to the head on which
+// the measure does not go down.
+// verify
+// error: unproved `decreases` in spin
+fn spin(n: i64) -> i64 {
+    var i = 0
+    while i < n
+        decreases n - i
+    {
+        if i % 2 == 0 { continue }
+        i += 1
+    }
+    i
+}
+
+fn main() { println(spin(0)) }

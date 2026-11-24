@@ -501,10 +501,14 @@ some of jihoo's problems from other directions. Done, each with its tests:
 
 Next, in order:
 
-1. `decreases` on loops and recursive calls, and `prove p` statements
-   (facts proved where they stand, at no cost, as lemmas for later
-   checks), as Shalem has. Both need an obligation that is not a check or
-   a cut point in MIR, and old values at a loop's head.
+1. Done: `prove p` statements and `decreases` on `while` loops
+   ([contracts](../language/contracts.md#steps-and-termination)), with
+   `/` and `%` by a variable followed (the result has the sign of what is
+   divided, and a remainder is smaller than the divisor), so Euclid's
+   loop is proved to end. The compiler proves 1,262 of its bounds and
+   overflow checks. Left: an outer loop's `decreases` across an inner
+   loop's head, which needs the measure's value at the start of the
+   iteration as a variable, and `decreases` on recursive calls.
 2. `/` and `%` by constants in clauses (`invariant i % 2 == 0`), which
    needs a quotient variable in `mir.Spec`; the cuts then prove
    loops that step by two.

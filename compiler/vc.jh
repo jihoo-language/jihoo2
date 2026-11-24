@@ -111,6 +111,8 @@ pub enum Stmt {
     Assign(i64, Rvalue, (i64, i64), Site)
     // A type's invariant must hold here (a writer's drop), at the span.
     Check(Holds, (i64, i64))
+    // The `k`th `prove` statement's fact: proved here, then assumed.
+    Prove(Fact, i64, (i64, i64))
 }
 
 pub enum Term {
@@ -328,6 +330,9 @@ pub struct Function {
     // and with no facts, any block where following every path costs too
     // much. Control reaching one checks its facts and stops there.
     pub invariants: Vec((i64, Vec(Fact)))
+    // A loop head's `decreases` measure over the variables (None when the
+    // model cannot state it), and its span.
+    pub decreases: Vec((i64, Option(Lin), (i64, i64)))
     pub callee: Callee
     // Small, with a call that never returns: record the paths to it.
     pub liftable: bool
@@ -361,6 +366,10 @@ pub enum Source {
     Lift(i64, i64, Site)
     // A writer's obligation of the type's invariant.
     TypeInvariant(i64)
+    // The `k`th `prove` statement.
+    Proof(i64)
+    // The `k`th `decreases` measure.
+    Decreases(i64)
 }
 
 // What a fact on a path rests on, besides the path itself: an assumption
@@ -523,6 +532,8 @@ struct Path {
     steps: i64
     // The path starts at the function's entry.
     from_entry: bool
+    // The block the path starts at: the entry or a cut point.
+    head: i64
 }
 
 impl Clone for Path {
@@ -530,7 +541,7 @@ impl Clone for Path {
         Path {
             block: self.block, state: self.state.clone(), facts: self.facts.clone(),
             tags: self.tags.clone(), ors: self.ors.clone(), or_tags: self.or_tags.clone(),
-            origin: self.origin, steps: self.steps, from_entry: self.from_entry
+            origin: self.origin, steps: self.steps, from_entry: self.from_entry, head: self.head
         }
     }
 }
@@ -576,6 +587,8 @@ fn copy_source(s: Source) -> Source {
         Ensures(j) => Source.Ensures(j)
         Lift(b, f, s) => Source.Lift(b, f, s)
         TypeInvariant(t) => Source.TypeInvariant(t)
+        Proof(k) => Source.Proof(k)
+        Decreases(k) => Source.Decreases(k)
     }
 }
 
@@ -1167,7 +1180,7 @@ pub fn unassigned(f: Function) -> Vec(bool) {
         for st in b.stmts {
             match st {
                 Assign(dst, _, _, _) => if dst >= 0 && dst < out.len() { out[dst] = false }
-                Check(_, _) => {}
+                Check(_, _) | Prove(_, _, _) => {}
             }
         }
         match b.term {
@@ -1204,7 +1217,8 @@ fn start(f: Function, fixed: [bool], block: i64, facts: [Fact], tag: Tag) -> Pat
         from_entry: match tag {
             Requires => block == 0
             _ => false
-        }
+        },
+        head: block
     }
     for v, k in f.kinds {
         match k {
@@ -1560,8 +1574,9 @@ fn dividing(
     rem: bool
 ) -> Sym {
     let Int(_, _) = f.kinds[dst] else { return Sym.Unknown }
-    let Some(y) = operand(p, b) else { return Sym.Unknown }
-    if !y.is_constant() || y.constant < 1 || y.constant > 1 << 32 { return Sym.Unknown }
+    let Some(y) = term(&g, f, p, b, dst) else { return Sym.Unknown }
+    if !y.is_constant() { return dividing_by(&g, f, &p, dst, a, y, rem) }
+    if y.constant < 1 || y.constant > 1 << 32 { return Sym.Unknown }
     let k = y.constant
     let Some(x) = term(&g, f, p, a, dst) else { return Sym.Unknown }
     if x.magnitude() > linear.MAX_VALUE { return Sym.Unknown }
@@ -1593,6 +1608,47 @@ fn dividing(
     if !nonneg { d.push(down) }
     assume_dnf(&p, d.as_slice(), Tag.Path)
     if rem { Sym.Num(r) } else { Sym.Num(q) }
+}
+
+// `a / b` or `a % b` for a divisor that is not a constant: a new variable
+// for the result, which has the sign of `a` (or is 0) and, for `%`, is
+// smaller than `|b|` and no larger than `|a|`; for `/`, no larger than
+// `|a|`. `b == 0` traps before, so it is no case. A value whose type is
+// unsigned has only the cases where it is not negative.
+fn dividing_by(
+    inout g: Gen,
+    f: Function,
+    inout p: Path,
+    dst: i64,
+    a: Operand,
+    y: Lin,
+    rem: bool
+) -> Sym {
+    let Some(x) = term(&g, f, p, a, dst) else { return Sym.Unknown }
+    if x.magnitude() > linear.MAX_VALUE || y.magnitude() > linear.MAX_VALUE { return Sym.Unknown }
+    let r = g.fresh(f.kinds[dst], why_code(if rem { "rem" } else { "div" }))
+    let unsigned = match f.kinds[dst] {
+        Int(lo, _) => lo >= 0
+        Other => false
+    }
+    var d = Vec(Vec(Cond)).new()
+    for sa in [1 as i128, -1] {
+        for sb in [1 as i128, -1] {
+            if unsigned && (sa < 0 || sb < 0) { continue }
+            // a's sign, b's sign: `sa * a >= 0`, `sb * b >= 1`.
+            var c = Vec(Cond).new()
+            c.push(Cond { op: Cmp.Ge, a: x.scale(sa), b: Lin.num(0) })
+            c.push(Cond { op: Cmp.Ge, a: y.scale(sb), b: Lin.num(1) })
+            // The result's sign is a's: `0 <= sa * r <= sa * a`.
+            c.push(Cond { op: Cmp.Ge, a: r.scale(sa), b: Lin.num(0) })
+            c.push(Cond { op: Cmp.Le, a: r.scale(sa), b: x.scale(sa) })
+            // A remainder is smaller than the divisor: `sa * r <= sb * b - 1`.
+            if rem { c.push(Cond { op: Cmp.Le, a: r.scale(sa), b: y.scale(sb).shift(-1) }) }
+            d.push(c)
+        }
+    }
+    assume_dnf(&p, d.as_slice(), Tag.Path)
+    Sym.Num(r)
 }
 
 // Gives the local the value, or a fresh variable in its range when the
@@ -1938,6 +1994,78 @@ fn moved(sink p: Path, block: i64) -> Path {
     q
 }
 
+// A path back to a loop head with a `decreases` measure: the measure was
+// not negative when the path left the head, and is smaller now. The
+// measure at the start is over the variables themselves (a path from a
+// cut point starts with every variable as itself); a path from another
+// cut point, an inner loop's head, does not know it, and fails.
+fn decreasing(inout g: Gen, f: Function, p: Path) {
+    for k, d in f.decreases {
+        if d.0 != p.block { continue }
+        g.at = d.2
+        g.source = Source.Decreases(k)
+        let Some(m) = d.1 else {
+            g.unknown(p, "decreases")
+            continue
+        }
+        // A path into the loop from before it (the entry, an earlier
+        // loop) is not an iteration.
+        if p.head != p.block && !in_loop(f, p.block, p.head) { continue }
+        let now = if p.head == p.block { substitute(m, state_map(p).as_slice()) } else { None }
+        match now {
+            Some(x) => {
+                g.obligation(p, "decreases", m.clone())
+                g.obligation(p, "decreases", m.minus(x).shift(-1))
+            }
+            None => g.unknown(p, "decreases")
+        }
+    }
+    g.at = nowhere()
+}
+
+// `c` is in the natural loop whose head is `h`: every path from the
+// entry to `c` passes `h` (`h` dominates `c`), and `c` leads back to `h`.
+fn in_loop(f: Function, h: i64, c: i64) -> bool {
+    if c == h { return true }
+    !reaches_avoiding(f, 0, c, h) && reaches_avoiding(f, c, h, -1)
+}
+
+// A path from `a` to `b`, of at least one step unless `a` is `b`, that
+// does not pass the block `avoid`.
+fn reaches_avoiding(f: Function, a: i64, b: i64, avoid: i64) -> bool {
+    if a == avoid { return false }
+    if a == b && avoid >= 0 { return true }
+    var seen = Vec(bool).filled(f.blocks.len(), false)
+    var work = Vec(i64).new()
+    for x in successors(f.blocks[a].term) { work.push(x) }
+    loop {
+        let Some(x) = work.pop() else { break }
+        if x == b { return true }
+        if x < 0 || x >= seen.len() || seen[x] || x == avoid { continue }
+        seen[x] = true
+        for y in successors(f.blocks[x].term) { work.push(y) }
+    }
+    false
+}
+
+fn successors(t: Term) -> Vec(i64) {
+    var out = Vec(i64).new()
+    match t {
+        Goto(x) => out.push(x)
+        Switch(_, z, o) => {
+            out.push(z)
+            out.push(o)
+        }
+        Assert(_, _, next, _) => out.push(next)
+        Any(bs) => {
+            for x in bs { out.push(x) }
+        }
+        Call(_, next, _) => out.push(next)
+        _ => {}
+    }
+    out
+}
+
 // Follows every path from `first` to its end: a return, a cut point or a
 // trap.
 fn walk(
@@ -1964,6 +2092,7 @@ fn walk(
                 Some(i) => {
                     let what = "invariant of bb" + p.block.to_string()
                     holds(&g, p, what.as_str(), f.invariants[i].1.as_slice(), i)
+                    decreasing(&g, f, p)
                     continue
                 }
                 None => {}
@@ -1989,6 +2118,14 @@ fn walk(
                     var one = Vec(Holds).new()
                     one.push(h.clone())
                     invariants_hold(&g, p, "invariant", one.as_slice())
+                    g.at = nowhere()
+                }
+                Prove(x, k, at) => {
+                    g.at = at
+                    g.source = Source.Proof(k)
+                    let map = state_map(p)
+                    g.require_fact(p, "prove", x, map.as_slice())
+                    assume_fact(&p, x, map.as_slice(), Tag.Path)
                     g.at = nowhere()
                 }
             }
