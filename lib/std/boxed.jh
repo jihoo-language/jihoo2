@@ -24,6 +24,20 @@ impl(T: type) Box(T) {
         unsafe { *self.ptr }
     }
 
+    // `f` of the value, in the same allocation: rewriting a tree node by
+    // node with `map` allocates nothing, where `Box.new(f(b.unbox()))`
+    // frees each node and allocates another of the same size. While `f`
+    // runs, the allocation holds no value; a panic ends the program
+    // rather than unwinding, so nothing sees it.
+    pub fn map(sink self, comptime f: fn(sink T) -> T) -> Box(T) {
+        unsafe {
+            let p = self.ptr
+            forget(self)
+            write(p, f(read(p)))
+            Box(T) { ptr: p }
+        }
+    }
+
     // The value, out of the box.
     pub fn unbox(sink self) -> T {
         unsafe {
@@ -54,4 +68,44 @@ impl(T: Eq) Eq for Box(T) {
     fn eq(self, other: Box(T)) -> bool {
         self.deref().eq(other.deref())
     }
+}
+
+enum Expr {
+    Num(i64)
+    Neg(Box(Expr))
+    Add(Box(Expr), Box(Expr))
+}
+
+// Pushes negations down to the numbers, reusing every node.
+fn push_neg(sink e: Expr, neg: bool) -> Expr {
+    match e {
+        Num(n) => Expr.Num(if neg { 0 - n } else { n })
+        Neg(x) => push_neg(x.unbox(), !neg)
+        Add(a, b) => Expr.Add(
+            a.map(fn(x) { push_neg(x, neg) }),
+            b.map(fn(x) { push_neg(x, neg) })
+        )
+    }
+}
+
+fn eval(e: Expr) -> i64 {
+    match e {
+        Num(n) => n
+        Neg(x) => 0 - eval(x)
+        Add(a, b) => eval(a) + eval(b)
+    }
+}
+
+#[test]
+fn map_keeps_the_allocation() {
+    let b = Box.new(String.from("ab"))
+    let before = b.ptr
+    let c = b.map(fn(s) { s + "c" })
+    assert(c.ptr == before, "the same allocation")
+    assert(c.deref().as_str() == "abc", "the new value")
+    let e = Expr.Neg(
+        Box.new(Expr.Add(Box.new(Expr.Num(2)), Box.new(Expr.Neg(Box.new(Expr.Num(5))))))
+    )
+    let p = push_neg(e, false)
+    assert(eval(p) == 3, "-(2 + -5) is 3")
 }

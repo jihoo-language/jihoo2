@@ -206,7 +206,13 @@ A hash map with open addressing, for keys with `Hash` and `Eq`. `new`,
 ## `Box(T)`
 
 A value on the heap: `Box.new(x)`, `unbox`. Field access, method calls and
-patterns see through it.
+patterns see through it. `b.map(fn(x) { ... })` gives the closure the value
+and keeps its result in the same allocation, so a pass that rewrites a
+tree node by node (`Add(a, b) => Expr.Add(a.map(f), b.map(f))`) reuses
+every node instead of freeing it and allocating another, as a
+reference-counted language does with a cell nothing else refers to. It
+is about 15% faster than `Box.new(f(b.unbox()))` on a tree of a million
+nodes.
 
 ## Modules
 
