@@ -1030,9 +1030,9 @@ pub fn text(p: mir.Program, sources: diag.Sources, r: Report, all: bool) -> Stri
     out
 }
 
-// The verdicts of the functions defined in file 0 (the program's root), as
-// jihoo-proofs' `emitted.jh --machine` prints them for its differential
-// test: `check NAME LO HI proved|unproved` per check, `requires NAME LO HI
+// The verdicts of the functions defined in file 0 (the program's root), one
+// line each, for tools that compare them with other results:
+// `check NAME LO HI proved|unproved` per check, `requires NAME LO HI
 // CALLEE proved|unproved` per call to a function with a `requires`, and
 // `ensures NAME proved|unproved`. Proved means that nothing it rests on is
 // unproved.

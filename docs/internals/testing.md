@@ -201,10 +201,8 @@ module without `main`). The built-in workloads are the compiler itself,
 (tables, maps, sorting and derived code evaluated by the interpreter),
 [200 calls of `std.fmt`](../../benchmarks/compile/format.jh) whose literal
 patterns are each checked while compiling, and the fusion benchmark's
-iterator kernels. `--proofs ../jihoo-proofs` adds that
-repository's proof and codec examples, and `--external NAME=ENTRY[:INCLUDE...]`
-any other program, such as Banana's entry point; their revisions are
-recorded too.
+iterator kernels. `--external NAME=ENTRY[:INCLUDE...]` adds any other
+program, such as Banana's entry point; its revision is recorded too.
 
 Every sample is a new compiler process run through GNU `time` (in the dev
 shell), so peak resident memory belongs to the compiler rather than to the
@@ -245,6 +243,3 @@ python3 tests/comptime_report.py --compiler out/jihoo
 
 The check suite validates the report schema and source spans, accounting
 totals, unchanged LLVM IR, and step/memory/depth and invalid-memory failures.
-The [jihoo-proofs](https://github.com/jihoolang/jihoo-proofs) repository
-uses these reports to measure its checked codec construction at 4 to 256
-variants.

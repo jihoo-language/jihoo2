@@ -441,7 +441,7 @@ A proof counts only when everything it rests on is proved: a function's
 the entry, a destructor or used as a value is never assumed to be called
 that way), a callee's `ensures`, and the invariants of loops, inferred or
 written. `--machine` prints the verdicts of the root file's functions in
-the line format jihoo-proofs' differential test reads. `verify` exits
+a line format for tools that compare them with other results. `verify` exits
 with status 1 when a contract is not proved.
 
 Every command that generates code (`build`, `run`, `test`, `emit-llvm`,
@@ -460,8 +460,7 @@ prints the time each function took on standard error.
 as usual but keeps every check, and a proved one that fails says
 `..., which verification proved impossible: a verifier bug, please report
 it`. A program and its tests built this way and run on real inputs check
-the proofs where the differential test of jihoo-proofs checks them on
-random ones.
+the proofs on those inputs.
 
 ## Verification model
 
@@ -555,8 +554,7 @@ a remainder; this format does not yet),
 the model does not follow is `(any blocks...)`. Each check ends with
 `(at lo hi)`, the byte range where compile-time evaluation reports it
 failing: an `assert`, and a `set` whose `+ - *` checks for overflow. The format is research and
-may change; [jihoo-proofs](https://github.com/jihoolang/jihoo-proofs/tree/main/obligations)
-reads it.
+may change.
 
 ## Environment
 

@@ -1,5 +1,5 @@
-// `emit-obligations`: each function's MIR as the integer model that
-// jihoo-proofs/obligations proves things about (docs/internals/verification.md).
+// `emit-obligations`: each function's MIR as the integer model that the
+// verifier proves things about (docs/internals/verification.md).
 // What the model cannot follow becomes `(opaque why)`, a value known only
 // to be in its type's range, so the output never claims more than MIR says.
 
@@ -2158,7 +2158,7 @@ pub fn show_function(p: Program, f: mir.Function, ifaces: [Interface]) -> String
 }
 
 // The same model as data, for the verifier (`vc.jh`): what `show_function`
-// prints, read as jihoo-proofs' `load.jh` reads it. Numbers beyond 64 bits
+// prints, as a reader of that text would read it. Numbers beyond 64 bits
 // are not followed, since the checker keeps its numbers below 2^65.
 
 fn small(v: i128) -> bool {

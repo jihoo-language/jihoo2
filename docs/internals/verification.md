@@ -8,9 +8,7 @@ Status: research. The compiler proves checks and
 [contracts](../language/contracts.md) itself
 ([`jihoo verify`](../reference/command-line.md#verification); every
 build removes the proved checks and rejects unproved contracts), and runs
-on its own source; the
-experiments that led to it are in
-[jihoo-proofs/obligations](https://github.com/jihoolang/jihoo-proofs/tree/main/obligations).
+on its own source.
 
 ## Goal
 
@@ -19,12 +17,9 @@ that its functions meet their contracts. A proof costs nothing at run time:
 it is checked and then erased, and a check that is proved is removed, so a
 verified program is faster than the same program unverified.
 
-The original 0.6 library goal, retained as future work, is importable proofs
-over the native core: lemmas
-about integers, sequences and the program's own data, proved by induction
-and used in program specifications. Mathematics beyond what programs need
-grows from there through the same core's types and proofs, erased before
-runtime code generation.
+jihoo's 0.6 goal, importable proofs over its dependent core, is not part
+of jihoo2. Lemmas that contracts need are stated as contracts the verifier
+proves.
 
 ## Principles
 
@@ -160,7 +155,7 @@ to, when its pointer only reaches it; a local lent to one call
 variable the function never assigns, which keeps its value on entry, so
 `requires` still holds of it there. A call proves the callee's
 `requires` with its arguments, and assumes its `ensures` of the new values.
-In jihoo-proofs, a sample of calls proves `bump`'s and `inc`'s contracts,
+A sample of calls proves `bump`'s and `inc`'s contracts,
 a caller's `ensures` from them, a loop whose invariant carries what the
 calls promise, and a recursive function. A call that cannot meet its
 callee's `requires` stays unproved. The differential test now separates a
@@ -202,10 +197,9 @@ made it fit real programs, the compiler's own first:
 `tests/verify` lists the verdicts for loops and contracts, and the
 `verify` suite runs every program of `tests/run` built with `--verify`,
 which must do the same as without: the programs that trap on purpose
-still trap. jihoo-proofs' differential test takes the compiler's verdicts
-with `--verdicts compiler`: over its samples (debug and `--release`) and
-the 99 files of `tests/run` and `examples`, no check the compiler proved
-failed in the interpreter.
+still trap. Over the samples (debug and `--release`) and the 99 files of
+`tests/run` and `examples`, no check the compiler proved failed in the
+interpreter.
 
 On its own source (`jihoo verify compiler/main.jh`, 3,587 functions with
 the instances of `std`), the compiler proves 378 of its 2,489 checks in
@@ -315,9 +309,7 @@ when `len == cap`, but a `String` from a literal borrows the literal's
 bytes with `cap` 0, so they wrote into the literal. They now reserve when `len >= cap`.
 
 The finding about cost decides where the checker runs. A compiler pass can run the
-checker as compiled code, outside the interpreter's budget; library proofs
-(0.6) run in the interpreter and need it to be faster or their limit to be
-chosen by the program.
+checker as compiled code, outside the interpreter's budget.
 
 ### Type invariants
 
@@ -538,8 +530,7 @@ unproved contract. With `reserve`'s shorter fast path the compiler proves
   the fields of every value of a struct.
 - **Calls.** Modular: a call assumes the callee's `ensures` after proving
   its `requires`, and proves a small callee's panics away by itself.
-  Functions too large to lift need `requires` the callers meet, or
-  contracts that are the first users of 0.6's lemmas.
+  Functions too large to lift need `requires` the callers meet.
 - **Integers.** Fourier–Motzkin is complete over the rationals, not the
   integers. The prover rounds a row whose coefficients share a factor
   its constant lacks (a cut the checker checks), and eliminates first the
@@ -550,9 +541,11 @@ unproved contract. With `reserve`'s shorter fast path the compiler proves
 - **Division.** `a / k` and `a % k` by a positive constant are a fresh
   quotient `q` and the remainder `a - k * q`, between 0 and `k - 1` when
   `a >= 0` and between `1 - k` and 0 when `a <= 0`, so a binary search's
-  `lo + (hi - lo) / 2` is in bounds (`tests/verify/division.jh`). Other
-  divisors stay opaque, and clauses cannot use `/` or `%` yet: an
-  invariant such as `i % 2 == 0` needs a quotient variable in clauses.
+  `lo + (hi - lo) / 2` is in bounds (`tests/verify/division.jh`). By a
+  variable, the result has the sign of what is divided and a remainder is
+  smaller than the divisor. Clauses divide by constants too
+  (`invariant i % 2 == 0`), with a quotient variable that each use of the
+  clause defines anew (`tests/verify/clause_division.jh`).
 - **Invariant inference.** Untrusted candidates (the loop condition, the
   initial values, bounds of indices) kept only when they check: most loops
   over `0..n` should need no annotation.
