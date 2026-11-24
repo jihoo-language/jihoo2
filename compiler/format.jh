@@ -130,6 +130,8 @@ fn layout(
         let range_end = i >= 2 && previous == Tok.Assign && tokens[i - 2].tok == Tok.DotDot
         var spaced = comment || (!range_end && needs_space(previous, kind, previous_prefix))
         if closed_impl && kind == Tok.LBracket { spaced = true }
+        // A clause word is not called: `decreases (m, n)`.
+        if i > 0 && clauses[i - 1] && kind == Tok.LParen { spaced = true }
         if !spaced && !f.line_start && i > 0 {
             // Removing a gap must not turn two operators into one, make a
             // comment, or turn a tuple field followed by a dot into a float.

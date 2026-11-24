@@ -509,9 +509,9 @@ Next, in order:
    overflow checks. Done: `decreases` on functions, proved at each call
    to itself against the parameters' values on entry. Left: an outer
    loop's `decreases` across an inner loop's head, which needs the
-   measure's value at the start of the iteration as a variable, measures
-   compared in order (Ackermann's), and recursion through other
-   functions.
+   measure's value at the start of the iteration as a variable, and recursion
+   through other functions. Done: measures that are tuples, compared in
+   order, for loops and functions (Ackermann's function is proved to end).
 2. Done: `/` and `%` by constants in clauses (`invariant i % 2 == 0`).
    A quotient is a variable of the function's model (`SpecVar.Quot`,
    `Contract.quots`) that each use of the clause defines anew with the

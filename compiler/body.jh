@@ -221,6 +221,17 @@ fn clause_and(x: [Vec(mir.Compare)], y: [Vec(mir.Compare)]) -> Vec(Vec(mir.Compa
     out
 }
 
+// The parts of a `decreases` measure: `(a, b)` is compared in order.
+fn measure_parts(e: ast.Expr) -> Vec(ast.Expr) {
+    match e.kind {
+        Tuple(xs) => return xs.clone()
+        _ => {}
+    }
+    var one = Vec(ast.Expr).new()
+    one.push(e.clone())
+    one
+}
+
 fn spec_number(c: i128) -> mir.Spec {
     mir.Spec { constant: c, terms: Vec(mir.SpecTerm).new() }
 }
@@ -811,8 +822,10 @@ impl sema.Sema {
         fb.body.contract.requires = requires
         fb.body.contract.ensures = ensures
         for e in d.decreases {
-            let m = self.spec_in(fb, e, ClauseAt.Requires, None)?
-            fb.body.contract.measure.push((m, e.span))
+            for x in measure_parts(e) {
+                let m = self.spec_in(fb, x, ClauseAt.Requires, None)?
+                fb.body.contract.measure.push((m, e.span))
+            }
         }
         self.take_quots(&fb)
         Ok(())
@@ -2913,8 +2926,10 @@ impl sema.Sema {
                 fb.goto(head)
                 self.invariants(&fb, head, inv)?
                 for d in dec {
-                    let m = self.spec_in(fb, d, ClauseAt.Invariant, None)?
-                    fb.body.contract.decreases.push((head, m, d.span))
+                    for x in measure_parts(d) {
+                        let m = self.spec_in(fb, x, ClauseAt.Invariant, None)?
+                        fb.body.contract.decreases.push((head, m, d.span))
+                    }
                     self.take_quots(&fb)
                 }
                 let cv = self.expr(&fb, c.deref(), Some(types.BOOL))?

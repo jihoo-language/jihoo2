@@ -296,9 +296,24 @@ fn bsearch(xs: [i64], key: i64, lo: i64, hi: i64) -> i64
 ```
 
 Only direct calls count: recursion through another function, a closure
-or a pointer is not checked. One integer cannot measure every recursion
-(Ackermann's function needs a pair in order); a measure that is a tuple
-compared in order is not there yet.
+or a pointer is not checked.
+
+A measure can be a tuple, compared in order: `decreases (m, n)` goes down
+when `m` does, or when `m` stays and `n` does, and every part is not
+negative where it starts. Ackermann's function needs it, and so does a
+loop that resets an inner counter when an outer one steps:
+
+```jihoo
+fn ack(m: i64, n: i64) -> i64
+    requires m >= 0 && n >= 0
+    ensures result >= 0
+    decreases (m, n)
+{
+    if m == 0 { return n + 1 }
+    if n == 0 { return ack(m - 1, 1) }
+    ack(m - 1, ack(m, n - 1))
+}
+```
 
 ## Functions that do not allocate or panic
 
