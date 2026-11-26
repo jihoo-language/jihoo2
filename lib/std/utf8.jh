@@ -68,3 +68,28 @@ impl str {
         Chars { text: self, at: 0 }
     }
 }
+
+fn decoded(s: str, at: i64, cp: u32, n: i64) -> bool {
+    match decode(s, at) {
+        Ok(r) => r.0 == cp && r.1 == n
+        Err(_) => false
+    }
+}
+
+#[test]
+fn decodes_and_validates() {
+    let s = "aé€😀"
+    assert(decoded(s, 0, 0x61, 1), "ascii")
+    assert(decoded(s, 1, 0xe9, 2), "two bytes")
+    assert(decoded(s, 3, 0x20ac, 3), "three bytes")
+    assert(decoded(s, 6, 0x1f600, 4), "four bytes")
+    assert(decode("\xff", 0).is_err() && validate("a\xc3").is_err(), "invalid")
+    assert(validate(s).is_ok(), "valid")
+    var n = 0
+    for c in s.chars() {
+        assert(c.is_ok(), "a scalar")
+        n += 1
+    }
+    assert(n == 4, "four scalars")
+    assert(is_whitespace(0x20) && is_whitespace(0x3000) && !is_whitespace(0x61), "whitespace")
+}

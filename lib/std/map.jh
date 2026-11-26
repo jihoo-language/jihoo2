@@ -201,3 +201,38 @@ impl(K: Hash + Eq, V: type) Default for Map(K, V) {
         Map(K, V).new()
     }
 }
+
+#[test]
+fn insert_get_and_replace() {
+    var m = Map(i64, i64).new()
+    assert(m.is_empty() && m.get(1).is_none(), "empty")
+    for i in 0..200 {
+        assert(m.insert(i, i * 2).is_none(), "new key")
+    }
+    assert(m.len() == 200 && m[150] == 300 && m.contains(199) && !m.contains(200), "200 keys")
+    assert(m.insert(7, 0) == Some(14) && m[7] == 0 && m.len() == 200, "replaced")
+    match m.get_mut(8) {
+        Some(x) => x += 1
+        None => assert(false, "8 is there")
+    }
+    m[9] += 5
+    assert(m[8] == 17 && m[9] == 23, "changed in place")
+}
+
+#[test]
+fn remove_keeps_the_rest() {
+    var m = Map(String, i64).new()
+    for i in 0..50 {
+        m.insert(i.to_string(), i)
+    }
+    for i in 0..50 {
+        if i % 3 == 0 {
+            assert(m.remove(i.to_string()) == Some(i), "removed")
+        }
+    }
+    assert(m.len() == 33 && m.remove(String.from("0")).is_none(), "33 left")
+    for i in 0..50 {
+        assert(m.contains(i.to_string()) == (i % 3 != 0), "the others remain")
+    }
+    assert(m.keys().len() == 33, "keys")
+}
