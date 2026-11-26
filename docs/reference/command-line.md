@@ -376,7 +376,7 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   place of the file on disk, so a document checks against the open versions
   of the modules it imports. Checks run when a document is opened, changed
   or saved, once the server has no further messages waiting, so a burst of
-  edits is checked once. An error is published at its own range when it is
+  edits is checked once, and without delaying replies (below). An error is published at its own range when it is
   in the checked document; otherwise at the first note located there, such
   as the use of a generic instance, with the error's own location in
   `relatedInformation`; otherwise in the file it belongs to. Notes become
@@ -409,9 +409,12 @@ takes no files; `-I` and `--target` apply to every document. It provides:
 Positions use UTF-8 byte offsets when the client lists `utf-8` among its
 `positionEncodings`, and the protocol's default UTF-16 code units otherwise.
 Documents are synchronized in full. Other requests return the protocol's
-`MethodNotFound` error. A check runs on the server's single thread, so a
-document that takes long to check (the compiler itself takes seconds) delays
-replies until it finishes. The server exits with status 0 after `shutdown`
+`MethodNotFound` error. Checks run in a child process, one at a time, so
+requests are answered while a document that takes long to check (the
+compiler itself takes about a second) is checked; an edit that arrives
+meanwhile stops that check, whose result would be for the old text, and
+the document is checked again. Hover and go to definition on `value.name`
+lower the document themselves, on the server's thread. The server exits with status 0 after `shutdown`
 and `exit`, and 1 when its input ends or `exit` comes first.
 
 ## Verification

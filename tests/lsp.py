@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -260,6 +261,41 @@ def main():
             error = client.request_error("textDocument/completion", {
                 "textDocument": {"uri": uri(main_file)}, "position": {"line": 0, "character": 0}})
             assert error["code"] == -32601, error
+
+            # A long check runs aside: a request sent while the compiler's
+            # own main.jh is checked is answered before its diagnostics.
+            big = ROOT / "compiler/main.jh"
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": uri(big), "languageId": "jihoo", "version": 1, "text": big.read_text()}})
+            time.sleep(0.2)
+            client.next_id += 1
+            client.send({"jsonrpc": "2.0", "id": client.next_id, "method": "textDocument/formatting",
+                         "params": {"textDocument": {"uri": uri(main_file)},
+                                    "options": {"tabSize": 4, "insertSpaces": True}}})
+            order = []
+            while len(order) < 2:
+                message = client.receive()
+                if message.get("id") == client.next_id:
+                    order.append("reply")
+                elif (message.get("method") == "textDocument/publishDiagnostics"
+                      and message["params"]["uri"] == uri(big)):
+                    order.append("diagnostics")
+                    assert message["params"]["diagnostics"] == [], message
+                else:
+                    client.notifications.append(message)
+            assert order == ["reply", "diagnostics"], order
+            # An edit during a check cancels it: the first diagnostics after
+            # it are for the new text, not the stale result.
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(big), "version": 2},
+                                                     "contentChanges": [{"text": big.read_text()}]})
+            time.sleep(0.2)
+            broken = big.read_text() + "\nfn broken() { nope }\n"
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(big), "version": 3},
+                                                     "contentChanges": [{"text": broken}]})
+            diagnostics = client.diagnostics(uri(big))
+            assert [d["message"] for d in diagnostics] == ["unknown name `nope`"], diagnostics
+            client.notify("textDocument/didClose", {"textDocument": {"uri": uri(big)}})
+            assert client.diagnostics(uri(big)) == []
 
             # Closing clears what the document published.
             client.notify("textDocument/didClose", {"textDocument": {"uri": uri(main_file)}})
