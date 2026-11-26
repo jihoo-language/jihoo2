@@ -87,6 +87,13 @@ compares variants and numbers.
 `APPEND` and `NONBLOCK`. `os.pipe()` returns `(read end, write end)`.
 Descriptors are closed in programs `std.process` starts.
 
+Programs start with SIGPIPE ignored, so that writing to a pipe whose
+reading end is closed fails with `BrokenPipe` instead of ending the
+program. Standard output and standard error are the exception: there,
+`print` and `File.write` end the program by SIGPIPE (status 141 in a
+shell), so that `program | head` stops quietly. Programs `std.process`
+starts get the default SIGPIPE back.
+
 Each read and write is one system call, so partial operations, the end of
 input, signals and nonblocking descriptors show in the result:
 

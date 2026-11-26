@@ -26,6 +26,15 @@ pub fn write_err(s: str) {
     write_fd(2, s)
 }
 
+// There are no pipes, and no signals; `std.os` names them for every
+// profile.
+pub const SIGPIPE: i32 = 13
+pub const EPIPE: i64 = 32
+
+pub fn die_of_sigpipe() -> never {
+    exit(128 + SIGPIPE)
+}
+
 pub unsafe fn read_fd(fd: i32, buf: *u8, n: i64) -> i64 {
     -1
 }

@@ -1,0 +1,39 @@
+// SIGPIPE is ignored, so that writing to a pipe whose reading end is
+// closed fails with `BrokenPipe` instead of ending the program; on
+// standard output it still ends the program by SIGPIPE, so that
+// `program | head` stops quietly; and started programs get the default
+// back.
+import std.os
+import std.env
+import std.process
+
+fn main() {
+    let args = env.args()
+    if args.len() > 1 && args[1] == "loop" {
+        var i = 0
+        loop {
+            println(i)
+            i += 1
+        }
+    }
+
+    let (r, w) = os.pipe().unwrap()
+    var w = w
+    drop(r)
+    match w.write_all("x".as_bytes()) {
+        Ok(_) => println("written")
+        Err(e) => println(e == os.Error.BrokenPipe)
+    }
+    //> true
+
+    // `$?` of the printing loop, after `head` has stopped reading.
+    let o = process.output("sh", ["-c", "{ \"$0\" loop; echo $? >&2; } | head -c 1 >/dev/null", args[0]])
+    println(o.unwrap().stderr)
+    //> 141
+    //>
+
+    // Bit 13 of the child's ignored signals (0x1000) is clear.
+    let s = process.output("grep", ["SigIgn", "/proc/self/status"]).unwrap()
+    println(s.stdout.as_str().trim())
+    //> SigIgn:	0000000000000000
+}

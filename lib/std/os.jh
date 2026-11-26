@@ -286,9 +286,14 @@ impl File {
 
     // Writes some of `data` with one system call: how many bytes, which
     // may be fewer than `data.len`.
+    // On standard output or standard error, a reader that has gone ends
+    // the program by SIGPIPE, as with `print`; elsewhere it is
+    // `BrokenPipe`.
     pub fn write(inout self, data: [u8]) -> Result(i64, Error) {
         if data.len == 0 { return Ok(0) }
-        check(unsafe { sys.write_raw(self.fd, data.ptr, data.len) })
+        let n = unsafe { sys.write_raw(self.fd, data.ptr, data.len) }
+        if n == 0 - sys.EPIPE && (self.fd == 1 || self.fd == 2) { sys.die_of_sigpipe() }
+        check(n)
     }
 
     // Writes all of `data`, retrying interrupted calls. An error leaves
