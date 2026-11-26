@@ -340,3 +340,78 @@ impl Drop for File {
         if self.owned { let _ = sys.close_raw(self.fd) }
     }
 }
+
+#[test]
+fn error_numbers() {
+    // Every named variant comes from its number and gives it back.
+    for c in CODES {
+        let e = Error.from_code(c)
+        assert(e.code() == c && variant_of(e) != variant_of(Error.Other(0)), "named")
+        assert(e.message() != "Unknown error", "a message")
+    }
+    assert(Error.from_code(2) == NotFound && Error.from_code(39) == NotEmpty, "ends")
+    assert(Error.from_code(3) == Error.Other(3) && Error.Other(3) != Error.Other(6), "others")
+    assert(Error.UnexpectedEof.code() == 0 && Error.InvalidData.code() == 0, "not numbers")
+    assert(Error.NotFound.to_string() == "No such file or directory (os error 2)", "shown")
+    assert(Error.Other(95).to_string() == "os error 95", "other shown")
+    assert(Error.UnexpectedEof.to_string() == "unexpected end of input", "eof shown")
+}
+
+#[test]
+fn pipes() {
+    let (rd, wr) = pipe().unwrap()
+    var r = rd
+    var w = wr
+    w.write_all("hello world".as_bytes()).unwrap()
+    let nothing: [u8; 0] = []
+    assert(w.write(nothing[..]) == Ok(0), "an empty write")
+    var buf = Vec(u8).new()
+    r.read_exact(&buf, 5).unwrap()
+    assert(buf.len() == 5 && buf[4] == 'o', "read_exact")
+    assert(r.read(&buf, 0) == Ok(0), "a read of nothing")
+    assert(r.read(&buf, 3) == Ok(3) && buf.len() == 8, "a short read appends")
+    drop(w)
+    assert(r.read_exact(&buf, 10) == Err(UnexpectedEof) && buf.len() == 11, "eof keeps bytes")
+    assert(r.read_to_end(&buf) == Ok(0), "already at the end")
+}
+
+#[test]
+fn waiting_and_nonblocking() {
+    let (rd, wr) = pipe().unwrap()
+    var r = rd
+    var w = wr
+    assert(r.wait_readable(0) == Ok(false) && w.wait_writable(0) == Ok(true), "empty pipe")
+    r.set_nonblocking(true).unwrap()
+    var buf = Vec(u8).new()
+    assert(r.read(&buf, 10) == Err(WouldBlock), "would block")
+    r.set_nonblocking(true).unwrap()
+    w.write_all("x".as_bytes()).unwrap()
+    assert(r.wait_readable(-1) == Ok(true) && r.read(&buf, 10) == Ok(1), "readable")
+    r.set_nonblocking(false).unwrap()
+    drop(w)
+    assert(
+        r.wait_readable(1000) == Ok(true) && r.read(&buf, 10) == Ok(0),
+        "a closed end is readable"
+    )
+}
+
+#[test]
+fn opening_files() {
+    assert(File.open("/nonexistent/x").is_err(), "missing")
+    match File.open("/nonexistent/x") {
+        Err(e) => assert(e == NotFound, "NotFound")
+        Ok(_) => panic("opened")
+    }
+    match File.open("a\0b") {
+        Err(e) => assert(e == InvalidInput, "zero byte")
+        Ok(_) => panic("opened")
+    }
+    match File.open_with("/dev/null", WRITE | CREATE | EXCLUSIVE, 0o644) {
+        Err(e) => assert(e == AlreadyExists, "exclusive")
+        Ok(_) => panic("opened")
+    }
+    var null = File.create("/dev/null").unwrap()
+    assert(null.write("abc".as_bytes()) == Ok(3) && null.fd() > 2, "/dev/null")
+    let out = stdout()
+    assert(out.fd() == 1 && stdin().fd() == 0 && stderr().fd() == 2, "standard streams")
+}
