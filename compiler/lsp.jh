@@ -580,7 +580,8 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        let found = resolve(a, sources, offset)
+        var found = typed_members(a, sources, self.tgt, offset)
+        if found.len() == 0 { found = resolve(a, sources, offset) }
         var locations = Vec(Json).new()
         for sp in found {
             locations.push(self.location(sp, sources))
@@ -611,7 +612,8 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        let found = resolve(a, sources, offset)
+        var found = typed_members(a, sources, self.tgt, offset)
+        if found.len() == 0 { found = resolve(a, sources, offset) }
         if found.len() == 0 { return Json.Null }
         let Some((name, at)) = word_at(sources, a, offset) else { return Json.Null }
         // The types of locals, from the program as sema lowered it.
@@ -674,6 +676,110 @@ fn word_at(sources: diag.Sources, a: load.Ast, offset: i64) -> Option((String, S
         }
     }
     None
+}
+
+// `value.name` where `value` is a local or parameter: the fields,
+// variants and methods named `name` of the type the compiler gave
+// `value` (through a borrow), in every instance. Empty otherwise, or when
+// the program does not check, so that resolving by name takes over.
+fn typed_members(a: load.Ast, sources: diag.Sources, tgt: target.Target, offset: i64) -> Vec(Span) {
+    var out = Vec(Span).new()
+    let root = a.modules[a.root as i64]
+    let file = root.ast.file
+    let text = sources.files[file as i64].text.as_str()
+    let toks = match lex.lex(file, text) {
+        Ok(t) => t
+        Err(_) => return out
+    }
+    var at = -1
+    for i, t in toks {
+        if t.tok == lex.Tok.Ident && t.span.lo as i64 <= offset && offset <= t.span.hi as i64 {
+            at = i
+        }
+    }
+    if at < 2 || toks[at - 1].tok != lex.Tok.Dot || toks[at - 2].tok != lex.Tok.Ident {
+        return out
+    }
+    // Not `a.b.name`, whose receiver is a field rather than a local.
+    if at >= 3 && toks[at - 3].tok == lex.Tok.Dot { return out }
+    let q = toks[at - 2].text.as_str()
+    let name = toks[at].text.as_str()
+    var binding: Option(Span) = None
+    for b in locals(root.ast, toks[at - 2].span.lo) {
+        if b.name == q { binding = Some(narrow(sources, b.span, q)) }
+    }
+    let Some(sp) = binding else { return out }
+    var reports = Vec(interp.Report).new()
+    let prog = match sema.compile(a, tgt, true, true, target.Codegen.default(), false, &reports) {
+        Ok(p) => p
+        Err(_) => return out
+    }
+    // `value.name(...)` calls a method; otherwise a field, or a method
+    // named as a value.
+    let call = at + 1 < toks.len() && toks[at + 1].tok == lex.Tok.LParen
+    let types = receiver_types(prog, sp, q)
+    for ty in types {
+        for m in a.modules {
+            for it in m.ast.items {
+                match it.kind {
+                    Impl(_) => if call { type_member(m, sources, it, ty.as_str(), name, &out) }
+                    _ => if !call { type_member(m, sources, it, ty.as_str(), name, &out) }
+                }
+            }
+        }
+    }
+    if out.len() == 0 && !call {
+        for ty in types {
+            for m in a.modules {
+                for it in m.ast.items {
+                    type_member(m, sources, it, ty.as_str(), name, &out)
+                }
+            }
+        }
+    }
+    out
+}
+
+// The names of the struct and enum types (without module or arguments,
+// through borrows) of the locals named `name` declared at `sp`.
+fn receiver_types(p: mir.Program, sp: Span, name: str) -> Vec(String) {
+    var out = Vec(String).new()
+    for f in p.fns {
+        match f.body {
+            Some(b) => {
+                for l in b.locals {
+                    let Some(n) = l.name else { continue }
+                    if n != name || l.span.file != sp.file { continue }
+                    if l.span.lo > sp.lo || sp.lo >= l.span.hi { continue }
+                    var t = l.ty
+                    loop {
+                        match p.types.kind(t) {
+                            Ref(x) | RefMut(x) => t = x
+                            _ => break
+                        }
+                    }
+                    let Some(a) = p.types.adt_index(t) else { continue }
+                    let full = p.types.adts[a as i64].name.as_str()
+                    var end = full.len
+                    for i in 0..full.len {
+                        if full[i] == '(' && end == full.len { end = i }
+                    }
+                    var start = 0
+                    for i in 0..end {
+                        if full[i] == '.' { start = i + 1 }
+                    }
+                    let bare = full[start..end].to_string()
+                    var seen = false
+                    for x in out {
+                        if x == bare { seen = true }
+                    }
+                    if !seen { out.push(bare) }
+                }
+            }
+            None => {}
+        }
+    }
+    out
 }
 
 // The types of the locals named `name` declared at `sp`, in every
