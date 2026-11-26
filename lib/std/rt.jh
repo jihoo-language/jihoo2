@@ -152,3 +152,56 @@ export fn __fixunssfti(x: f32) -> u128 {
 export fn __fixsfti(x: f32) -> i128 {
     __fixdfti(x as f64)
 }
+
+#[test]
+fn division() {
+    let max = 0 -% (1 as u128)
+    let top = (1 as u128) << 127
+    let cases = [
+        (max, 1 as u128),
+        (max, max),
+        (max, top + 1),
+        (top, 3),
+        ((1 as u128) << 100, (1 as u128) << 64),
+        ((1234567890123456789 as u128) * 10000000000 + 123456789, 987654321987654321),
+        (7, 1 << 70)
+    ]
+    for (n, d) in cases {
+        let (q, r) = udivmod(n, d)
+        assert(r < d && q *% d +% r == n, "n = q * d + r, r < d")
+        assert(__udivti3(n, d) == q && __umodti3(n, d) == r, "exported")
+    }
+    assert(__udivti3(max, top + 1) == 1 && __umodti3(max, top + 1) == top - 2, "near the top")
+    let min = top as i128
+    assert(__divti3(-7, 2) == -3 && __modti3(-7, 2) == -1, "toward zero, as C")
+    assert(__divti3(7, -2) == -3 && __modti3(7, -2) == 1, "the dividend's sign")
+    assert(__divti3(min, -1) == min && __modti3(min, -1) == 0, "MIN / -1 wraps")
+}
+
+#[test]
+fn conversions() {
+    let max = 0 -% (1 as u128)
+    assert(
+        __floatuntidf(0) == 0.0 && __floatuntidf(1 << 100) == 1267650600228229401496703205376.0,
+        "exact"
+    )
+    // 2^64 + 2^11 + 1 is above the halfway point between two f64s.
+    let above = (1 as u128) << 64 | 2049
+    assert(f64_bits(__floatuntidf(above)) == f64_bits(18446744073709555712.0), "the sticky bit")
+    assert(__floatuntidf((1 as u128) << 64 | 2048) == 18446744073709551616.0, "ties to even")
+    assert(__floattidf(-5) == -5.0 && __floatuntisf(max) == 1.0 as f32 / 0.0 as f32, "f32 overflow")
+    assert(
+        __fixunsdfti(0.0 / 0.0) == 0 && __fixunsdfti(-3.0) == 0 && __fixunsdfti(1e300) == max,
+        "saturated"
+    )
+    assert(
+        __fixunsdfti(2.75) == 2 && __fixunsdfti(1267650600228229401496703205376.0) == 1 << 100,
+        "truncated"
+    )
+    let top = (1 as u128) << 127
+    assert(__fixdfti(-1e300) == top as i128 && __fixdfti(1e300) == (top - 1) as i128, "signed ends")
+    assert(
+        __fixdfti(-2.5) == -2 && __fixdfti(-0.5) == 0 && __fixsfti(-3.5 as f32) == -3,
+        "toward zero"
+    )
+}

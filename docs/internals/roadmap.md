@@ -100,14 +100,15 @@ Next:
   shows values as well as places.
 - Unit tests for more of the standard library, next to its code: every
   module with run-time code of its own has them except `std.prelude`,
-  `std.derive`, `std.rt` (128-bit division and float conversions, which a
-  differential test against Clang's compiler-rt would suit) and the
-  profile layers (`std.sys`, `std.os_thread`, `std.uefi`), which the run
-  and uefi suites exercise. `thread.scope` is tested by
+  `std.derive` and the profile layers (`std.sys`, `std.os_thread`,
+  `std.uefi`), which the run and uefi suites exercise. `thread.scope` is tested by
   `tests/run/scoped_threads.jh`, as the compiler does not join scoped
   jobs inside `std.thread`. Writing them found that `Vec.resize` did not
   compile for any element type, that `{:08}` padded infinity with zeros
   (`00000inf`), and that SIGPIPE made `os.Error.BrokenPipe` unreachable.
+  `std.rt`, the 128-bit runtime of freestanding and UEFI programs, is
+  checked against the C runtime by `tests/run/int128_runtime.jh` and its
+  freestanding twin, which print the same checksum.
 - Definitions resolved by sema rather than by name, so that `value.method`
   finds the receiver type's method; hover with types; checks that do not
   block replies.

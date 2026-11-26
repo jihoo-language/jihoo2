@@ -1,0 +1,117 @@
+#![freestanding]
+// 128-bit division, remainder and float conversions: what LLVM calls the
+// runtime for. A native program gets them from the C runtime (libgcc), a
+// freestanding one from std.rt; this file and its freestanding twin print
+// the same checksum of 110,000 results, from operands of every width and
+// the edges (zero, one, -1, powers of two, MIN, MAX), so std.rt agrees
+// with the C runtime.
+
+struct Run {
+    seed: u64
+    hash: u64
+}
+
+fn next(inout r: Run) -> u64 {
+    r.seed = r.seed ^ r.seed << 13
+    r.seed = r.seed ^ r.seed >> 7
+    r.seed = r.seed ^ r.seed << 17
+    r.seed
+}
+
+// A value of a random width, or an edge.
+fn operand(inout r: Run) -> u128 {
+    let pick = next(&r) % 16
+    let v = (next(&r) as u128) << 64 | next(&r) as u128
+    if pick == 0 {
+        return 0
+    }
+    if pick == 1 {
+        return 1
+    }
+    if pick == 2 {
+        return 0 -% (1 as u128)
+    }
+    if pick == 3 {
+        return (1 as u128) << (next(&r) % 128) as u128
+    }
+    if pick == 4 {
+        return (1 as u128) << 127
+    }
+    if pick == 5 {
+        return ((1 as u128) << 127) - 1
+    }
+    v >> (next(&r) % 128) as u128
+}
+
+fn bits(x: f64) -> u64 {
+    var v = x
+    unsafe { *(&v as *u64) }
+}
+
+fn f64_of(b: u64) -> f64 {
+    var v = b
+    unsafe { *(&v as *f64) }
+}
+
+fn bits32(x: f32) -> u32 {
+    var v = x
+    unsafe { *(&v as *u32) }
+}
+
+// A float from random bits around 2^0 to 2^140, or an edge.
+fn float(inout r: Run) -> f64 {
+    let pick = next(&r) % 8
+    if pick == 0 {
+        let edges = [0.0, -0.0, 0.5, -0.99, 1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0, 1e-310]
+        return edges[(next(&r) % 8) as i64]
+    }
+    let exp = 1023 + (next(&r) % 140) as u64
+    let sign = next(&r) & 1 << 63
+    let x = f64_of(sign | exp << 52 | next(&r) & 0xfffffffffffff)
+    if pick == 1 {
+        // Near 2^127 and 2^128, where conversions saturate.
+        let top = f64_of((1023 + 126 + next(&r) % 3) << 52 | next(&r) & 0xfffffffffffff)
+        return if sign != 0 { 0.0 - top } else { top }
+    }
+    x
+}
+
+fn mix(inout r: Run, v: u64) {
+    r.hash = (r.hash ^ v) *% 1099511628211
+}
+
+fn mix128(inout r: Run, v: u128) {
+    mix(&r, v as u64)
+    mix(&r, (v >> 64) as u64)
+}
+
+fn main() {
+    var r = Run { seed: 0x9e3779b97f4a7c15, hash: 14695981039346656037 }
+    for _ in 0..50000 {
+        let a = operand(&r)
+        var b = operand(&r)
+        if b == 0 {
+            b = 3
+        }
+        mix128(&r, a / b)
+        mix128(&r, a % b)
+        let sa = a as i128
+        let sb = b as i128
+        mix128(&r, (sa / sb) as u128)
+        mix128(&r, (sa % sb) as u128)
+        mix(&r, bits(a as f64))
+        mix(&r, bits(sa as f64))
+        mix(&r, bits32(a as f32) as u64)
+        mix(&r, bits32(sa as f32) as u64)
+    }
+    for _ in 0..10000 {
+        let x = float(&r)
+        mix128(&r, x as u128)
+        mix128(&r, (x as i128) as u128)
+        let y = x as f32
+        mix128(&r, y as u128)
+        mix128(&r, (y as i128) as u128)
+    }
+    println(r.hash)
+}
+//> 7398245854977381201

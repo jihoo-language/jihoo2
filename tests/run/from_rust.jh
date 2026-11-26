@@ -200,6 +200,11 @@ fn main() {
     m.lock(fn(n) { n += 1 })
     println(m.into_inner())
     //> 2
+    // Rust's `u64::MAX` and `18446744073709551615u64`: the type comes from
+    // the context, as `as` does not give one to a literal.
+    let big: u64 = 18446744073709551615
+    println(big == 0 -% (1 as u64))
+    //> true
 }
 
 enum Named {

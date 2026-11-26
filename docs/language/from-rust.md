@@ -240,6 +240,9 @@ struct literal; write `(P { x: 1 })`.
   `i64`. `int` is another name for `i64`.
 - `i128` and `u128` exist, but a literal is at most 64 bits: write
   `u128::MAX` as `0 -% (1 as u128)` and `1 << 100` for large values.
+- `as` does not type a literal: `18446744073709551615 as u64` is an
+  `i64` literal that does not fit. Give it the type by context instead,
+  `let x: u64 = 18446744073709551615`.
 
 ## A translation
 
