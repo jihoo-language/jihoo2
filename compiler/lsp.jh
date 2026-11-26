@@ -9,6 +9,7 @@
 // once.
 
 import std.mem
+import std.libc
 import std.sys
 import ast
 import check
@@ -29,6 +30,7 @@ type Diag = diag.Diag
 type Span = diag.Span
 
 extern fn poll(fds: *PollFd, n: u64, timeout: i32) -> i32
+extern fn kill(pid: i32, sig: i32) -> i32
 
 struct PollFd {
     fd: i32
@@ -62,6 +64,19 @@ struct Server {
     initialized: bool
     shutdown: bool
     input: Input
+    // The check running in a child process, if any.
+    job: Option(Job)
+}
+
+// A check of one document in a child process, which writes what to
+// publish (`{"messages": [...], "published": [...]}`) to a pipe and
+// exits, so that the server answers requests meanwhile.
+struct Job {
+    pid: i32
+    // The pipe's reading end.
+    fd: i32
+    uri: String
+    out: String
 }
 
 // Standard input, buffered.
@@ -162,14 +177,36 @@ pub fn serve(sink search: Vec(String), tgt: target.Target, version: str) -> i32 
         utf8: false,
         initialized: false,
         shutdown: false,
-        input: Input { buf: Vec(u8).filled(65536, 0), pos: 0, end: 0 }
+        input: Input { buf: Vec(u8).filled(65536, 0), pos: 0, end: 0 },
+        job: None
     }
     loop {
-        let Some(text) = s.input.message() else { return 1 }
+        // While a check runs, wait for whichever comes first: a message
+        // or the check's result.
+        while s.job.is_some() && !s.input.pending() {
+            let fd = match &s.job {
+                Some(j) => j.fd
+                None => -1
+            }
+            var ps = [
+                PollFd { fd: 0, events: 1, revents: 0 },
+                PollFd { fd: fd, events: 1, revents: 0 }
+            ]
+            if unsafe { poll(&ps[0], 2, -1) } < 0 { continue }
+            if ps[1].revents != 0 { s.read_job() }
+            if ps[0].revents != 0 { break }
+        }
+        let Some(text) = s.input.message() else {
+            s.cancel_job()
+            return 1
+        }
         match json.parse(text.as_str()) {
             Some(m) => {
                 let method = m.at(["method"]).str_or("")
-                if method == "exit" { return if s.shutdown { 0 } else { 1 } }
+                if method == "exit" {
+                    s.cancel_job()
+                    return if s.shutdown { 0 } else { 1 }
+                }
                 s.handle(m, method.as_str())
             }
             None => send(json.obj().with("jsonrpc", json.text("2.0")).with("id", Json.Null).with(
@@ -202,10 +239,14 @@ fn reply_error(id: Json, code: i64, msg: str) {
 }
 
 fn notify(method: str, sink params: Json) {
-    send(json.obj().with("jsonrpc", json.text("2.0")).with("method", json.text(method)).with(
+    send(notification(method, params))
+}
+
+fn notification(method: str, sink params: Json) -> Json {
+    json.obj().with("jsonrpc", json.text("2.0")).with("method", json.text(method)).with(
         "params",
         params
-    ))
+    )
 }
 
 impl Server {
@@ -254,6 +295,8 @@ impl Server {
             self.shutdown = true
             reply(id, Json.Null)
         } else if method == "textDocument/didOpen" {
+            // A check running now would publish for the old text.
+            self.cancel_job()
             let uri = params.at(["textDocument", "uri"]).str_or("")
             let text = params.at(["textDocument", "text"]).str_or("")
             self.close(uri.as_str())
@@ -265,6 +308,8 @@ impl Server {
                 published: Vec(String).new()
             })
         } else if method == "textDocument/didChange" {
+            // A check running now would publish for the old text.
+            self.cancel_job()
             let uri = params.at(["textDocument", "uri"]).str_or("")
             // Full synchronization: the last change is the whole text.
             match params.at(["contentChanges"]) {
@@ -280,9 +325,13 @@ impl Server {
                 _ => {}
             }
         } else if method == "textDocument/didSave" {
+            // A check running now would publish for the old text.
+            self.cancel_job()
             // Other documents may import the saved one.
             for i in 0..self.docs.len() { self.docs[i].dirty = true }
         } else if method == "textDocument/didClose" {
+            // A check running now would publish for the old text.
+            self.cancel_job()
             let uri = params.at(["textDocument", "uri"]).str_or("")
             self.close(uri.as_str())
         } else if method == "textDocument/definition" {
@@ -351,20 +400,118 @@ impl Server {
         m
     }
 
+    // Starts checking the first document that changed, unless a check is
+    // running.
     fn check_dirty(inout self) {
+        if self.job.is_some() { return }
         for i in 0..self.docs.len() {
             if self.docs[i].dirty {
                 self.docs[i].dirty = false
-                self.check(i)
-                // Edits that arrived meanwhile are handled first.
-                if self.input.pending() { return }
+                self.start_job(i)
+                return
             }
         }
     }
 
-    // Checks a document and publishes its diagnostics, grouped by the
-    // document each belongs to.
-    fn check(inout self, i: i64) {
+    // Forks a child that checks document `i` and writes the result to a
+    // pipe. Where `fork` fails, the check runs here.
+    fn start_job(inout self, i: i64) {
+        var fds = [0 as i32; 2]
+        if sys.pipe_raw(&fds) < 0 {
+            self.publish(self.check(i), self.docs[i].uri.clone())
+            return
+        }
+        let pid = unsafe { libc.fork() }
+        if pid < 0 {
+            sys.close_raw(fds[0])
+            sys.close_raw(fds[1])
+            self.publish(self.check(i), self.docs[i].uri.clone())
+            return
+        }
+        if pid == 0 {
+            sys.close_raw(fds[0])
+            let (messages, published) = self.check(i)
+            var ps = Vec(Json).new()
+            for u in published { ps.push(json.text(u.as_str())) }
+            let result = json.obj().with("messages", Json.Arr(messages)).with(
+                "published",
+                Json.Arr(ps)
+            ).to_text()
+            sys.write_fd(fds[1], result.as_str())
+            unsafe { libc._exit(0) }
+        }
+        sys.close_raw(fds[1])
+        self.job = Some(Job {
+            pid: pid,
+            fd: fds[0],
+            uri: self.docs[i].uri.clone(),
+            out: String.new()
+        })
+    }
+
+    // Reads what the running check wrote; at its end, publishes it.
+    fn read_job(inout self) {
+        let Some(j) = mem.replace(&self.job, None) else { return }
+        var j = j
+        var buf = [0 as u8; 65536]
+        let n = unsafe { sys.read_fd(j.fd, &buf[0], 65536) }
+        if n > 0 {
+            for k in 0..n { j.out.push(buf[k]) }
+            self.job = Some(j)
+            return
+        }
+        sys.close_raw(j.fd)
+        var status: i32 = 0
+        unsafe { libc.waitpid(j.pid, &status, 0) }
+        match json.parse(j.out.as_str()) {
+            Some(r) => {
+                var messages = Vec(Json).new()
+                match r.at(["messages"]) {
+                    Arr(ms) => messages = ms.clone()
+                    _ => {}
+                }
+                var published = Vec(String).new()
+                match r.at(["published"]) {
+                    Arr(us) => {
+                        for u in us { published.push(u.str_or("")) }
+                    }
+                    _ => {}
+                }
+                self.publish((messages, published), j.uri)
+            }
+            // The check failed without a result (it crashed): check
+            // again next time the document changes.
+            None => {}
+        }
+    }
+
+    // Stops the running check, whose result would be stale; its document
+    // is checked again.
+    fn cancel_job(inout self) {
+        let Some(j) = mem.replace(&self.job, None) else { return }
+        unsafe {
+            kill(j.pid, 9)
+            var status: i32 = 0
+            libc.waitpid(j.pid, &status, 0)
+        }
+        sys.close_raw(j.fd)
+        for i in 0..self.docs.len() {
+            if self.docs[i].uri == j.uri { self.docs[i].dirty = true }
+        }
+    }
+
+    // Sends a check's notifications and records where it published.
+    fn publish(inout self, sink result: (Vec(Json), Vec(String)), uri: String) {
+        let (messages, published) = result
+        for m in messages { send(m) }
+        for i in 0..self.docs.len() {
+            if self.docs[i].uri == uri { self.docs[i].published = published.clone() }
+        }
+    }
+
+    // Checks a document: the notifications that publish its diagnostics,
+    // grouped by the document each belongs to, and those documents.
+    fn check(self, i: i64) -> (Vec(Json), Vec(String)) {
         var sources = diag.Sources.new()
         let path = self.docs[i].path.clone()
         let errors = self.diagnostics(path.as_str(), &sources)
@@ -396,27 +543,29 @@ impl Server {
             lists.push(Vec(Json).new())
         }
         // Clear the documents the previous check published to.
+        var out = Vec(Json).new()
         for u in self.docs[i].published {
             var still = false
             for v in uris {
                 if v == u { still = true }
             }
             if !still {
-                notify("textDocument/publishDiagnostics", json.obj().with("uri", json.text(
-                    u.as_str()
-                )).with("diagnostics", Json.Arr(Vec(Json).new())))
+                out.push(notification("textDocument/publishDiagnostics", json.obj().with(
+                    "uri",
+                    json.text(u.as_str())
+                ).with("diagnostics", Json.Arr(Vec(Json).new()))))
             }
         }
         for j, u in uris {
-            notify(
+            out.push(notification(
                 "textDocument/publishDiagnostics",
                 json.obj().with("uri", json.text(u.as_str())).with(
                     "diagnostics",
                     Json.Arr(lists[j].clone())
                 )
-            )
+            ))
         }
-        self.docs[i].published = uris
+        (out, uris)
     }
 
     // The errors of checking `path` as a library, each on its own.
