@@ -67,3 +67,26 @@ unsafe fn merge_sort(comptime T: type, a: *T, tmp: *T, n: i64, comptime less: fn
 }
 
 import std.mem
+
+#[test]
+fn sorts_and_sorts_by() {
+    var v = Vec(i64).new()
+    var x: i64 = 12345
+    for _ in 0..300 {
+        x = (x *% 1103515245 +% 12345) % 1000
+        v.push(x)
+    }
+    sort(&v)
+    for i in 1..v.len() {
+        assert(v[i - 1] <= v[i], "ascending")
+    }
+    var w = Vec(String).new()
+    for s in ["pear", "fig", "banana", "kiwi"] {
+        w.push(String.from(s))
+    }
+    sort_by(&w, fn(a, b) { a.len() < b.len() })
+    assert(w[0] == "fig" && w[3] == "banana", "by length")
+    var e = Vec(i64).new()
+    sort(&e)
+    assert(e.is_empty(), "empty")
+}

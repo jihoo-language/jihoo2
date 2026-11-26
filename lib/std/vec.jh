@@ -292,7 +292,9 @@ impl(T: Clone) Vec(T) {
             return
         }
         self.reserve(n - self.len)
-        while self.len < n {
+        while self.len < n
+            invariant 0 <= self.len && 0 <= self.cap
+        {
             unsafe { write(self.ptr + self.len, x.clone()) }
             self.len += 1
         }
@@ -342,4 +344,78 @@ impl(T: type) Default for Vec(T) {
     fn default() -> Vec(T) {
         Vec(T).new()
     }
+}
+
+#[test]
+fn push_pop_and_grow() {
+    var v = Vec(i64).new()
+    assert(v.is_empty() && v.pop().is_none(), "empty")
+    for i in 0..100 {
+        v.push(i * i)
+    }
+    assert(v.len() == 100 && v.capacity() >= 100, "100 elements")
+    assert(
+        v[99] == 9801 && v.first().unwrap().clone() == 0 && v.last().unwrap().clone() == 9801,
+        "ends"
+    )
+    assert(v.pop() == Some(9801) && v.len() == 99, "pop")
+    v[0] = 7
+    v[1] += 1
+    assert(v[0] == 7 && v[1] == 2, "index_mut")
+}
+
+#[test]
+fn insert_remove_and_swap() {
+    var v = Vec(i64).new()
+    for i in 0..5 {
+        v.push(i)
+    }
+    v.insert(0, 10)
+    v.insert(6, 20)
+    v.insert(3, 30)
+    // 10 0 1 30 2 3 4 20
+    assert(v.len() == 8 && v[0] == 10 && v[3] == 30 && v[7] == 20, "inserted")
+    assert(v.remove(3) == 30 && v.remove(0) == 10, "removed")
+    v.swap(0, 5)
+    assert(v[0] == 20 && v[5] == 0, "swapped")
+    v.reverse()
+    assert(v[0] == 0 && v[5] == 20, "reversed")
+    v.truncate(2)
+    assert(v.len() == 2 && v[1] == 4, "truncated")
+    v.clear()
+    assert(v.is_empty(), "cleared")
+}
+
+#[test]
+fn owned_elements_move_and_drop() {
+    var v = Vec(String).new()
+    for i in 0..20 {
+        v.push(i.to_string())
+    }
+    var w = Vec(String).new()
+    w.push(String.from("x"))
+    w.extend(v)
+    assert(w.len() == 21 && w[0] == "x" && w[20] == "19", "extended")
+    let s = w.remove(1)
+    assert(s == "0" && w[1] == "1", "moved out")
+    w.resize(3, String.from("y"))
+    w.resize(5, String.from("z"))
+    assert(w.len() == 5 && w[2] == "2" && w[3] == "z" && w[4] == "z", "resized")
+    var total = 0
+    for x in w.into_iter() {
+        total += x.len()
+    }
+    assert(total == 5, "into_iter")
+}
+
+#[test]
+fn filled_and_slices() {
+    let v = Vec.filled(4, 3 as u8)
+    let s = v.as_slice()
+    assert(s.len == 4 && s[3] == 3, "filled")
+    var n = 0
+    for x in v.iter() {
+        n += x as i64
+    }
+    assert(n == 12, "iter")
 }
