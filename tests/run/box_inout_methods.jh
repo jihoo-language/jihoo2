@@ -1,0 +1,23 @@
+// A method that takes `inout self` is called through a `Box`'s
+// `deref_mut` when the box can be changed (`bv.push(3)`), and one that
+// borrows through `deref`; at run time and while compiling.
+
+fn grow() -> i64 {
+    var bv = Box.new(Vec(i64).new())
+    bv.push(3)
+    bv.push(4)
+    var bs = Box.new(String.from("ab"))
+    bs.push('c')
+    bs.push_str("de")
+    bv.len() * 100 + bs.len() + (*bv)[1]
+}
+
+const G = grow()
+
+fn main() {
+    println(grow())
+    println(G)
+}
+
+//> 209
+//> 209

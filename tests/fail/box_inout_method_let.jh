@@ -1,0 +1,5 @@
+// error: this place cannot be changed
+fn main() {
+    let bs = Box.new(String.from("ab"))
+    bs.push('c')
+}
