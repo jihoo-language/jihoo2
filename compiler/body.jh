@@ -2673,7 +2673,10 @@ impl sema.Sema {
                             t = x
                         } else if self.types.is_float(x) {
                             let f = v as f64
-                            if f as u64 != v {
+                            // `as u128` saturates, so 2^128 - 1 rounds to
+                            // 2^128, a float no `u128` is.
+                            let two_128 = 18446744073709551616.0 * 18446744073709551616.0
+                            if f >= two_128 || f as u128 != v {
                                 return Err(err(span, "this integer is not exact as a float"))
                             }
                             return Ok(val_op(Operand.Const(Const.Float(f, x)), x))
@@ -2681,7 +2684,7 @@ impl sema.Sema {
                     }
                     None => {}
                 }
-                if !self.int_fits(v as i128, t) {
+                if !self.lit_fits(v, t) {
                     var m = String.new()
                     v.show(&m)
                     m.push_str(" does not fit in `")
@@ -2761,6 +2764,22 @@ impl sema.Sema {
             Cast(inner, t) => {
                 let env = fb.env.clone()
                 let to = self.resolve_ty(t, env)?
+                // `as` converts a value that has its type, `i64` for a
+                // literal: one too large for that has to get its type from
+                // a context instead.
+                match inner.kind {
+                    Int(v) => if !self.lit_fits(v, types.I64) && self.types.is_int(to) {
+                        var m = String.new()
+                        v.show(&m)
+                        m.push_str(" does not fit in `i64`, the type a literal has before `as`; write `let x: ")
+                        m.push_str(self.types.show(to).as_str())
+                        m.push_str(" = ")
+                        v.show(&m)
+                        m.push_str("` instead")
+                        return Err(err(inner.span, m.as_str()))
+                    }
+                    _ => {}
+                }
                 self.cast(&fb, inner.deref(), to, span)
             }
             Move(inner) => {
@@ -4051,8 +4070,9 @@ impl sema.Sema {
                         if self.types.is_float(t) {
                             return Ok(val_op(Operand.Const(Const.Float(0.0 - v as f64, t)), t))
                         }
-                        let n = 0 - (v as i128)
-                        if !self.int_fits(n, t) {
+                        // -2^127 is the one magnitude that wraps.
+                        let n = 0 -% (v as i128)
+                        if !self.neg_lit_fits(v, t) {
                             var m = String.from("-")
                             v.show(&m)
                             m.push_str(" does not fit in `")

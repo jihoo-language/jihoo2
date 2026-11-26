@@ -179,8 +179,8 @@ pub struct Token {
     pub nl_before: bool
     // The name of an `Ident`, the bytes of a `Str`.
     pub text: String
-    // The value of an `Int` or a `Char`.
-    pub int: u64
+    // The value of an `Int` (up to 2^128 - 1) or a `Char`.
+    pub int: u128
     pub float: f64
     // The operator of an `OpAssign`.
     pub op: Op
@@ -457,7 +457,7 @@ pub fn lex(file: u32, src: str) -> Result(Vec(Token), Diag) {
             }
             i += 1
             t.tok = Tok.Char
-            t.int = b as u64
+            t.int = b as u128
         } else {
             let len = punct(c, at(src, i + 1), at(src, i + 2), &t)
             if len == 0 {
@@ -782,15 +782,17 @@ fn number(
         t.float = unsafe { libc.strtod(digits.as_str().ptr, null) }
         return Ok(())
     }
-    var v: u64 = 0
+    // Up to 2^128 - 1, for `u128`; sema checks the literal's type.
+    var v: u128 = 0
     var ok = digits.len() > 0
+    let max = 0 -% (1 as u128)
     for c in digits.as_str() {
-        let d = hex_value(c) as u64
-        if d >= radix || v > (0xffffffffffffffff - d) / radix {
+        let d = hex_value(c) as u128
+        if d >= radix as u128 || v > (max - d) / radix as u128 {
             ok = false
             break
         }
-        v = v * radix + d
+        v = v * radix as u128 + d
     }
     if !ok {
         return Err(Diag.new(span, "malformed or too large integer literal"))

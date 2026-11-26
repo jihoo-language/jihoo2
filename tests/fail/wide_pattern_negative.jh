@@ -1,0 +1,9 @@
+// A negative pattern does not match a `u128`, even where its bits would.
+// error: -1 does not fit in `u128`
+fn main() {
+    let x: u128 = 5
+    match x {
+        -1 => println("max")
+        _ => println("other")
+    }
+}

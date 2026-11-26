@@ -1,0 +1,8 @@
+// Range patterns end within `i128`.
+// error: a range pattern's ends are at most 2^127 - 1
+fn main() {
+    let x: u128 = 5
+    match x {
+        0..=340282366920938463463374607431768211455 => println("any")
+    }
+}

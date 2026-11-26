@@ -1,0 +1,6 @@
+// A literal is at most 2^128 - 1.
+// error: too large integer literal
+fn main() {
+    let x: u128 = 340282366920938463463374607431768211456
+    println(x)
+}

@@ -1,0 +1,46 @@
+// Integer literals up to 2^128 - 1, for `u128` and `i128` (down to
+// -2^127), in expressions, constants and patterns; and constants that
+// are a type's minimum, such as `-128` for an `i8`.
+const A: i8 = -128
+const B = -9223372036854775808
+const UMAX: u128 = 340282366920938463463374607431768211455
+const IMIN: i128 = -170141183460469231731687303715884105728
+const IMAX: i128 = 0x7fffffffffffffffffffffffffffffff
+
+fn main() {
+    println(A)
+    println(B)
+    println(UMAX)
+    println(IMIN)
+    println(IMAX)
+    let x: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe
+    println(x + 1 == UMAX)
+    let y: i128 = -170141183460469231731687303715884105728
+    println(y == IMIN)
+    let z: u128 = 1_000_000_000_000_000_000_000
+    println(z)
+    let big: u128 = 1 << 100
+    println(big == 1267650600228229401496703205376)
+    match x + 1 {
+        340282366920938463463374607431768211455 => println("max")
+        _ => println("other")
+    }
+    match y {
+        -170141183460469231731687303715884105728 => println("min")
+        _ => println("other")
+    }
+    let f: f64 = 1267650600228229401496703205376
+    println(f)
+}
+//> -128
+//> -9223372036854775808
+//> 340282366920938463463374607431768211455
+//> -170141183460469231731687303715884105728
+//> 170141183460469231731687303715884105727
+//> true
+//> true
+//> 1000000000000000000000
+//> true
+//> max
+//> min
+//> 1.2676506002282294e30

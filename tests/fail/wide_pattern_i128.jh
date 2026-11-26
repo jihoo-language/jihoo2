@@ -1,0 +1,9 @@
+// A pattern of 2^127 or more matches only a `u128`.
+// error: 170141183460469231731687303715884105728 does not fit in `i128`
+fn main() {
+    let x: i128 = 5
+    match x {
+        170141183460469231731687303715884105728 => println("big")
+        _ => println("other")
+    }
+}
