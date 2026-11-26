@@ -113,8 +113,8 @@ Next:
   `std.rt`, the 128-bit runtime of freestanding and UEFI programs, is
   checked against the C runtime by `tests/run/int128_runtime.jh` and its
   freestanding twin, which print the same checksum.
-- Members of longer receivers (`a.b.method`, `f().method`) by their
-  types, and a trait's default methods; checks that do not block replies.
+- Members of receivers that are calls or indexes (`f().method`,
+  `v[i].method`) by their types; checks that do not block replies.
 - Additional formatter layout rules, retaining syntax preservation checks.
 
 Completion: valid checks are silent and create no output files; invalid
