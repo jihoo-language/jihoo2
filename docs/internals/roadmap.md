@@ -152,6 +152,11 @@ specialized library work; they do not by themselves require new syntax.
   target, options, host, elapsed time and peak process memory per sample;
   `--baseline` compares medians with a recorded report, and CI runs the
   structural `--check-only` mode on both targets.
+- Done: [differential testing](testing.md#differential-testing). Random
+  integer programs run in Python, in the compile-time interpreter and
+  compiled at four settings (`--audit-proved` among them) must agree; the
+  `run` suite checks fixed seeds. Next: floats, structs and enums, `Vec`
+  and `String`, and closures in the generated programs.
 - Maintain the [fusion benchmark](../../benchmarks/functional-fusion/README.md)
   as compiler and library implementations change.
 

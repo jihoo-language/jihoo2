@@ -656,12 +656,8 @@ impl Interpreter {
             // The shift count is reduced by the operand width, not 128.
             if op == lex.Op.Shl { result = x << n }
             if op == lex.Op.Shr { result = if is_signed { (sx >> n) as u128 } else { x >> n } }
-            if is_signed && (op == lex.Op.Div || op == lex.Op.Rem) && width < 128 {
-                let min: i128 = 0 - (1 as i128 << (width - 1))
-                if sx == min && sy == -1 {
-                    return Err(error(span, "the result overflows its type"))
-                }
-            }
+            // A narrower MIN / -1 is computed exactly in 128 bits, and the
+            // result's width wraps it to MIN, as at run time.
         }
         Ok(integer(result, t.layout(out_ty).size))
     }

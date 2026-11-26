@@ -3299,9 +3299,8 @@ impl Sema {
                 if y == 0 {
                     return Err(ty_err(span, "division by zero"))
                 }
-                if signed && x == 0 - (1 as i128 << (bits - 1)) && y == -1 {
-                    return Err(ty_err(span, "the result overflows its type"))
-                }
+                // MIN / -1 wraps to MIN and MIN % -1 is 0, as at run time:
+                // the quotient fits in 128 bits, and wraps below.
                 let v = match op {
                     Div => x / y
                     _ => x % y
@@ -3431,8 +3430,9 @@ pub fn fold_128(
                 return Err(ty_err(span, "division by zero"))
             }
             if signed {
+                // MIN / -1 wraps to MIN and MIN % -1 is 0, as at run time.
                 if x as u128 == top && y == -1 {
-                    return Err(ty_err(span, "the result overflows its type"))
+                    return int(if op == Op.Div { x } else { 0 })
                 }
                 return int(if op == Op.Div { x / y } else { x % y })
             }

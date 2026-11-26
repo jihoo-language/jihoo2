@@ -1,0 +1,39 @@
+// `MIN / -1` wraps to `MIN` and `MIN % -1` is 0 at every width: at run
+// time, in the compile-time interpreter and in constant folding.
+
+import std.env
+
+fn q8(a: i8, b: i8) -> (i8, i8) { (a / b, a % b) }
+fn q32(a: i32, b: i32) -> (i32, i32) { (a / b, a % b) }
+fn q64(a: i64, b: i64) -> (i64, i64) { (a / b, a % b) }
+fn q128(a: i128, b: i128) -> (i128, i128) { (a / b, a % b) }
+
+const C8 = q8(0 -% 127 -% 1, 0 -% 1)
+const C32 = q32(0 -% 2147483647 -% 1, 0 -% 1)
+const C64 = q64(0 -% 9223372036854775807 -% 1, 0 -% 1)
+const C128 = q128((1 as i128) << 127, 0 -% (1 as i128))
+const F64: i64 = (0 -% 9223372036854775807 -% 1) / (0 -% 1)
+const F128: i128 = ((1 as i128) << 127) % (0 -% (1 as i128))
+
+fn minimum() -> i8 { 128 as i8 }
+
+fn main() {
+    // 0, unknown while compiling
+    let z = env.args().len() as i64 - 1
+    let r8 = q8((0 -% 127 -% 1) +% z as i8, (0 -% 1) +% z as i8)
+    let r32 = q32((0 -% 2147483647 -% 1) +% z as i32, (0 -% 1) +% z as i32)
+    let r64 = q64((0 -% 9223372036854775807 -% 1) +% z, (0 -% 1) +% z)
+    let r128 = q128(((1 as i128) << 127) +% z as i128, (0 -% (1 as i128)) +% z as i128)
+    println(r8.0 == C8.0 && r8.1 == C8.1 && r8.0 as i64 == -128 && r8.1 == 0)
+    println(r32.0 == C32.0 && r32.1 == C32.1 && r32.0 as i64 == -2147483648 && r32.1 == 0)
+    println(r64.0 == C64.0 && r64.1 == C64.1 && r64.0 == F64 && r64.1 == 0)
+    // what tests/fail/comptime_eval_const_division.jh rejected before
+    println(comptime (minimum() / -1) as i64)
+    println(r128.0 == C128.0 && r128.1 == C128.1 && r128.0 == (1 as i128) << 127 && F128 == 0)
+}
+
+//> true
+//> true
+//> true
+//> -128
+//> true
