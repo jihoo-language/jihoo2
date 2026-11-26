@@ -1479,6 +1479,7 @@ fn runs_on_uefi(path: str) -> bool {
         return false
     }
     for n in [
+        "broken_pipe",
         "buffered_utf8",
         "channel_closed",
         "channels",

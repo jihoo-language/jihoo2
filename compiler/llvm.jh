@@ -2760,11 +2760,17 @@ impl Gen {
             call.push_str(fmt.f("  {}\n", [conv.as_str()]).as_str())
         }
         match self.p.profile {
-            Native => self.out.push_str(fmt.f(
-                "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n  %a = sext i32 %argc to i64\n  store i64 %a, ptr @jihoo.argc\n  store ptr %argv, ptr @jihoo.argv\n{}  ret i32 %code\n}\n\n",
-                [call.as_str()]
-            ).as_str())
-            Freestanding => self.freestanding_start(call.as_str())
+            Native => {
+                let start = ignore_sigpipe(self.p.target) + call.as_str()
+                self.out.push_str(fmt.f(
+                    "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n  %a = sext i32 %argc to i64\n  store i64 %a, ptr @jihoo.argc\n  store ptr %argv, ptr @jihoo.argv\n{}  ret i32 %code\n}\n\n",
+                    [start.as_str()]
+                ).as_str())
+            }
+            Freestanding => {
+                let start = ignore_sigpipe(self.p.target) + call.as_str()
+                self.freestanding_start(start.as_str())
+            }
             Uefi => self.uefi_main(call.as_str())
         }
     }
@@ -2987,6 +2993,23 @@ fn syscall_asm(t: Target, n: i64) -> (String, String) {
         X86_64 => (String.from("syscall"), "={rax}," + ins.as_str() + ",~{rcx},~{r11},~{memory}")
         Aarch64 => (String.from("svc #0"), "={x0}," + ins.as_str() + ",~{memory}")
     }
+}
+
+// Before main: `rt_sigaction(SIGPIPE, { SIG_IGN }, null, 8)`, so that a
+// write to a pipe nobody reads fails with EPIPE (`BrokenPipe`) instead of
+// ending the program. `std.sys` ends it by SIGPIPE when that write was to
+// standard output or standard error, and restores the default in the
+// programs it starts.
+fn ignore_sigpipe(t: Target) -> String {
+    let (asm, cons) = syscall_asm(t, 5)
+    let no = match t {
+        X86_64 => "13"
+        Aarch64 => "134"
+    }
+    fmt.f(
+        "  %sigpipe = alloca [4 x i64]\n  store [4 x i64] [i64 1, i64 0, i64 0, i64 0], ptr %sigpipe\n  %sigpipe.r = call i64 asm sideeffect \"{}\", \"{}\"(i64 {}, i64 13, ptr %sigpipe, i64 0, i64 8)\n",
+        [asm.as_str(), cons.as_str(), no]
+    )
 }
 
 // `_start`, and `jihoo_clone(flags, stack, ptid, ctid, start, arg)` for

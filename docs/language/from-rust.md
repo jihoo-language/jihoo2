@@ -63,6 +63,11 @@ if you know Rust, and check here when code that "should work" does not. The
   made while the program runs is read then, and a
   malformed one, or a placeholder without a value, panics instead of
   failing to compile.
+- SIGPIPE is ignored, as in Rust, so a write to a closed pipe is
+  `BrokenPipe`. But printing to a standard output nobody reads ends the
+  program by SIGPIPE instead of panicking with "failed printing to
+  stdout", so `program | head` needs no handling
+  ([`tests/run/broken_pipe.jh`](../../tests/run/broken_pipe.jh)).
 - No items inside function bodies: helper functions go at the top level.
 - No `mut` keyword (`var` instead), no `&T`/`&mut T` types, no lifetimes.
   [`dyn Trait`](dyn.md) is always owned: there is no `&dyn Trait`, and a

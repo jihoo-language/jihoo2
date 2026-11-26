@@ -29,4 +29,6 @@ pub extern fn getdents64(fd: i32, buf: *u8, n: i64) -> i64
 pub extern fn unlink(path: *u8) -> i32
 pub extern fn mkdir(path: *u8, mode: u32) -> i32
 pub extern fn rmdir(path: *u8) -> i32
+pub extern fn signal(sig: i32, handler: *u8) -> *u8
+pub extern fn raise(sig: i32) -> i32
 pub extern fn fcntl(fd: i32, cmd: i32, ...) -> i32

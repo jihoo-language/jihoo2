@@ -9,11 +9,36 @@ pub fn write_fd(fd: i32, s: str) -> i64 {
     while done < s.len {
         let n = unsafe { syscall(sysno.WRITE, fd as i64, s.ptr + done, s.len - done) }
         if n <= 0 {
+            if n == 0 - EPIPE && (fd == 1 || fd == 2) { die_of_sigpipe() }
             return -1
         }
         done += n
     }
     done
+}
+
+// SIGPIPE is ignored from the start (`_start` ignores it), so that writing
+// to a pipe nobody reads fails with EPIPE; standard output and standard
+// error then end the program as the signal would have, so that
+// `program | head` stops it quietly.
+pub const SIGPIPE: i32 = 13
+pub const EPIPE: i64 = 32
+
+pub fn die_of_sigpipe() -> never {
+    unsafe {
+        reset_sigpipe()
+        syscall(sysno.KILL, syscall(sysno.GETPID), SIGPIPE as i64)
+        syscall(sysno.EXIT_GROUP, 128 + SIGPIPE as i64)
+    }
+    loop {}
+}
+
+// What a started program begins with: the default SIGPIPE, since an
+// ignored signal stays ignored across `execve`.
+pub unsafe fn reset_sigpipe() {
+    // rt_sigaction(SIGPIPE, { SIG_DFL }, null, sizeof(sigset_t))
+    var act = [0 as i64; 4]
+    syscall(sysno.RT_SIGACTION, SIGPIPE as i64, &act[0], 0, 8)
 }
 
 pub fn write_err(s: str) {
@@ -284,6 +309,7 @@ pub unsafe fn spawn_raw(path: *u8, argv: **u8, envp: **u8, stdio: [i32; 3], repo
     // clone(SIGCHLD): a fork.
     let pid = syscall(sysno.CLONE, 17, 0, 0, 0, 0)
     if pid == 0 {
+        reset_sigpipe()
         for i in 0..3 {
             if stdio[i] >= 0 && stdio[i] != i as i32 {
                 syscall(sysno.DUP3, stdio[i] as i64, i, 0)
