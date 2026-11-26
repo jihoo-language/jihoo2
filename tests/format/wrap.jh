@@ -28,3 +28,13 @@ fn report(code: i64) -> Result(i64, String) {
     let shown = Some(describe("accepted", code).as_str().len)
     Ok(code)
 }
+
+// Long expressions break after their loosest operators, except where a
+// block on the line is what is long.
+fn limits(first_value: i64, second_value: i64) -> bool {
+    if first_value < 2 && second_value > 3 { return false }
+    if first_value > 100 || second_value > 200 || first_value == second_value {
+        return true
+    }
+    first_value * 2 + second_value * 3 > 10
+}

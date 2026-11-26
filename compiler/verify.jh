@@ -881,7 +881,8 @@ pub fn audit(inout p: mir.Program, r: Report) {
         var body = b
         match body.blocks[c.block].term {
             Assert(cond, msg, next, at) => {
-                let m = msg.as_str() + ", which verification proved impossible: a verifier bug, please report it"
+                let m = msg.as_str() +
+                    ", which verification proved impossible: a verifier bug, please report it"
                 body.blocks[c.block].term = mir.Term.Assert(cond.clone(), m, next, at)
             }
             _ => {}

@@ -94,15 +94,29 @@ without arguments that follow it, as in `f(a, b).as_str())`. Parameter
 lists also expand for a long return type after them. A list whose only
 element is a call or struct literal, as in `Err(err(span, message))`, lets
 that element expand instead (`Err(err(` ... `))`), and a single element
-that would not fit on a line of its own either is left in place. Long
-expressions without a list, such as string concatenations and conditions,
-keep their own line breaks: break them after an operator such as `+` or
-`&&`, and the continuation is indented. Commas and semicolons retain their
+that would not fit on a line of its own either is left in place.
+
+A line still wider than the width once its lists fit, such as a long
+string concatenation or condition, breaks after binary operators: those at
+the line's outermost level of nesting that bind most loosely (`||`, then
+`&&`, comparisons, `|`, `^`, `&`, shifts, `+` and `-`, then `*`, `/` and
+`%`), as few as make each line fit, each continuation indented once:
+
+```jihoo
+let m = msg.as_str() +
+    ", which verification proved impossible: a verifier bug, please report it"
+if (int_kind && !is_int_name(name)) ||
+    (spec.kind == 'e' && name != "f64" && name != "f32") {
+```
+
+A line where a block follows the operators and does not end the line (`if
+a != 1 { return x }`), or opens outside their parentheses, keeps its
+operators: the block is what is long. Commas and semicolons retain their
 original spelling.
 
 `--width N` accepts decimal integers from 20 through 1000. It counts UTF-8
 bytes, like diagnostic columns. It is a soft target: long literals, comments
-and expressions without a supported list boundary may exceed it. Short
+and expressions without a list or an operator to break at may exceed it. Short
 lists remain compact. Function and statement blocks are not expanded just
 because they contain a comma, such as a `for` index. Inline comments keep
 their bytes and remain before the token they originally preceded; a new

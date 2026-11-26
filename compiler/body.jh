@@ -4639,7 +4639,8 @@ impl sema.Sema {
             _ => return Err(err(it.span, bad))
         }
         if fb.lookup(name).is_some() {
-            let m = "`" + name + "` is already a variable here; name the `inline for` index differently"
+            let m = "`" + name +
+                "` is already a variable here; name the `inline for` index differently"
             return Err(err(span, m.as_str()))
         }
         let env = fb.env.clone()

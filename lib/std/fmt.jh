@@ -427,7 +427,8 @@ pub fn check_pattern(comptime T: type, pattern: str) -> String {
         }
         let name = names[index]
         let int_kind = spec.kind == 'x' || spec.kind == 'X' || spec.kind == 'o' || spec.kind == 'b'
-        if (int_kind && !is_int_name(name)) || (spec.kind == 'e' && name != "f64" && name != "f32") {
+        if (int_kind && !is_int_name(name)) ||
+            (spec.kind == 'e' && name != "f64" && name != "f32") {
             var m = "format pattern `" + pattern + "`: `"
             m.push_str(pattern[i..j + 1])
             m.push_str(if int_kind { "` formats an integer" } else { "` formats a float" })

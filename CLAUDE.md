@@ -70,8 +70,8 @@ nix flake check                                    # everything CI runs
   the exit status (a trap is 132), `// args: a b` the arguments.
 - `compiler/` and `lib/` are formatted: the `format` suite runs
   `fmt --check` on them, so after editing run
-  `out/jihoo fmt compiler lib --write`. Break long expressions
-  without a list after an operator such as `+` or `&&`.
+  `out/jihoo fmt compiler lib --write`; it breaks long expressions
+  after their operators (`+`, `&&`) as well as long lists.
 - `tests/test/*.jh`: run with `jihoo test`, with the same directives; the
   output is the list of tests and results. `lib/` files keep `#[test]`
   functions at their end, run by `jihoo test lib/<dir>/<file>.jh`.
