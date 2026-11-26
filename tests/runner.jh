@@ -171,6 +171,20 @@ fn stem(path: str) -> str {
 }
 
 // The file operations of `std.fs`, with errors as text for `?`.
+// Whether `s` occurs in `b`.
+fn has_bytes(b: [u8], s: str) -> bool {
+    var i = 0
+    while i + s.len <= b.len {
+        var j = 0
+        while j < s.len && b[i + j] == s[j] {
+            j += 1
+        }
+        if j == s.len { return true }
+        i += 1
+    }
+    false
+}
+
 fn read_file(path: str) -> Result(String, String) {
     match fs.read_file(path) {
         Ok(t) => Ok(t)
@@ -694,7 +708,10 @@ impl Tests {
         let path = "tests/verify/audit.jh"
         for audit in [true, false] {
             let o = if audit {
-                exec(self.compiler.as_str(), ["emit-llvm", "--audit-proved", path, "-o", ll.as_str()])
+                exec(
+                    self.compiler.as_str(),
+                    ["emit-llvm", "--audit-proved", path, "-o", ll.as_str()]
+                )
             } else {
                 exec(self.compiler.as_str(), ["emit-llvm", path, "-o", ll.as_str()])
             }
@@ -954,6 +971,50 @@ impl Tests {
     // compiler writes their attributes, on either machine, leave out
     // std.rt's float conversions and reject floats; without them the IR has
     // no attributes.
+    // `-g`: a compile unit, a subprogram for every function (after its
+    // attributes), statements' lines and columns, and `.debug_line` in the
+    // program, which runs the same; without it, no debug information.
+    fn debug_info(self) -> Result((), String) {
+        let file = "tests/ffi/debug_info.jh"
+        let plain = exec(self.compiler.as_str(), ["emit-llvm", file])
+        if !plain.status.success() || plain.stdout.as_str().contains("!dbg") {
+            return Err("the IR without -g has debug information:\n" + plain.stderr.as_str())
+        }
+        let o = exec(self.compiler.as_str(), ["emit-llvm", "-g", "-mno-red-zone", file])
+        let ir = o.stdout.as_str()
+        if !o.status.success() || !ir.contains("!llvm.dbg.cu = !{!") ||
+            !ir.contains("emissionKind: LineTablesOnly") ||
+            !ir.contains("!DILocation(line: 6, column: 5, scope: !") {
+            return Err("the IR with -g has no line tables:\n" + ir + o.stderr.as_str())
+        }
+        for line in ir.lines() {
+            if line.starts_with("define internal ") && line.contains("@\"main.") &&
+                !line.contains(" #0 !dbg !") {
+                return Err("`" + line + "` has no subprogram after its attributes")
+            }
+        }
+        for opt in ["-O0", "-O2"] {
+            let exe = self.temp("debug-info")
+            let built = exec(self.compiler.as_str(), ["build", "-g", opt, file, "-o", exe.as_str()])
+            if !built.status.success() {
+                return Err("-g " + opt + " does not build:\n" + built.stderr.as_str())
+            }
+            let ran = exec(exe.as_str(), [])
+            let b = match fs.read_bytes(exe.as_str()) {
+                Ok(b) => b
+                Err(e) => return Err("cannot read " + exe.as_str() + ": " + e.to_string().as_str())
+            }
+            fs.remove_file(exe.as_str())
+            if ran.stdout.as_str() != "42\n" {
+                return Err("-g " + opt + " prints " + ran.stdout.as_str())
+            }
+            if !has_bytes(b.as_slice(), ".debug_line") {
+                return Err("the -g " + opt + " program has no .debug_line")
+            }
+        }
+        Ok(())
+    }
+
     fn kernel_codegen(self) -> Result((), String) {
         let file = "tests/ffi/kernel_codegen.jh"
         for t in ["x86_64", "aarch64"] {
@@ -1162,6 +1223,8 @@ impl Tests {
         self.check("backend: library panic handler", r)
         let r = self.kernel_codegen()
         self.check("backend: kernel code generation", r)
+        let r = self.debug_info()
+        self.check("backend: debug information", r)
         let r = self.missing_llvm()
         self.check("backend: missing LLVM", r)
     }
