@@ -43,6 +43,8 @@ the runner. Its suites:
   `// exit: N` the exit status (default 0; a trap is 132), `// args: a b`
   the program's arguments, and `// link: tests/ffi/native.c` adds link
   inputs relative to the checkout.
+  Then [`tests/differential.py`](#differential-testing) runs its fixed
+  seeds.
 - **check**: every file in `tests/run/` and `examples/` passes `jihoo check`
   with LLVM, C compiler, linker and backend settings pointing to unavailable
   tools. Success is silent. Additional cases cover both targets, modules
@@ -100,6 +102,33 @@ its files (`out/jihoo test lib/std/string.jh`).
 Add a `tests/run` program for every feature and every bug fixed, and a
 `tests/fail` one for every error the compiler should give, in particular
 every way the borrow rules can be broken.
+
+## Differential testing
+
+[`tests/differential.py`](../../tests/differential.py) writes random
+programs of integer functions `fK(a: i64, b: i64) -> i64`: wrapping
+arithmetic, bit operations, shifts, division by values that are never
+zero (sometimes `-1`), conversions between every integer type, `if`,
+`match` on ranges, `for` loops, arrays and calls to earlier functions.
+Each function's results on six inputs are computed three ways that must
+agree: by a model of jihoo's integer semantics in Python, by the
+compile-time interpreter (a `const` table) and by compiled code, given
+inputs it cannot know while compiling. Compiled code is built at `-O0`,
+at `-O2`, with `--release` and with `--audit-proved`, so a proved check
+that fails is a verifier bug. Nothing overflows a checked operation, and
+calls stay within the interpreter's step limit.
+
+The `run` suite checks 12 seeds; more find more:
+
+```sh
+python3 tests/differential.py --compiler out/jihoo --seed 1000 --count 500 --keep failed
+python3 tests/differential.py --print --seed 1007     # the program of a seed
+```
+
+`--keep` saves the programs that fail. It found that the interpreter and
+constant folding rejected `MIN / -1` and `MIN % -1` as overflow, which
+compiled code wraps as [documented](../language/types.md#integers)
+(`tests/run/min_div.jh`).
 
 ## Memory
 

@@ -528,6 +528,17 @@ impl Tests {
         Ok(())
     }
 
+    // tests/differential.py's fixed seeds: random integer programs, run by
+    // Python, by the compile-time interpreter and compiled four ways.
+    fn differential(self) -> Result((), String) {
+        if !self.selected("tests/differential.py") { return Ok(()) }
+        let o = exec("python3", ["tests/differential.py", "--compiler", self.compiler.as_str()])
+        if !o.status.success() {
+            return Err("differential testing failed:\n" + o.stdout.as_str() + o.stderr.as_str())
+        }
+        Ok(())
+    }
+
     fn formatting(self) -> Result((), String) {
         let o = exec("python3", ["tests/format.py", "--compiler", self.compiler.as_str()])
         if !o.status.success() {
@@ -1617,6 +1628,8 @@ fn main() -> i32 {
             t.suite_files("examples", "check")
         } else if s == "run" {
             t.suite_files("tests/run", "run")
+            let r = t.differential()
+            t.check("run: random programs agree in Python, the interpreter and compiled code", r)
         } else if s == "test" {
             t.suite_files("tests/test", "test")
             t.std_tests()
