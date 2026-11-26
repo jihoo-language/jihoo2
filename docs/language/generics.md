@@ -95,6 +95,10 @@ implements. Traits may have associated types (`type Item`, written
 | `Drop` | a destructor |
 | `Iterator` | `next`, which `for` uses |
 
+A shared borrow, such as `Map.get`'s `ref V` or a `Vec`'s `first()`, has
+`Eq`, `Ord`, `Hash` and `Show` when the borrowed type does, so
+`println(m.get(k).unwrap())` and generic calls take it as it is.
+
 The compiler itself implements the marker traits `Plain` (values that copy),
 `Int`, `Signed`, `Unsigned`, `Float` and `Number`, so the standard library can
 give all integers `Ord`, `Hash` and `Show` with one impl each:

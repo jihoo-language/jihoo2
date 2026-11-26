@@ -1,0 +1,45 @@
+// A shared borrow, such as what `Map.get` and `Vec.first` give, has
+// `Show`, `Eq`, `Ord` and `Hash` when what it borrows does, so it can be
+// printed, formatted and passed to generic functions as it is.
+import std.fmt
+
+fn same(comptime T: Eq, a: T, b: T) -> bool {
+    a == b
+}
+
+fn show_all(comptime T: Show, xs: [T]) {
+    for x in xs {
+        print(x)
+        print(" ")
+    }
+    println("")
+}
+
+fn main() {
+    var m = Map(i64, i64).new()
+    m.insert(1, 2)
+    println(m.get(1).unwrap())
+    var names = Map(str, String).new()
+    names.insert("a", String.from("alpha"))
+    println(names.get("a").unwrap())
+    let v = m.get(1).unwrap()
+    println(same(v, v))
+    let s = names.get("a").unwrap()
+    println(s.to_string())
+    println(fmt.format("[{:>7}]", s))
+    let xs = [String.from("x"), String.from("y")]
+    show_all(xs[..])
+    var w = Vec(String).new()
+    w.push(String.from("first"))
+    let f = w.first().unwrap()
+    println(f)
+    println(f == "first")
+}
+//> 2
+//> alpha
+//> true
+//> alpha
+//> [  alpha]
+//> x y 
+//> first
+//> true
