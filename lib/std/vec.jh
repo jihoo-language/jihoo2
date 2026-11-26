@@ -324,6 +324,20 @@ impl(T: Clone) Clone for Vec(T) {
     }
 }
 
+// `[1, 2, 3]`.
+impl(T: Show) Show for Vec(T) {
+    fn show(self, inout out: String) {
+        out.push('[')
+        for i in 0..self.len {
+            if i > 0 {
+                out.push_str(", ")
+            }
+            self[i].show(&out)
+        }
+        out.push(']')
+    }
+}
+
 impl(T: Eq) Eq for Vec(T) {
     fn eq(self, other: Vec(T)) -> bool {
         if self.len != other.len {

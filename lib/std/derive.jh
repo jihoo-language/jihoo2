@@ -107,38 +107,52 @@ trait Derived {
         make(Self, fn(i) { field_type(Self, i).default() })
     }
 
-    // `Point { x: 1, y: 2 }`, `Some(5)`, `None`.
+    // `Point { x: 1, y: 2 }`, `Some(5)`, `None`, `(1, a)`.
     fn show(self, inout out: String) {
-        inline if is_enum(Self) {
-            let v = variant_of(self)
-            inline for k in 0..variant_count(Self) {
-                if v == k {
-                    out.push_str(variant_name(Self, k))
-                    inline if variant_field_count(Self, k) > 0 {
-                        out.push('(')
-                        inline for j in 0..variant_field_count(Self, k) {
-                            inline if j > 0 {
-                                out.push_str(", ")
-                            }
-                            variant_field(self, k, j).show(&out)
-                        }
-                        out.push(')')
-                    }
+        inline if is_tuple(Self) {
+            out.push('(')
+            inline for i in 0..field_count(Self) {
+                inline if i > 0 {
+                    out.push_str(", ")
                 }
+                field(self, i).show(&out)
             }
+            inline if field_count(Self) == 1 {
+                out.push(',')
+            }
+            out.push(')')
         } else {
-            out.push_str(short_name(type_name(Self)))
-            inline if field_count(Self) > 0 {
-                out.push_str(" { ")
-                inline for i in 0..field_count(Self) {
-                    inline if i > 0 {
-                        out.push_str(", ")
+            inline if is_enum(Self) {
+                let v = variant_of(self)
+                inline for k in 0..variant_count(Self) {
+                    if v == k {
+                        out.push_str(variant_name(Self, k))
+                        inline if variant_field_count(Self, k) > 0 {
+                            out.push('(')
+                            inline for j in 0..variant_field_count(Self, k) {
+                                inline if j > 0 {
+                                    out.push_str(", ")
+                                }
+                                variant_field(self, k, j).show(&out)
+                            }
+                            out.push(')')
+                        }
                     }
-                    out.push_str(field_name(Self, i))
-                    out.push_str(": ")
-                    field(self, i).show(&out)
                 }
-                out.push_str(" }")
+            } else {
+                out.push_str(short_name(type_name(Self)))
+                inline if field_count(Self) > 0 {
+                    out.push_str(" { ")
+                    inline for i in 0..field_count(Self) {
+                        inline if i > 0 {
+                            out.push_str(", ")
+                        }
+                        out.push_str(field_name(Self, i))
+                        out.push_str(": ")
+                        field(self, i).show(&out)
+                    }
+                    out.push_str(" }")
+                }
             }
         }
     }

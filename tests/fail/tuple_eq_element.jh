@@ -1,0 +1,10 @@
+// A tuple has `==` only when each element does.
+// error: `==` needs `(i64, Point)` to implement `Eq`
+struct Point {
+    x: i64
+}
+
+fn main() {
+    let a = (1, Point { x: 2 })
+    println(a == (1, Point { x: 2 }))
+}

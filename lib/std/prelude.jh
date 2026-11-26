@@ -25,6 +25,23 @@ pub enum Ordering {
     Greater
 }
 
+impl Eq for Ordering {
+    fn eq(self, other: Ordering) -> bool {
+        variant_of(self) == variant_of(other)
+    }
+}
+
+// `Less`, `Equal`, `Greater`.
+impl Show for Ordering {
+    fn show(self, inout out: String) {
+        out.push_str(match self {
+            Less => "Less"
+            Equal => "Equal"
+            Greater => "Greater"
+        })
+    }
+}
+
 // ---- traits ----
 
 // Runs when a value's owner goes away.
@@ -287,6 +304,37 @@ impl(T: Eq) Eq for Option(T) {
             }
             None => other.is_none()
         }
+    }
+}
+
+// `Some(5)`, `None`.
+impl(T: Show) Show for Option(T) {
+    fn show(self, inout out: String) {
+        match self {
+            Some(x) => {
+                out.push_str("Some(")
+                x.show(&out)
+                out.push(')')
+            }
+            None => out.push_str("None")
+        }
+    }
+}
+
+// `Ok(5)`, `Err(not found)`.
+impl(T: Show, E: Show) Show for Result(T, E) {
+    fn show(self, inout out: String) {
+        match self {
+            Ok(x) => {
+                out.push_str("Ok(")
+                x.show(&out)
+            }
+            Err(e) => {
+                out.push_str("Err(")
+                e.show(&out)
+            }
+        }
+        out.push(')')
     }
 }
 

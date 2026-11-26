@@ -105,4 +105,6 @@ impl(T: Number) Ord for T { ... }
 
 `#[derive(Clone, Eq, Ord, Hash, Show, Default)]` before a struct or enum gives it
 those impls, written in the standard library with
-[reflection](reflection.md#derive).
+[reflection](reflection.md#derive). Tuples have `Clone`, `Eq`, `Ord`, `Hash`
+and `Show` the same way, whenever each element has the trait: `(1, "a")`
+compares element by element, is a `Map` key and prints as `(1, a)`.
