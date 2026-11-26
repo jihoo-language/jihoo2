@@ -112,7 +112,10 @@ zero (sometimes `-1`), `f32` and `f64` arithmetic (with NaN, infinities
 and division by zero), conversions between every integer and float type,
 `if`, `match` on ranges, `for` loops, arrays, a struct whose fields change,
 an enum built and matched, a `Vec(i64)` that is filled, indexed and popped,
-and calls to earlier functions. The Python model rounds `f32` arithmetic
+a `String` of digits that is cloned and given away (`sink`), a `Box` changed
+through `*` and a boxed `Vec` pushed to, a `Map` whose inserts may replace,
+`inout` parameters, closures that borrow, iterator pipelines, a generic
+function and calls to earlier functions. The Python model rounds `f32` arithmetic
 after each operation and integers to `f32` once.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
@@ -129,10 +132,20 @@ python3 tests/differential.py --compiler out/jihoo --seed 1000 --count 500 --kee
 python3 tests/differential.py --print --seed 1007     # the program of a seed
 ```
 
+`--valgrind PATH` also builds each program at `-O0` and runs it under
+valgrind, which fails on memory errors and definite leaks, so the drops of
+`String`, `Vec`, `Box` and `Map` along every generated path are checked:
+
+```sh
+python3 tests/differential.py --compiler out/jihoo --valgrind "$(nix-shell -p valgrind --run 'which valgrind')"
+```
+
 `--keep` saves the programs that fail. It found that the interpreter and
 constant folding rejected `MIN / -1` and `MIN % -1` as overflow, which
 compiled code wraps as [documented](../language/types.md#integers)
-(`tests/run/min_div.jh`).
+(`tests/run/min_div.jh`), and that a method taking `inout self` could not be
+called through a `Box` (`b.push(x)`), though one borrowing could
+(`tests/run/box_inout_methods.jh`).
 
 ## Memory
 

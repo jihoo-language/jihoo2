@@ -102,8 +102,10 @@ v[2] += 1          // index_mut
 let x = v[0]       // index
 ```
 
-`x.f` and patterns see through `deref` (`Box`), and `index_mut` and
-`deref_mut` are used where the place is changed.
+`x.f`, method calls and patterns see through `deref` (`Box`), and
+`index_mut` and `deref_mut` are used where the place is changed: a method
+that takes `inout self` is called through `deref_mut` (`var b =
+Box.new(Vec(i64).new()); b.push(1)`), which needs `b` to be a `var`.
 
 ## Views
 

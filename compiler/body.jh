@@ -6109,6 +6109,17 @@ impl sema.Sema {
                 recv = self.auto_deref(&fb, recv, span)?
                 continue
             }
+            // Through `deref_mut` when the method changes what a `Box`
+            // holds (`b.push(x)`) and the box itself can be changed.
+            if name != "deref" && name != "deref_mut" && self.through_deref_mut(
+                &fb,
+                recv,
+                name,
+                span
+            )? {
+                recv = self.method_call_val(&fb, recv, "deref_mut", Vec(Val).new(), span, None)?
+                continue
+            }
             if name != "deref" && self.find_method(recv.ty, "deref")?.is_some() {
                 recv = self.method_call_val(&fb, recv, "deref", Vec(Val).new(), span, None)?
                 continue
@@ -6155,6 +6166,33 @@ impl sema.Sema {
                 "` has no function `" + name + "`").as_str()))
         }
         self.call_decl_vals(&fb, h.imp, h.args.clone(), None, args, span, None)
+    }
+
+    // Whether `recv.name(...)` goes through `deref_mut`: `recv` has one and
+    // is a place that can be changed, and the method of what it gives takes
+    // `inout self`.
+    fn through_deref_mut(
+        inout self,
+        inout fb: Fb,
+        recv: Val,
+        name: str,
+        span: Span
+    ) -> Result(bool, Diag) {
+        let Some(dm) = self.find_method(recv.ty, "deref_mut")? else { return Ok(false) }
+        let mutable = match recv.vk {
+            Place(p) => self.place_mutable(fb, p)
+            Op(_) => false
+        }
+        if !mutable { return Ok(false) }
+        let id = self.instance(dm.imp, dm.args.clone(), span)?
+        let ret = self.out[id as i64].sig.ret
+        let target = match self.types.pointee(ret) {
+            Some(t) => t
+            None => return Ok(false)
+        }
+        let Some(h) = self.find_method(target, name)? else { return Ok(false) }
+        let d = sema.at(self.fns[h.imp as i64].decl)
+        Ok(d.params.len() > 0 && d.params[0].name == "self" && d.params[0].mode == ast.Mode.Inout)
     }
 
     // Whether a method of this name takes `inout self` (in any impl).

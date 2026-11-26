@@ -7,13 +7,14 @@ Each program is a few functions `fK(a: i64, b: i64) -> i64` built from
 wrapping arithmetic, bit operations, division by values that are never
 zero, shifts, `f32` and `f64` arithmetic (NaN and infinities included),
 conversions between every integer and float type, `if`, `match` on ranges,
-`for` loops, fixed arrays, a struct, an enum, `Vec(i64)`, closures that
-borrow, iterator pipelines, a generic function and calls to earlier
-functions. Nothing in them overflows a checked operation, so every
+`for` loops, fixed arrays, a struct, an enum, `Vec(i64)`, `String`,
+`Box`, `Map`, `inout` and `sink` parameters, closures that borrow,
+iterator pipelines, a generic function and calls to earlier functions. Nothing in them overflows a checked operation, so every
 build must print the same, and that must be what Python computes.
 
     tests/differential.py --compiler out/jihoo             # the fixed seeds CI runs
     tests/differential.py --seed 100 --count 500 --keep d  # more, keeping failures in d
+    tests/differential.py --valgrind "$(which valgrind)"   # and check memory
 """
 
 import argparse
@@ -39,7 +40,7 @@ FLOAT_LITERALS = ["0.0", "1.0", "0.5", "2.5", "0.1", "3.0", "1000000.0", "0.333"
 INPUTS = 6
 STRUCT_FIELDS = [("x", "i64"), ("y", "u16"), ("z", "f32")]
 # The most function bodies one call may run.
-CALL_BUDGET = 12
+CALL_BUDGET = 6
 
 
 def wrap(v, t):
@@ -317,7 +318,8 @@ class Gen:
         rng = self.rng
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct", "enum",
-                           "vec", "closure", "pipeline"]) if depth > 0 \
+                           "vec", "closure", "pipeline", "string", "box", "map",
+                           "inout"]) if depth > 0 \
             else rng.choice(["var", "set"])
         assignable = [n for n in env_types if n[0] == "v" or "." in n]
         if kind == "var" or (kind == "set" and not assignable):
@@ -384,6 +386,14 @@ class Gen:
             return self.closure_stmt(env_types, pad)
         if kind == "pipeline":
             return self.pipeline_stmt(env_types, pad)
+        if kind == "string":
+            return self.string_stmt(env_types, pad)
+        if kind == "box":
+            return self.box_stmt(env_types, pad)
+        if kind == "map":
+            return self.map_stmt(env_types, pad)
+        if kind == "inout":
+            return self.inout_stmt(env_types, pad)
         at = self.convert(self.expr(env_types, rng.choice(ALL), 2), "i64")
         value = self.expr(env_types, "i64", 2)
         read = self.convert(self.expr(env_types, rng.choice(ALL), 2), "i64")
@@ -541,6 +551,103 @@ class Gen:
                 f".filter(fn({y}) {{ ({y} & (1 as i64)) == ({parity} as i64) }}).take({take})"
                 f".fold({t}, fn({acc}, {y}) {{ {acc} +% {y} }})"], run
 
+    def string_stmt(self, env_types, pad):
+        """A `String` of integers' digits: cloned, given to `take` (`sink`),
+        indexed by byte."""
+        rng = self.rng
+        k = rng.randint(1, 4)
+        st, i, c, n = self.fresh("s"), self.fresh("i"), self.fresh("c"), self.fresh("v")
+        t = rng.choice(list(TYPES))
+        inner = dict(env_types)
+        inner[i] = "i64"
+        self.loops += 1
+        e = self.expr(inner, t, 2)
+        self.loops -= 1
+        t2 = rng.choice(list(TYPES))
+        last = self.expr(env_types, t2, 2)
+        idx = self.convert(self.expr(env_types, rng.choice(ALL), 2), "i64")
+
+        def run(env, i=i, e=e, last=last, idx=idx, n=n, k=k):
+            text = ""
+            for x in range(k):
+                env[i] = x
+                text += str(e[2](env))
+            del env[i]
+            text += str(last[2](env))
+            data = text.encode()
+            env[n] = wrap(len(data) + data[(idx[2](env) & 1023) % len(data)] + len(data), "i64")
+        env_types[n] = "i64"
+        return [
+            f"{pad}var {st} = String.new()",
+            f"{pad}for {i} in 0..{k} {{ ({e[0]}).show(&{st}) }}",
+            f"{pad}{st}.push_str(({last[0]}).to_string().as_str())",
+            f"{pad}let {c} = {st}.clone()",
+            f"{pad}var {n}: i64 = {st}.len() +% ({st}.as_bytes()[({idx[0]} & 1023) % {st}.len()]"
+            f" as i64) +% take({c})",
+        ], run
+
+    def box_stmt(self, env_types, pad):
+        """A boxed integer changed through `*`, and a boxed `Vec` pushed to
+        through `deref_mut`."""
+        b, bw, n = self.fresh("b"), self.fresh("b"), self.fresh("v")
+        e = self.expr(env_types, "i64", 2)
+        d = self.expr(env_types, "i64", 2)
+        x = self.expr(env_types, "i64", 2)
+
+        def run(env, e=e, d=d, x=x, n=n):
+            v = wrap(e[2](env) + d[2](env), "i64")
+            env[n] = wrap(v + x[2](env) + 2, "i64")
+        env_types[n] = "i64"
+        return [
+            f"{pad}var {b} = Box.new({e[0]})",
+            f"{pad}*{b} = *{b} +% {d[0]}",
+            f"{pad}var {bw} = Box.new(Vec(i64).new())",
+            f"{pad}{bw}.push({x[0]})",
+            f"{pad}{bw}.push(*{b})",
+            f"{pad}var {n}: i64 = (*{bw})[1] +% (*{bw})[0] +% {bw}.len()",
+        ], run
+
+    def map_stmt(self, env_types, pad):
+        """A `Map(i64, i64)`: inserts that may replace, then a lookup."""
+        rng = self.rng
+        k = rng.randint(1, 6)
+        m, i, n = self.fresh("m"), self.fresh("i"), self.fresh("v")
+        inner = dict(env_types)
+        inner[i] = "i64"
+        self.loops += 1
+        key = self.convert(self.expr(inner, rng.choice(list(TYPES)), 2), "i64")
+        value = self.expr(inner, "i64", 2)
+        self.loops -= 1
+        q = self.convert(self.expr(env_types, rng.choice(list(TYPES)), 2), "i64")
+
+        def run(env, i=i, key=key, value=value, q=q, n=n, k=k):
+            table = {}
+            for x in range(k):
+                env[i] = x
+                kk = key[2](env) & 7
+                table[kk] = value[2](env)
+            del env[i]
+            env[n] = wrap(len(table) + table.get(q[2](env) & 7, 0), "i64")
+        env_types[n] = "i64"
+        return [
+            f"{pad}var {m} = Map(i64, i64).new()",
+            f"{pad}for {i} in 0..{k} {{ {m}.insert({key[0]} & 7, {value[0]}) }}",
+            f"{pad}var {n}: i64 = {m}.len() +% (match {m}.get({q[0]} & 7) {{ Some(x) => x, "
+            f"None => 0 }})",
+        ], run
+
+    def inout_stmt(self, env_types, pad):
+        """`bump(&v, d)`: an `inout` parameter."""
+        n = self.fresh("v")
+        e = self.expr(env_types, "i64", 2)
+        d = self.expr(env_types, "i64", 2)
+
+        def run(env, n=n, e=e, d=d):
+            v = e[2](env)
+            env[n] = wrap(v + d[2](env), "i64")
+        env_types[n] = "i64"
+        return [f"{pad}var {n}: i64 = {e[0]}", f"{pad}bump(&{n}, {d[0]})"], run
+
     def function(self):
         self.cost = 1
         env_types = {"a": "i64", "b": "i64"}
@@ -586,6 +693,8 @@ def program(seed, functions):
     ys = ", ".join(literal_i64(b) for _, b in inputs)
     out = ["import std.env", "import std.iter", "",
            "fn mix(comptime T: Int, x: T, y: T) -> T { ((x +% y) *% x) ^ (y >> x) }",
+           "fn bump(inout x: i64, d: i64) { x = x +% d }",
+           "fn take(sink s: String) -> i64 { s.len() }",
            "struct S { " + ", ".join(f"{f}: {t}" for f, t in STRUCT_FIELDS) + " }",
            "enum E { A(i64), B(i32, f64), C }", ""] + texts + [""]
     for k in range(functions):
@@ -622,11 +731,24 @@ def program(seed, functions):
 BUILDS = [["-O0"], ["-O2"], ["-O2", "--release"], ["-O1", "--audit-proved"]]
 
 
-def check(compiler, seed, functions, directory, keep):
+def check(compiler, seed, functions, directory, keep, valgrind=None):
     source, expected = program(seed, functions)
     path = Path(directory) / f"diff{seed}.jh"
     path.write_text(source)
     problems = []
+    if valgrind:
+        # memory errors and leaks in the drops of String, Vec, Box and Map
+        exe = Path(directory) / f"diff{seed}"
+        b = subprocess.run([str(compiler), "build", "-O0", str(path), "-o", str(exe)],
+                           capture_output=True, text=True, timeout=600)
+        if b.returncode != 0:
+            problems.append(f"seed {seed} -O0 build: exit {b.returncode}\n{b.stderr[-2000:]}")
+        else:
+            r = subprocess.run([str(valgrind), "-q", "--leak-check=full",
+                                "--errors-for-leak-kinds=definite", "--error-exitcode=9",
+                                str(exe)], capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                problems.append(f"seed {seed} valgrind: exit {r.returncode}\n{r.stderr[-3000:]}")
     for flags in BUILDS:
         r = subprocess.run([str(compiler), "run", *flags, str(path)], capture_output=True,
                            text=True, timeout=600)
@@ -660,6 +782,8 @@ def main():
     parser.add_argument("--functions", type=int, default=4)
     parser.add_argument("--keep", type=Path, help="directory for the programs that fail")
     parser.add_argument("--print", action="store_true", help="print the first program and stop")
+    parser.add_argument("--valgrind", type=Path,
+                        help="also run each program, built at -O0, under this valgrind")
     args = parser.parse_args()
     if args.print:
         print(program(args.seed, args.functions)[0])
@@ -668,7 +792,7 @@ def main():
     failed = 0
     with tempfile.TemporaryDirectory(prefix="jihoo-differential-") as directory:
         for seed in range(args.seed, args.seed + args.count):
-            problems = check(compiler, seed, args.functions, directory, args.keep)
+            problems = check(compiler, seed, args.functions, directory, args.keep, args.valgrind)
             for p in problems:
                 print(p)
             failed += bool(problems)
