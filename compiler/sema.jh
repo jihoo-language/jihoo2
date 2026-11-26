@@ -2332,6 +2332,9 @@ impl Sema {
         if found.is_none() {
             found = self.tuple_impl(tr, t)?
         }
+        if found.is_none() {
+            found = self.ref_impl(tr, t)?
+        }
         self.impl_cache.insert(key, found.clone())
         Ok(found)
     }
@@ -2359,6 +2362,26 @@ impl Sema {
             }
         }
         Ok(Some(ImplHit { imp: DERIVED_IMPL, args: Vec(CVal).new() }))
+    }
+
+    // A shared borrow `ref X` has the prelude's `Eq`, `Ord`, `Hash` and
+    // `Show` when `X` does, so that `println(map.get(k).unwrap())` and
+    // `f(v[i])` find them: a method called on a borrow is the borrowed
+    // value's. Not `Default`, which makes a `Self`; `Clone` of a borrow is
+    // its copy, as for every `Plain` type.
+    fn ref_impl(inout self, tr: u32, t: u32) -> Result(Option(ImplHit), Diag) {
+        let inner = match self.types.kind(t) {
+            Ref(x) => x
+            _ => return Ok(None)
+        }
+        let Some(prelude) = at(self.ast).prelude else { return Ok(None) }
+        let info = self.traits[tr as i64]
+        let name = info.name.as_str()
+        if info.module != prelude ||
+            !(name == "Eq" || name == "Ord" || name == "Hash" || name == "Show") {
+            return Ok(None)
+        }
+        self.find_impl(tr, inner)
     }
 
     // `#[derive(...)]` impls are written by the compiler; they are
