@@ -56,6 +56,8 @@ pub struct Scope {
     locals: Vec(u32)
     // A statement's temporaries (not a block).
     temp: bool
+    // The end of the block it is, for debug information; 0 if unknown.
+    end: u32
 }
 
 struct LoopCtx {
@@ -375,7 +377,12 @@ impl Fb {
         }
         fb.new_local(ret, None, true, LocalKind.Ret, span)
         fb.cur = fb.new_block()
-        fb.scopes.push(Scope { vars: Vec(ScopeVar).new(), locals: Vec(u32).new(), temp: false })
+        fb.scopes.push(Scope {
+            vars: Vec(ScopeVar).new(),
+            locals: Vec(u32).new(),
+            temp: false,
+            end: 0
+        })
         fb
     }
 
@@ -387,12 +394,23 @@ impl Fb {
         kind: LocalKind,
         span: Span
     ) -> u32 {
+        // The innermost block's end, for a named local's scope.
+        var scope_end: u32 = 0
+        var i = self.scopes.len()
+        while i > 0 && name.is_some() {
+            i -= 1
+            if self.scopes[i].end > 0 {
+                scope_end = self.scopes[i].end
+                break
+            }
+        }
         self.body.locals.push(mir.LocalDecl {
             ty: ty,
             name: name,
             span: span,
             mutable: mutable,
-            kind: kind
+            kind: kind,
+            scope_end: scope_end
         })
         (self.body.locals.len() - 1) as u32
     }
@@ -509,7 +527,19 @@ impl Fb {
     }
 
     pub fn push_scope(inout self, temp: bool) {
-        self.scopes.push(Scope { vars: Vec(ScopeVar).new(), locals: Vec(u32).new(), temp: temp })
+        self.scopes.push(Scope {
+            vars: Vec(ScopeVar).new(),
+            locals: Vec(u32).new(),
+            temp: temp,
+            end: 0
+        })
+    }
+
+    // The scope of a block that ends at `end`.
+    pub fn push_block(inout self, end: u32) {
+        self.push_scope(false)
+        let n = self.scopes.len()
+        self.scopes[n - 1].end = end
     }
 
     // A local of the current scope, live from here.
@@ -1544,7 +1574,7 @@ impl sema.Sema {
         // A block expected to give `()` throws its last value away.
         let want = want && exp != Some(types.UNIT)
         let exp: Option(u32) = if want { exp } else { None }
-        fb.push_scope(false)
+        fb.push_block(b.span.hi)
         var diverged = false
         for s in b.stmts {
             fb.push_scope(true)

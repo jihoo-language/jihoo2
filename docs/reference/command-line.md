@@ -616,8 +616,11 @@ some = {tag = 0 '\000', Some = {__0 = 42}}
 r = {tag = 1 '\001', Rect = {__0 = {x = 0, y = 0}, __1 = {x = 2, y = 3}}}
 ```
 
-Every variable is in its function's scope, so a name shadowed in an inner
-block appears twice. At `-O2` the optimizer keeps what it can: inlined
+Each variable is in a lexical block from its declaration to the end of
+its block, as Rust's compiler writes them, so where a later `let x` hides
+an earlier one, or an inner block's `x` an outer one, `print x` shows the
+one in scope there (`info locals` lists the hidden ones too, as for C). At
+`-O2` the optimizer keeps what it can: inlined
 functions and variables in registers may be gone. Native and freestanding
 executables keep the information; UEFI images do not (lld's COFF linker
 would put it in a PDB). Without `-g` the IR is unchanged, so `-g` does not

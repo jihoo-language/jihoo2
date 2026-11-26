@@ -153,6 +153,10 @@ struct FnCx {
     scope: i64
     scope_file: u32
     dbg: String
+    // The `DILexicalBlock`s of the function's variables: from a
+    // declaration to the end of its block (byte offsets in `scope_file`),
+    // outer ones first.
+    blocks: Vec((u32, u32, i64))
 }
 
 impl FnCx {
@@ -167,7 +171,8 @@ impl FnCx {
             audited: false,
             scope: -1,
             scope_file: 0,
-            dbg: String.new()
+            dbg: String.new(),
+            blocks: Vec((u32, u32, i64)).new()
         }
     }
 
@@ -584,8 +589,12 @@ impl Gen {
         if span.file as i64 >= self.dbg.paths.len() { return }
         let (line, col) = self.dbg.line_col(span.file, span.lo)
         // Code from another file (an inlined closure, derived code) is in
-        // a `DILexicalBlockFile` of that file.
+        // a `DILexicalBlockFile` of that file; code of this one in the
+        // innermost lexical block around it.
         var scope = cx.scope
+        if span.file == cx.scope_file {
+            scope = innermost(cx.blocks.as_slice(), span.lo, cx.scope)
+        }
         if span.file != cx.scope_file {
             let key = "f" + fmt.n(cx.scope as i128).as_str() + ":" + fmt.n(
                 span.file as i128
@@ -880,6 +889,37 @@ impl Gen {
     // storage is `cx.locals`: written after the allocas, at the start.
     fn declare_locals(inout self, inout cx: FnCx, body: ref mir.Body) {
         if cx.scope < 0 { return }
+        // A lexical block for each variable's scope, from its declaration
+        // to the end of its block, so that a later `let x` hides an earlier
+        // one where it is in scope: by start, the outer first.
+        var spans = Vec((u32, u32)).new()
+        for l in body.locals {
+            if l.kind != mir.LocalKind.Var || l.name.is_none() { continue }
+            if l.span.file != cx.scope_file || l.scope_end <= l.span.lo { continue }
+            var seen = false
+            for (lo, hi) in spans {
+                if lo == l.span.lo && hi == l.scope_end { seen = true }
+            }
+            if !seen { spans.push((l.span.lo, l.scope_end)) }
+        }
+        sort_by(&spans, fn(a, b) {
+            if a.0 != b.0 { a.0 < b.0 } else { a.1 > b.1 }
+        })
+        for (lo, hi) in spans {
+            let parent = innermost(cx.blocks.as_slice(), lo, cx.scope)
+            let (line, col) = self.dbg.line_col(cx.scope_file, lo)
+            let file = self.dfile(cx.scope_file)
+            let n = self.md(fmt.f(
+                "distinct !DILexicalBlock(scope: !{}, file: !{}, line: {}, column: {})",
+                [
+                    fmt.n(parent as i128).as_str(),
+                    fmt.n(file as i128).as_str(),
+                    fmt.n(line as i128).as_str(),
+                    fmt.n(col as i128).as_str()
+                ]
+            ).as_str())
+            cx.blocks.push((lo, hi, n))
+        }
         var arg = 0
         for i, l in body.locals {
             if l.kind == mir.LocalKind.Arg { arg += 1 }
@@ -892,12 +932,17 @@ impl Gen {
             let (line, col) = self.dbg.line_col(l.span.file, l.span.lo)
             let file = self.dfile(l.span.file)
             let argno = if l.kind == mir.LocalKind.Arg { ", arg: " + fmt.n(arg as i128).as_str() } else { String.new() }
+            let scope = if l.kind == mir.LocalKind.Var && l.span.file == cx.scope_file {
+                innermost(cx.blocks.as_slice(), l.span.lo, cx.scope)
+            } else {
+                cx.scope
+            }
             let v = self.md(fmt.f(
                 "!DILocalVariable(name: \"{}\"{}, scope: !{}, file: !{}, line: {}, type: !{})",
                 [
                     esc(name.as_str()).as_str(),
                     argno.as_str(),
-                    fmt.n(cx.scope as i128).as_str(),
+                    fmt.n(scope as i128).as_str(),
                     fmt.n(file as i128).as_str(),
                     fmt.n(line as i128).as_str(),
                     fmt.n(ty as i128).as_str()
@@ -908,7 +953,7 @@ impl Gen {
                 [
                     fmt.n(line as i128).as_str(),
                     fmt.n(col as i128).as_str(),
-                    fmt.n(cx.scope as i128).as_str()
+                    fmt.n(scope as i128).as_str()
                 ]
             ).as_str())
             cx.body.push_str(fmt.f(
@@ -3354,3 +3399,12 @@ const UEFI_RUNTIME = "define internal void @jihoo.efi.write(ptr %m, i64 %n) cold
 // Without libc, LLVM's calls to `memcpy` and friends need definitions;
 // "no-builtins" keeps LLVM from turning their loops back into calls.
 const MEM_FUNCTIONS = "define weak ptr @memcpy(ptr %d, ptr %s, i64 %n) \"no-builtins\" {\nentry:\n  br label %head\nhead:\n  %i = phi i64 [ 0, %entry ], [ %i1, %body ]\n  %c = icmp ult i64 %i, %n\n  br i1 %c, label %body, label %done\nbody:\n  %sp = getelementptr i8, ptr %s, i64 %i\n  %dp = getelementptr i8, ptr %d, i64 %i\n  %b = load i8, ptr %sp\n  store i8 %b, ptr %dp\n  %i1 = add i64 %i, 1\n  br label %head\ndone:\n  ret ptr %d\n}\n\ndefine weak ptr @memmove(ptr %d, ptr %s, i64 %n) \"no-builtins\" {\nentry:\n  %fwd = icmp ule ptr %d, %s\n  br i1 %fwd, label %f.head, label %b.head\nf.head:\n  %i = phi i64 [ 0, %entry ], [ %i1, %f.body ]\n  %c = icmp ult i64 %i, %n\n  br i1 %c, label %f.body, label %done\nf.body:\n  %sp = getelementptr i8, ptr %s, i64 %i\n  %dp = getelementptr i8, ptr %d, i64 %i\n  %b = load i8, ptr %sp\n  store i8 %b, ptr %dp\n  %i1 = add i64 %i, 1\n  br label %f.head\nb.head:\n  %j = phi i64 [ %n, %entry ], [ %j1, %b.body ]\n  %cj = icmp ugt i64 %j, 0\n  br i1 %cj, label %b.body, label %done\nb.body:\n  %j1 = sub i64 %j, 1\n  %sq = getelementptr i8, ptr %s, i64 %j1\n  %dq = getelementptr i8, ptr %d, i64 %j1\n  %bq = load i8, ptr %sq\n  store i8 %bq, ptr %dq\n  br label %b.head\ndone:\n  ret ptr %d\n}\n\ndefine weak ptr @memset(ptr %d, i32 %v, i64 %n) \"no-builtins\" {\nentry:\n  %b = trunc i32 %v to i8\n  br label %head\nhead:\n  %i = phi i64 [ 0, %entry ], [ %i1, %body ]\n  %c = icmp ult i64 %i, %n\n  br i1 %c, label %body, label %done\nbody:\n  %dp = getelementptr i8, ptr %d, i64 %i\n  store i8 %b, ptr %dp\n  %i1 = add i64 %i, 1\n  br label %head\ndone:\n  ret ptr %d\n}\n\ndefine weak i32 @memcmp(ptr %a, ptr %b, i64 %n) \"no-builtins\" {\nentry:\n  br label %head\nhead:\n  %i = phi i64 [ 0, %entry ], [ %i1, %next ]\n  %c = icmp ult i64 %i, %n\n  br i1 %c, label %body, label %same\nbody:\n  %ap = getelementptr i8, ptr %a, i64 %i\n  %bp = getelementptr i8, ptr %b, i64 %i\n  %x = load i8, ptr %ap\n  %y = load i8, ptr %bp\n  %eq = icmp eq i8 %x, %y\n  br i1 %eq, label %next, label %diff\nnext:\n  %i1 = add i64 %i, 1\n  br label %head\ndiff:\n  %xz = zext i8 %x to i32\n  %yz = zext i8 %y to i32\n  %d = sub i32 %xz, %yz\n  ret i32 %d\nsame:\n  ret i32 0\n}\n\n"
+
+// The innermost lexical block around byte `at`, or `outer`.
+fn innermost(blocks: [(u32, u32, i64)], at: u32, outer: i64) -> i64 {
+    var scope = outer
+    for (lo, hi, n) in blocks {
+        if lo <= at && at < hi { scope = n }
+    }
+    scope
+}

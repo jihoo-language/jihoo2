@@ -171,7 +171,8 @@ fn run_body(inout body: Body) -> Result((), Diag) {
                     name: None,
                     span: sp,
                     mutable: true,
-                    kind: mir.LocalKind.Temp
+                    kind: mir.LocalKind.Temp,
+                    scope_end: 0
                 })
                 flags[l] = Some((body.locals.len() - 1) as u32)
             }
