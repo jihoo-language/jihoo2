@@ -1,0 +1,6 @@
+// `as` converts a literal after it has its type, `i64` here.
+// error: 18446744073709551615 does not fit in `i64`
+fn main() {
+    let x = 18446744073709551615 as u64
+    println(x)
+}
