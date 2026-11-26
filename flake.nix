@@ -184,7 +184,7 @@
             pname = "jihoo-tests";
             inherit version;
             src = testSrc;
-            nativeBuildInputs = [ jihoo llvm.clang llvm.lld llvm.llvm pkgs.python3 pkgs.time ];
+            nativeBuildInputs = [ jihoo llvm.clang llvm.lld llvm.llvm pkgs.gdb pkgs.python3 pkgs.time ];
             dontConfigure = true;
             buildPhase = ''
               export JIHOO_PATH=$PWD/lib JIHOO_COMPILER=${jihoo}/bin/jihoo
@@ -220,6 +220,7 @@
               llvm.llvm # opt, llc, llvm-dis for looking at what the compiler writes
               pkgs.python3 # independent JSON diagnostic validation and benchmark scripts
               pkgs.time # peak compiler memory in scripts/benchmark_compile.py
+              pkgs.gdb # the backend suite's pretty printer test
             ];
             JIHOO_LLVM = "${llvm.llvm.lib}/lib/libLLVM-21.so";
             JIHOO_LD = "${llvm.lld}/bin/ld.lld";
