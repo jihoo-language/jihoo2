@@ -163,6 +163,33 @@ def main():
                                                      "contentChanges": [{"text": fixed}]})
             assert client.diagnostics(uri(main_file)) == []
 
+            # Hover: a local's type as the compiler inferred it, and an
+            # item's or field's declaration.
+            assert client.capabilities["hoverProvider"] is True
+
+            def hover(word, occurrence=0, after=0):
+                offset = fixed.encode().index(word.encode(), after)
+                for _ in range(occurrence):
+                    offset = fixed.encode().index(word.encode(), offset + 1)
+                found = client.request("textDocument/hover", {
+                    "textDocument": {"uri": uri(main_file)},
+                    "position": position(fixed, offset + 1, utf8)})
+                return found["contents"]["value"] if found else None
+
+            assert "value: i64" in hover("value", 2), hover("value", 2)
+            assert "v: Vec(String)" in hover("v", 0, fixed.encode().index(b"var v") + 4), hover("v", 0, fixed.encode().index(b"var v") + 4)
+            assert "old: Vec(String)" in hover("old", 1), hover("old", 1)
+            assert "s: str" in hover("s", 0, fixed.encode().index(b"let s")), hover("s")
+            assert "p: Point" in hover("p", 0, fixed.encode().index(b"p.x")), hover("p")
+            assert "pub fn twice(x: i64) -> i64" in hover("twice"), hover("twice")
+            assert "struct Point" in hover("Point", 1), hover("Point", 1)
+            assert "x: i64" in hover("x", 0, fixed.encode().index(b"p.x")), hover("x")
+            # The comment above a declaration comes with it.
+            assert "Puts v in the place" in hover("replace"), hover("replace")
+            assert client.request("textDocument/hover", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": {"line": 2, "character": 0}}) is None
+
             # A burst of edits that arrive together is checked once, with the last text.
             burst = b""
             for version in range(3, 8):
@@ -200,7 +227,7 @@ def main():
             assert related[0]["location"]["uri"] == uri(ROOT / "lib/std/thread.jh"), related
             assert "in the instance" in related[1]["message"], related
 
-            error = client.request_error("textDocument/hover", {
+            error = client.request_error("textDocument/completion", {
                 "textDocument": {"uri": uri(main_file)}, "position": {"line": 0, "character": 0}})
             assert error["code"] == -32601, error
 
@@ -223,7 +250,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":

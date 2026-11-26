@@ -18,6 +18,7 @@ import interp
 import json
 import lex
 import load
+import mir
 import os
 import sema
 import target
@@ -234,9 +235,9 @@ impl Server {
                     json.obj().with("includeText", Json.Bool(false))
                 )
             ).with("definitionProvider", Json.Bool(true)).with(
-                "documentFormattingProvider",
+                "hoverProvider",
                 Json.Bool(true)
-            )
+            ).with("documentFormattingProvider", Json.Bool(true))
             reply(id, json.obj().with("capabilities", caps).with(
                 "serverInfo",
                 json.obj().with("name", json.text("jihoo")).with("version", json.text(
@@ -291,6 +292,17 @@ impl Server {
             match self.doc(uri.as_str()) {
                 Some(i) => {
                     let found = self.definition(i, line, character)
+                    reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/hover" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let line = params.at(["position", "line"]).int_or(-1)
+            let character = params.at(["position", "character"]).int_or(-1)
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let found = self.hover(i, line, character)
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
@@ -577,6 +589,161 @@ impl Server {
         if locations.len() == 1 { return locations[0].clone() }
         Json.Arr(locations)
     }
+}
+
+impl Server {
+    // What the name at a position is: a local's or parameter's type, as
+    // the compiler inferred it (one per generic instance), or the
+    // declaration of an item, field or method, with the comment above it.
+    fn hover(self, i: i64, line: i64, character: i64) -> Json {
+        let d = self.docs[i]
+        let offset = self.offset(d.text.as_str(), line, character)
+        var sources = diag.Sources.new()
+        let overlay = self.overlay()
+        let a = match load.load_with(
+            d.path.as_str(),
+            load.default_search(self.search.clone()),
+            self.tgt.name(),
+            &sources,
+            false,
+            overlay
+        ) {
+            Ok(a) => a
+            Err(_) => return Json.Null
+        }
+        let found = resolve(a, sources, offset)
+        if found.len() == 0 { return Json.Null }
+        let Some((name, at)) = word_at(sources, a, offset) else { return Json.Null }
+        // The types of locals, from the program as sema lowered it.
+        var reports = Vec(interp.Report).new()
+        let prog = sema.compile(
+            a,
+            self.tgt,
+            true,
+            true,
+            target.Codegen.default(),
+            false,
+            &reports
+        ).ok()
+        var parts = Vec(String).new()
+        for sp in found {
+            var tys = Vec(String).new()
+            match &prog {
+                Some(p) => tys = local_types(p, sp, name.as_str())
+                None => {}
+            }
+            if tys.len() > 0 {
+                var s = String.from("```jihoo\n")
+                for k, t in tys {
+                    if k > 0 { s.push('\n') }
+                    s.push_str(name.as_str())
+                    s.push_str(": ")
+                    s.push_str(t.as_str())
+                }
+                s.push_str("\n```")
+                parts.push(s)
+            } else {
+                let decl = declaration(sources, sp)
+                if decl.len() > 0 { parts.push(decl) }
+            }
+        }
+        if parts.len() == 0 { return Json.Null }
+        var value = String.new()
+        for k, p in parts {
+            if k > 0 { value.push_str("\n\n---\n\n") }
+            value.push_str(p.as_str())
+        }
+        json.obj().with(
+            "contents",
+            json.obj().with("kind", json.text("markdown")).with("value", json.text(value.as_str()))
+        ).with("range", self.range(at, sources))
+    }
+}
+
+// The identifier at `offset` in the root module, and its span.
+fn word_at(sources: diag.Sources, a: load.Ast, offset: i64) -> Option((String, Span)) {
+    let file = a.modules[a.root as i64].ast.file
+    let text = sources.files[file as i64].text.as_str()
+    let toks = match lex.lex(file, text) {
+        Ok(t) => t
+        Err(_) => return None
+    }
+    for t in toks {
+        if t.tok == lex.Tok.Ident && t.span.lo as i64 <= offset && offset <= t.span.hi as i64 {
+            return Some((t.text.clone(), t.span))
+        }
+    }
+    None
+}
+
+// The types of the locals named `name` declared at `sp`, in every
+// function (each instance of a generic one), without repeats.
+fn local_types(p: mir.Program, sp: Span, name: str) -> Vec(String) {
+    var out = Vec(String).new()
+    for f in p.fns {
+        match f.body {
+            Some(b) => {
+                for l in b.locals {
+                    let Some(n) = l.name else { continue }
+                    if n != name || l.span.file != sp.file { continue }
+                    if l.span.lo > sp.lo || sp.lo >= l.span.hi { continue }
+                    let t = p.types.show(l.ty)
+                    var seen = false
+                    for x in out {
+                        if x == t { seen = true }
+                    }
+                    if !seen { out.push(t) }
+                }
+            }
+            None => {}
+        }
+    }
+    out
+}
+
+// The declaration at `sp`: its lines up to a `{` or the end of the line,
+// as code, after the `//` comment lines just above it.
+fn declaration(sources: diag.Sources, sp: Span) -> String {
+    if sp.file as i64 >= sources.files.len() { return String.new() }
+    let text = sources.files[sp.file as i64].text.as_str()
+    var start = min(sp.lo as i64, text.len)
+    while start > 0 && text[start - 1] != '\n' { start -= 1 }
+    var end = start
+    var depth = 0
+    while end < text.len {
+        let c = text[end]
+        if c == '(' || c == '[' { depth += 1 }
+        if c == ')' || c == ']' { depth -= 1 }
+        if c == '{' && depth <= 0 { break }
+        if c == '\n' && depth <= 0 { break }
+        end += 1
+    }
+    let code = text[start..end].trim()
+    if code.len == 0 { return String.new() }
+    // Comment lines directly above.
+    var doc = Vec(str).new()
+    var l = start
+    while l > 0 {
+        var b = l - 1
+        while b > 0 && text[b - 1] != '\n' { b -= 1 }
+        let ln = text[b..l - 1].trim()
+        if !ln.starts_with("//") { break }
+        doc.push(ln[2..].trim())
+        l = b
+    }
+    var s = String.from("```jihoo\n")
+    s.push_str(code)
+    s.push_str("\n```")
+    if doc.len() > 0 {
+        s.push_str("\n\n")
+        var k = doc.len()
+        while k > 0 {
+            k -= 1
+            s.push_str(doc[k])
+            if k > 0 { s.push(' ') }
+        }
+    }
+    s
 }
 
 // Loads, checks and elaborates `path` as the root of a library.

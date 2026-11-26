@@ -390,6 +390,12 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   variants, fields and methods, and `value.name` among every field and
   method of that name, since the receiver's type is not resolved; such a
   request may return several locations.
+- **Hover**, on what go to definition finds: a local or parameter shows its
+  type as the compiler inferred it, from the checked program (`total: f64`;
+  in a generic function, one line per instance), and an item, field or
+  method shows its declaration up to its body, with the `//` comment just
+  above it. When the program does not check, a local shows its
+  declaration's line instead.
 - **Formatting** of a whole document with `fmt`'s default width, as one edit.
   A document with syntax errors is left unchanged.
 
