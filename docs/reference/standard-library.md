@@ -121,7 +121,8 @@ fn copy(path: str) -> Result(i64, os.Error) {
 `std.fs` reads and writes whole files with the same errors:
 `read_file(path) -> Result(String, os.Error)` (bytes not checked to be
 UTF-8), `read_bytes`, `write_file(path, text)`, `write_bytes(path, data)`,
-`append_bytes`, `remove_file` and `read_dir` (sorted names).
+`append_bytes`, `remove_file`, `read_dir` (sorted names), `create_dir`
+and `remove_dir` (of an empty directory).
 
 ## Buffered input
 

@@ -160,6 +160,14 @@ pub fn unlink_raw(path: str) -> i64 {
     0 - ENOSYS
 }
 
+pub fn mkdir_raw(path: str, mode: i32) -> i64 {
+    0 - ENOSYS
+}
+
+pub fn rmdir_raw(path: str) -> i64 {
+    0 - ENOSYS
+}
+
 pub unsafe fn spawn_raw(path: *u8, argv: **u8, envp: **u8, stdio: [i32; 3], report: i32) -> i64 {
     0 - ENOSYS
 }

@@ -16,6 +16,7 @@ pub const DUP3: i64 = 292
 pub const PPOLL: i64 = 271
 pub const GETDENTS64: i64 = 217
 pub const UNLINKAT: i64 = 263
+pub const MKDIRAT: i64 = 258
 pub const FUTEX: i64 = 202
 pub const MPROTECT: i64 = 10
 pub const EXIT: i64 = 60

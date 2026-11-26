@@ -1471,8 +1471,8 @@ impl Tests {
 }
 
 // Whether a program of tests/run can run as a UEFI program: not those that
-// need files, processes, threads, arguments or dynamic libraries, nor the
-// variants for another profile.
+// need files, processes, threads, arguments, the C library or dynamic
+// libraries, nor the variants for another profile.
 fn runs_on_uefi(path: str) -> bool {
     let name = stem(path)
     if name.ends_with("_freestanding") {
@@ -1485,6 +1485,7 @@ fn runs_on_uefi(path: str) -> bool {
         "dirs",
         "dyn_threads",
         "ffi",
+        "float_libc",
         "freestanding",
         "files_args",
         "os_io",

@@ -31,7 +31,8 @@ pub fn run(program: str, args: [str]) -> Result(Exit, os.Error) {
     finish(pid)
 }
 
-// What a program wrote, and how it ended.
+// What a program wrote, and how it ended. The bytes are not checked to be
+// UTF-8; see `std.utf8.validate`.
 pub struct Output {
     pub status: Exit
     pub stdout: String
@@ -210,4 +211,57 @@ fn c_string(s: str) -> Result(Vec(u8), os.Error) {
     }
     v.push(0)
     Ok(v)
+}
+
+#[test]
+fn exit_codes_and_signals() {
+    assert(run("true", []).unwrap().success(), "true")
+    match run("sh", ["-c", "exit 3"]).unwrap() {
+        Code(c) => assert(c == 3, "exit 3")
+        Signal(_) => panic("a signal")
+    }
+    match run("sh", ["-c", "kill -9 $$"]).unwrap() {
+        Code(_) => panic("an exit")
+        Signal(s) => assert(s == 9, "SIGKILL")
+    }
+    assert(!Exit.Signal(15).success() && !Exit.Code(1).success(), "failures")
+}
+
+#[test]
+fn starting_fails() {
+    assert(run("jihoo-no-such-program", []).is_err(), "not in PATH")
+    match run("jihoo-no-such-program", []) {
+        Err(e) => assert(e == os.Error.NotFound, "NotFound")
+        Ok(_) => panic("started")
+    }
+    match output("/dev/null", []) {
+        Err(e) => assert(e == os.Error.PermissionDenied, "not executable")
+        Ok(_) => panic("started")
+    }
+    match run("sh", ["a\0b"]) {
+        Err(e) => assert(e == os.Error.InvalidInput, "zero byte")
+        Ok(_) => panic("started")
+    }
+    assert(find("sh").is_some() && find("jihoo-no-such-program").is_none(), "find")
+    assert(find("./x").unwrap() == "./x", "a path is itself")
+}
+
+#[test]
+fn output_kept() {
+    let o = output("sh", ["-c", "echo out; echo err >&2; exit 4"]).unwrap()
+    assert(o.stdout == "out\n" && o.stderr == "err\n", "both streams")
+    match o.status {
+        Code(c) => assert(c == 4, "status")
+        Signal(_) => panic("a signal")
+    }
+    let e = output("cat", []).unwrap()
+    assert(e.status.success() && e.stdout.is_empty(), "standard input is empty")
+    // More than a pipe holds, on both streams at once.
+    let big = output(
+        "sh",
+        ["-c", "head -c 300000 /dev/zero; head -c 200000 /dev/zero >&2"]
+    ).unwrap()
+    assert(big.stdout.len() == 300000 && big.stderr.len() == 200000, "large output")
+    let args = output("printf", ["%s|", "a b", "", "c"]).unwrap()
+    assert(args.stdout == "a b||c|", "arguments as given")
 }

@@ -1,4 +1,4 @@
-// `Result(T, E)` has `==` when both T and E do.
+// `Result(T, E)` has `==` when both T and E do, and `()` has it.
 
 fn parse(s: str) -> Result(i64, String) {
     match s.parse_int() {
@@ -13,9 +13,14 @@ fn main() {
     println(parse("x") == Err(String.from("not a number: x")))
     println(parse("x") == Ok(0))
     println(parse("7") != Err(String.from("7")))
+    let done: Result((), i64) = Ok(())
+    println(done == Ok(()))
+    println(done == Err(1))
 }
 //> true
 //> false
 //> true
 //> false
 //> true
+//> true
+//> false
