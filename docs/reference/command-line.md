@@ -36,7 +36,7 @@ once the program has none.
 | option | |
 |--------|---|
 | `-O0` … `-O3` | LLVM optimization (default `-O2`) |
-| `-g` | [line tables](#debug-information) for debuggers and profilers (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
+| `-g` | [debug information](#debug-information): lines and variables for debuggers and profilers (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--release` | integer overflow wraps instead of trapping |
 | `--no-verify` | skip [verification](#verification): keep every check, and do not prove contracts (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--verify` | also prove contracts in `check` (code generation always does, unless `--no-verify`) |
@@ -559,31 +559,44 @@ may change.
 
 ## Debug information
 
-`-g` gives every instruction the line and column of the statement, call or
-check it comes from, as DWARF 5 line tables, so that gdb, lldb, perf and
-valgrind name source lines:
+`-g` writes DWARF 5 debug information, so that gdb, lldb, perf and
+valgrind name the source line of each instruction and show variables:
 
 ```sh
 jihoo build -g -O0 prog.jh -o prog
-gdb -batch -ex run -ex bt ./prog
+gdb -batch -ex run -ex bt -ex 'frame 6' -ex 'info locals' ./prog
 ```
 
 ```text
-#3  std.sys.abort () at /…/lib/std/sys.jh:48
-#4  std.prelude.panic () at /…/lib/std/prelude.jh:293
-#5  std.vec.Vec_i64_.index.5 () at /…/lib/std/vec.jh:105
-#6  main.main () at prog.jh:16
+#4  panic (msg=...) at /…/lib/std/prelude.jh:293
+#5  Vec(i64).index (self=0x7fffffffc610, i=20) at /…/lib/std/vec.jh:105
+#6  main () at prog.jh:16
+v = {ptr = 0x55555555b010, len = 10, cap = 16}
+i = 20
 ```
 
-Each function is a `DISubprogram` named as in error messages, with its
-symbol as the linkage name; code that comes from another file, such as an
-inlined closure or derived code, keeps that file's name. Only line tables
-are written (`emissionKind: LineTablesOnly`): there are no variables or
-types yet, so a debugger shows where a program is but not its values.
-Native and freestanding executables keep the tables; UEFI images do not
-(lld's COFF linker would put them in a PDB). Without `-g` the IR is
-unchanged, so `-g` does not affect self-hosting comparisons. Paths relative
-to the working directory are recorded with it (`$PWD`).
+Every instruction has the line and column of the statement, call or check
+it comes from; code from another file, such as an inlined closure or
+derived code, keeps that file's name. Each function is named as in error
+messages (`Vec(i64).index`), so `break area` stops in `fn area`.
+
+Named locals and parameters are variables with their types: integers,
+`bool` and floats; pointers and borrows (a borrowed parameter shows as a
+pointer: `print *s`); arrays; tuples (`_0`, `_1`, …); structs with their
+fields; `str` and slices as `ptr` and `len`; closures and `dyn` values as
+their two pointers. An enum is its `tag`, whose values are named by the
+variants, and one member per variant with fields, at the same offset, so a
+debugger shows all of them and the tag says which is valid:
+
+```text
+s = {tag = Rect, Circle = {_0 = 2.47e-323}, Rect = {_0 = 4, _1 = 5}}
+```
+
+At `-O2` variables that LLVM keeps in registers may show as `<optimized
+out>`. Native and freestanding executables keep the information; UEFI
+images do not (lld's COFF linker would put it in a PDB). Without `-g` the
+IR is unchanged, so `-g` does not affect self-hosting comparisons. Paths
+relative to the working directory are recorded with it (`$PWD`).
 
 ## Environment
 
