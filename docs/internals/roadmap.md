@@ -88,16 +88,18 @@ failed. Given a file of the standard library, it runs that module's tests;
 the `test` suite checks its output and runs every std module's tests.
 
 Implemented: [`-g`](../reference/command-line.md#debug-information) writes
-DWARF line tables: a subprogram per function and the line and column of
-every statement, call and check, with code from other files in their own
-file scopes. The `backend` suite checks the IR, both optimization levels
+DWARF: a subprogram per function, the line and column of every statement,
+call and check, with code from other files in their own file scopes, and
+named locals and parameters with their types. The `backend` suite checks the IR, both optimization levels
 and the tables in the executable.
 
 Next:
 
-- Debug information beyond line tables: variables, with their types from
-  `types.jh`'s layouts, and enums as variant parts, so that a debugger
-  shows values as well as places.
+- Done: variables with their types from `types.jh`'s layouts (structs,
+  tuples, arrays, pointers, `str` and slices, enums as a named tag and
+  overlapping variants). Left: borrowed parameters as their values rather
+  than pointers, `DW_TAG_variant_part` enums, and pretty-printers for
+  `Vec` and `String` contents.
 - Unit tests for more of the standard library, next to its code
   (`std.string` has the first).
 - Definitions resolved by sema rather than by name, so that `value.method`

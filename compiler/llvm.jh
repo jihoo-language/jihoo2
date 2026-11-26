@@ -57,6 +57,8 @@ pub struct Gen {
     dty: i64
     dfiles: Map(u32, i64)
     dnodes: Map(String, i64)
+    // The DWARF type of each type described so far.
+    dtypes: Map(u32, i64)
 }
 
 // The sources of a program, for debug information (`-g`): each file's path
@@ -299,6 +301,7 @@ fn generate(sink p: mir.Program, sink d: DebugInfo, debugging: bool) -> String {
         dty: -1
         dfiles: Map(u32, i64).new()
         dnodes: Map(String, i64).new()
+        dtypes: Map(u32, i64).new()
     }
     g.emit()
 }
@@ -509,7 +512,7 @@ impl Gen {
         let file = self.dfile(0)
         let optimized = if self.dbg.optimized { "true" } else { "false" }
         self.dcu = self.md(fmt.f(
-            "distinct !DICompileUnit(language: DW_LANG_C99, file: !{}, producer: \"jihoo\", isOptimized: {}, runtimeVersion: 0, emissionKind: LineTablesOnly)",
+            "distinct !DICompileUnit(language: DW_LANG_C99, file: !{}, producer: \"jihoo\", isOptimized: {}, runtimeVersion: 0, emissionKind: FullDebug)",
             [fmt.n(file as i128).as_str(), optimized]
         ).as_str())
         let none = self.md("!{null}")
@@ -550,14 +553,12 @@ impl Gen {
             ""
         }
         let name = esc(self.p.fns[f as i64].name.as_str())
-        let symbol = esc(self.p.fns[f as i64].symbol.as_str())
         let fl = fmt.n(file as i128)
         let ln = fmt.n(line as i128)
         let sp = self.md(fmt.f(
-            "distinct !DISubprogram(name: \"{}\", linkageName: \"{}\", scope: !{}, file: !{}, line: {}, type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition{}, unit: !{})",
+            "distinct !DISubprogram(name: \"{}\", scope: !{}, file: !{}, line: {}, type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition{}, unit: !{})",
             [
                 name.as_str(),
-                symbol.as_str(),
                 fl.as_str(),
                 fl.as_str(),
                 ln.as_str(),
@@ -571,6 +572,308 @@ impl Gen {
         cx.scope_file = span.file
         self.locate(&cx, span)
         " !dbg !" + fmt.n(sp as i128)
+    }
+
+    // A metadata number whose node is written later, once what it refers
+    // to (perhaps itself) is known.
+    fn md_reserve(inout self) -> i64 {
+        let n = self.nmeta
+        self.nmeta += 1
+        n
+    }
+
+    fn md_set(inout self, n: i64, node: str) {
+        self.meta.push_str(fmt.f("!{} = {}\n", [fmt.n(n as i128).as_str(), node]).as_str())
+    }
+
+    // A tuple of metadata numbers.
+    fn md_list(inout self, items: Vec(i64)) -> i64 {
+        var s = String.from("!{")
+        for i, n in items {
+            if i > 0 { s.push_str(", ") }
+            s.push('!')
+            s.push_str(fmt.n(n as i128).as_str())
+        }
+        s.push('}')
+        self.md(s.as_str())
+    }
+
+    fn dbasic(inout self, name: str, bits: u64, encoding: str) -> i64 {
+        self.md(fmt.f(
+            "!DIBasicType(name: \"{}\", size: {}, encoding: {})",
+            [name, fmt.n(bits as i128).as_str(), encoding]
+        ).as_str())
+    }
+
+    fn dpointer(inout self, to: u32) -> i64 {
+        let base = self.dtype(to)
+        self.md(fmt.f(
+            "!DIDerivedType(tag: DW_TAG_pointer_type, baseType: !{}, size: {})",
+            [fmt.n(base as i128).as_str(), fmt.n((self.p.types.ptr_size * 8) as i128).as_str()]
+        ).as_str())
+    }
+
+    // A member of a composite type, at a byte offset.
+    fn dmember(inout self, name: str, ty: i64, bits: u64, offset: u64) -> i64 {
+        self.md(fmt.f(
+            "!DIDerivedType(tag: DW_TAG_member, name: \"{}\", baseType: !{}, size: {}, offset: {})",
+            [
+                esc(name).as_str(),
+                fmt.n(ty as i128).as_str(),
+                fmt.n(bits as i128).as_str(),
+                fmt.n((offset * 8) as i128).as_str()
+            ]
+        ).as_str())
+    }
+
+    // Writes a structure type at `n` with members (name, type, offset).
+    fn dstruct(inout self, n: i64, t: u32, name: str, members: Vec((String, u32, u64))) {
+        var ids = Vec(i64).new()
+        for m in members {
+            let ty = self.dtype(m.1)
+            let bits = self.size(m.1) * 8
+            ids.push(self.dmember(m.0.as_str(), ty, bits, m.2))
+        }
+        let elements = self.md_list(ids)
+        let size = self.size(t) * 8
+        let align = self.align(t) * 8
+        self.md_set(n, fmt.f(
+            "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, align: {}, elements: !{})",
+            [
+                esc(name).as_str(),
+                fmt.n(size as i128).as_str(),
+                fmt.n(align as i128).as_str(),
+                fmt.n(elements as i128).as_str()
+            ]
+        ).as_str())
+    }
+
+    // The DWARF type of a jihoo type, made once.
+    fn dtype(inout self, t: u32) -> i64 {
+        match self.dtypes.get(t) {
+            Some(n) => return n
+            None => {}
+        }
+        let name = self.p.types.show(t)
+        let k = self.p.types.kind(t).clone()
+        let n = match k {
+            Bool => self.dbasic("bool", 8, "DW_ATE_boolean")
+            Int(i) => self.dbasic(
+                name.as_str(),
+                i.bits as u64,
+                if i.signed { "DW_ATE_signed" } else { "DW_ATE_unsigned" }
+            )
+            Float(b) => self.dbasic(name.as_str(), b as u64, "DW_ATE_float")
+            Ptr(e) | Ref(e) | RefMut(e) => {
+                // A recursive type reaches itself through a pointer.
+                let n = self.md_reserve()
+                self.dtypes.insert(t, n)
+                let base = self.dtype(e)
+                self.md_set(n, fmt.f(
+                    "!DIDerivedType(tag: DW_TAG_pointer_type, name: \"{}\", baseType: !{}, size: {})",
+                    [
+                        esc(name.as_str()).as_str(),
+                        fmt.n(base as i128).as_str(),
+                        fmt.n((self.p.types.ptr_size * 8) as i128).as_str()
+                    ]
+                ).as_str())
+                n
+            }
+            Array(e, len) => {
+                let base = self.dtype(e)
+                let range = self.md(fmt.f(
+                    "!DISubrange(count: {})",
+                    [fmt.n(len as i128).as_str()]
+                ).as_str())
+                var rs = Vec(i64).new()
+                rs.push(range)
+                let elements = self.md_list(rs)
+                let size = self.size(t) * 8
+                self.md(fmt.f(
+                    "!DICompositeType(tag: DW_TAG_array_type, baseType: !{}, size: {}, elements: !{})",
+                    [
+                        fmt.n(base as i128).as_str(),
+                        fmt.n(size as i128).as_str(),
+                        fmt.n(elements as i128).as_str()
+                    ]
+                ).as_str())
+            }
+            Adt(i) => {
+                let n = self.md_reserve()
+                self.dtypes.insert(t, n)
+                let body = self.p.types.adts[i as i64].body.clone()
+                match body {
+                    Struct(fs) => {
+                        let offs = self.p.types.field_offsets(t)
+                        var ms = Vec((String, u32, u64)).new()
+                        for j, f in fs { ms.push((f.name.clone(), f.ty, offs[j])) }
+                        self.dstruct(n, t, name.as_str(), ms)
+                    }
+                    Enum(vs) => self.denum(n, t, name.as_str(), vs)
+                    Pending => self.md_set(
+                        n,
+                        "!DIBasicType(tag: DW_TAG_unspecified_type, name: \"?\")"
+                    )
+                }
+                n
+            }
+            Tuple(ts) => {
+                if ts.len() == 0 {
+                    self.md("!DIBasicType(tag: DW_TAG_unspecified_type, name: \"()\")")
+                } else {
+                    let n = self.md_reserve()
+                    self.dtypes.insert(t, n)
+                    let offs = self.p.types.field_offsets(t)
+                    var ms = Vec((String, u32, u64)).new()
+                    for j, ft in ts { ms.push(("_" + fmt.n(j as i128).as_str(), ft, offs[j])) }
+                    self.dstruct(n, t, name.as_str(), ms)
+                    n
+                }
+            }
+            Str | Slice(_) => {
+                let n = self.md_reserve()
+                self.dtypes.insert(t, n)
+                let elem = match self.p.types.kind(t) {
+                    Slice(e) => e
+                    _ => types.U8
+                }
+                let ptr = self.p.types.ptr(elem)
+                var ms = Vec((String, u32, u64)).new()
+                ms.push((String.from("ptr"), ptr, 0))
+                ms.push((String.from("len"), types.I64, self.p.types.ptr_size))
+                self.dstruct(n, t, name.as_str(), ms)
+                n
+            }
+            Closure(_) | Dyn(_) | DynFn(_) => {
+                let n = self.md_reserve()
+                self.dtypes.insert(t, n)
+                var ms = Vec((String, u32, u64)).new()
+                ms.push((String.from("data"), types.BYTES, 0))
+                ms.push((String.from("table"), types.BYTES, self.p.types.ptr_size))
+                self.dstruct(n, t, name.as_str(), ms)
+                n
+            }
+            Lambda(_, env, _) => self.dtype(env)
+            FnPtr(_) => self.dpointer(types.U8)
+            _ => self.md(fmt.f(
+                "!DIBasicType(tag: DW_TAG_unspecified_type, name: \"{}\")",
+                [esc(name.as_str()).as_str()]
+            ).as_str())
+        }
+        self.dtypes.insert(t, n)
+        n
+    }
+
+    // An enum: its tag, an enumeration named by the variants, and each
+    // variant's fields as a member at offset 0 whose fields are at their
+    // offsets in the enum, so that the members overlap as the variants do.
+    fn denum(inout self, n: i64, t: u32, name: str, vs: Vec(types.VariantDef)) {
+        let (layout, el) = self.p.types.enum_layout(t)
+        let tag_bits = el.tag_bits as u64
+        var enumerators = Vec(i64).new()
+        for i, v in vs {
+            enumerators.push(self.md(fmt.f(
+                "!DIEnumerator(name: \"{}\", value: {}, isUnsigned: true)",
+                [esc(v.name.as_str()).as_str(), fmt.n(i as i128).as_str()]
+            ).as_str()))
+        }
+        let names = self.md_list(enumerators)
+        let int = self.dbasic(if tag_bits == 8 { "u8" } else { "u32" }, tag_bits, "DW_ATE_unsigned")
+        let tag_ty = self.md(fmt.f(
+            "!DICompositeType(tag: DW_TAG_enumeration_type, name: \"{}\", baseType: !{}, size: {}, elements: !{})",
+            [
+                esc((String.from(name) + ".tag").as_str()).as_str(),
+                fmt.n(int as i128).as_str(),
+                fmt.n(tag_bits as i128).as_str(),
+                fmt.n(names as i128).as_str()
+            ]
+        ).as_str())
+        var members = Vec(i64).new()
+        members.push(self.dmember("tag", tag_ty, tag_bits, 0))
+        let size = layout.size * 8
+        for i, v in vs {
+            if v.fields.len() == 0 { continue }
+            var fields = Vec(i64).new()
+            for j, ft in v.fields {
+                let ty = self.dtype(ft)
+                let bits = self.size(ft) * 8
+                fields.push(self.dmember(
+                    ("_" + fmt.n(j as i128).as_str()).as_str(),
+                    ty,
+                    bits,
+                    el.fields[i][j]
+                ))
+            }
+            let elements = self.md_list(fields)
+            let part = self.md(fmt.f(
+                "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, elements: !{})",
+                [
+                    esc((String.from(name) + "." + v.name.as_str()).as_str()).as_str(),
+                    fmt.n(size as i128).as_str(),
+                    fmt.n(elements as i128).as_str()
+                ]
+            ).as_str())
+            members.push(self.dmember(v.name.as_str(), part, size, 0))
+        }
+        let elements = self.md_list(members)
+        self.md_set(n, fmt.f(
+            "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, align: {}, elements: !{})",
+            [
+                esc(name).as_str(),
+                fmt.n(size as i128).as_str(),
+                fmt.n((layout.align * 8) as i128).as_str(),
+                fmt.n(elements as i128).as_str()
+            ]
+        ).as_str())
+    }
+
+    // `#dbg_declare` records for the named locals and parameters, at the
+    // end of the entry block: where each one's storage is.
+    fn debug_locals(inout self, inout cx: FnCx, body: Body) {
+        if !self.debugging || cx.scope < 0 { return }
+        var arg = 0
+        for i, l in body.locals {
+            if l.kind == mir.LocalKind.Arg { arg += 1 }
+            let name = match l.name {
+                Some(n) => n.clone()
+                None => continue
+            }
+            if l.span.file != cx.scope_file || l.span.file as i64 >= self.dbg.paths.len() {
+                continue
+            }
+            if name.len() == 0 || name.as_str().starts_with("$") { continue }
+            let (line, col) = self.dbg.line_col(l.span.file, l.span.lo)
+            let ty = self.dtype(l.ty)
+            let file = self.dfile(l.span.file)
+            let argn = if l.kind == mir.LocalKind.Arg { ", arg: " + fmt.n(arg as i128).as_str() } else { String.new() }
+            let dv = self.md(fmt.f(
+                "!DILocalVariable(name: \"{}\"{}, scope: !{}, file: !{}, line: {}, type: !{})",
+                [
+                    esc(name.as_str()).as_str(),
+                    argn.as_str(),
+                    fmt.n(cx.scope as i128).as_str(),
+                    fmt.n(file as i128).as_str(),
+                    fmt.n(line as i128).as_str(),
+                    fmt.n(ty as i128).as_str()
+                ]
+            ).as_str())
+            let loc = self.md(fmt.f(
+                "!DILocation(line: {}, column: {}, scope: !{})",
+                [
+                    fmt.n(line as i128).as_str(),
+                    fmt.n(col as i128).as_str(),
+                    fmt.n(cx.scope as i128).as_str()
+                ]
+            ).as_str())
+            cx.body.push_str(fmt.f(
+                "    #dbg_declare(ptr {}, !{}, !DIExpression(), !{})\n",
+                [
+                    cx.locals[i].as_str(),
+                    fmt.n(dv as i128).as_str(),
+                    fmt.n(loc as i128).as_str()
+                ]
+            ).as_str())
+        }
     }
 
     // Attaches a span's line and column to the instructions written next.
@@ -1074,6 +1377,9 @@ impl Gen {
         var cx = FnCx.new(0)
         if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
         let dbg = self.debug_function(&cx, f)
+        // Allocas and the stores of arguments have no line, so that a
+        // debugger stops after them, where the parameters have their values.
+        cx.dbg = String.new()
         var names = Vec(String).new()
         if sret {
             names.push(String.from("ptr %sret"))
@@ -1149,6 +1455,9 @@ impl Gen {
                 }
             }
         }
+        self.debug_locals(&cx, body)
+        let span = self.p.fns[f as i64].span
+        self.locate(&cx, span)
         cx.line("br label %bb0")
         for bi, b in body.blocks {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())

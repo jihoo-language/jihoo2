@@ -972,8 +972,9 @@ impl Tests {
     // std.rt's float conversions and reject floats; without them the IR has
     // no attributes.
     // `-g`: a compile unit, a subprogram for every function (after its
-    // attributes), statements' lines and columns, and `.debug_line` in the
-    // program, which runs the same; without it, no debug information.
+    // attributes), statements' lines and columns, variables and their types,
+    // and `.debug_line` in the program, which runs the same; without it, no
+    // debug information.
     fn debug_info(self) -> Result((), String) {
         let file = "tests/ffi/debug_info.jh"
         let plain = exec(self.compiler.as_str(), ["emit-llvm", file])
@@ -983,9 +984,22 @@ impl Tests {
         let o = exec(self.compiler.as_str(), ["emit-llvm", "-g", "-mno-red-zone", file])
         let ir = o.stdout.as_str()
         if !o.status.success() || !ir.contains("!llvm.dbg.cu = !{!") ||
-            !ir.contains("emissionKind: LineTablesOnly") ||
-            !ir.contains("!DILocation(line: 6, column: 5, scope: !") {
+            !ir.contains("emissionKind: FullDebug") ||
+            !ir.contains("!DILocation(line: 10, column: 5, scope: !") {
             return Err("the IR with -g has no line tables:\n" + ir + o.stderr.as_str())
+        }
+        for want in [
+            "!DILocalVariable(name: \"x\", arg: 1, scope: !",
+            "!DILocalVariable(name: \"p\", scope: !",
+            "!DILocalVariable(name: \"s\", scope: !",
+            "DW_TAG_member, name: \"y\"",
+            "DW_TAG_structure_type, name: \"Pair\"",
+            "!DIEnumerator(name: \"None\", value: 1",
+            "#dbg_declare(ptr %l"
+        ] {
+            if !ir.contains(want) {
+                return Err("the IR with -g has no `" + want + "`:\n" + ir)
+            }
         }
         for line in ir.lines() {
             if line.starts_with("define internal ") && line.contains("@\"main.") &&

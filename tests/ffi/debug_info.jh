@@ -1,11 +1,21 @@
-// Built with `-g`: line tables say that the multiplication is line 6,
-// column 5, of this file, in either optimization, and the program prints
-// the same.
+// Built with `-g`: line tables say that the multiplication is line 10,
+// column 5, of this file; `x`, `p` and `s` are variables with their types
+// (a struct with fields `x` and `y`, an enum whose tag names `Some` and
+// `None`); and the program prints the same in either optimization.
+
+struct Pair { x: i64, y: i32 }
+enum Maybe { Some(i64), None }
 
 fn twice(x: i64) -> i64 {
     x * 2
 }
 
 fn main() {
-    println(twice(21))
+    let p = Pair { x: 20, y: 1 }
+    let s = Maybe.Some(p.x)
+    let n = match s {
+        Some(v) => v
+        None => 0
+    }
+    println(twice(n + p.y as i64) / 2 * 2)
 }
