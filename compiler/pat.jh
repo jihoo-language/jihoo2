@@ -840,6 +840,22 @@ impl sema.Sema {
                 test_eq(&fb, place, v, fail)
                 Ok(())
             }
+            WideInt(v) => {
+                if !self.types.is_int(ty) {
+                    return Err(err(span, ("an integer pattern cannot match a `" +
+                        self.types.show(ty).as_str() + "`").as_str()))
+                }
+                if !self.lit_fits(v, ty) {
+                    var m = String.new()
+                    v.show(&m)
+                    m.push_str(" does not fit in `")
+                    m.push_str(self.types.show(ty).as_str())
+                    m.push('`')
+                    return Err(err(span, m.as_str()))
+                }
+                test_eq(&fb, place, v as i128, fail)
+                Ok(())
+            }
             Char(c) => {
                 if !self.types.is_int(ty) {
                     return Err(err(span, ("a character pattern cannot match a `" +
@@ -1189,7 +1205,7 @@ impl sema.Sema {
             return Ok(())
         }
         match pat.kind {
-            Wild | Or(_) | Int(_) | Char(_) | Bool(_) | Str(_) | Range(_, _) => {
+            Wild | Or(_) | Int(_) | WideInt(_) | Char(_) | Bool(_) | Str(_) | Range(_, _) => {
                 fb.push(Stmt.Drop(place, span))
                 Ok(())
             }
@@ -1346,7 +1362,7 @@ impl sema.Sema {
                 }
             }
             Bool(b) => Ok(P.Ctor(if b { 1 } else { 0 }, Vec(P).new()))
-            Int(_) | Char(_) | Str(_) | Range(_, _) => Ok(P.Lit)
+            Int(_) | WideInt(_) | Char(_) | Str(_) | Range(_, _) => Ok(P.Lit)
             Tuple(ps) => {
                 let ts = match self.types.kind(ty) {
                     Tuple(ts) => ts.clone()

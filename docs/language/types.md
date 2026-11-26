@@ -24,9 +24,12 @@ library types ([Standard library](../reference/standard-library.md)).
 ## Integers
 
 Integer types never mix implicitly: convert with `as`. A literal takes the
-type its context expects. A literal is at most 64 bits
-(`0xffff_ffff_ffff_ffff`); build wider values with shifts and `|`:
-`(hi as u128) << 64 | lo as u128`.
+type its context expects, `i64` without one. A literal is at most
+2^128 - 1, the largest `u128`; an `i128` takes one up to 2^127 - 1, and
+down to -2^127 after `-`. The same holds for patterns, except that a
+range pattern's ends are at most 2^127 - 1. `as` converts a literal that
+already has its type, so a literal too large for `i64` needs a context:
+`let x: u128 = 1 << 100` or `let y: u128 = 0xffff_ffff_ffff_ffff_ffff`.
 
 - `+`, `-` and `*` **trap on overflow** in debug builds (the default) and
   wrap in release builds (`--release`). `+%`, `-%` and `*%` always wrap.

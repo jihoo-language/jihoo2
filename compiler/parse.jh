@@ -679,9 +679,12 @@ impl Parser {
             Int | Minus => {
                 let negative = self.eat(Tok.Minus)
                 if !self.at(Tok.Int) { return Err(self.error("expected an integer")) }
-                let magnitude = self.toks[self.i].int as i128
+                let magnitude = self.toks[self.i].int
+                if !fits_i128(magnitude, negative) {
+                    return Err(self.error("an integer in a type pattern is an `i128`"))
+                }
                 self.bump()
-                let n = if negative { -magnitude } else { magnitude }
+                let n = if negative { 0 -% (magnitude as i128) } else { magnitude as i128 }
                 ast.TypePatternHead.Int(n)
             }
             _ => return Err(self.found("expected a type pattern, found "))
@@ -1492,8 +1495,10 @@ impl Parser {
         Ok(Pat { kind: PatKind.Or(alts), span: start.to(self.prev_span()) })
     }
 
-    // An integer or a byte, maybe after `-`.
-    fn pat_int(inout self) -> Option(i128) {
+    // An integer or a byte, maybe after `-`, and whether it is a positive
+    // literal beyond `i128` (2^127 or more, for `u128`), whose bits the
+    // `i128` holds.
+    fn pat_int(inout self) -> Result(Option((i128, bool)), Diag) {
         let neg = self.at(Tok.Minus)
         let save = self.i
         if neg {
@@ -1501,30 +1506,49 @@ impl Parser {
         }
         if !self.at(Tok.Int) && !self.at(Tok.Char) {
             self.i = save
-            return None
+            return Ok(None)
         }
-        let v = self.toks[self.i].int as i128
+        let v = self.toks[self.i].int
+        if neg && !fits_i128(v, true) {
+            return Err(self.error("a negative pattern is at least -2^127"))
+        }
         self.bump()
-        Some(if neg { -v } else { v })
+        Ok(Some(if neg { (0 -% (v as i128), false) } else { (v as i128, v >> 127 != 0) }))
     }
 
     fn single_pattern(inout self) -> Result(Pat, Diag) {
         let start = self.span()
         let is_char = self.at(Tok.Char)
-        match self.pat_int() {
-            Some(v) => {
+        match self.pat_int()? {
+            Some((v, wide)) => {
                 if self.at(Tok.DotDot) {
+                    if wide {
+                        return Err(Diag.new(start, "a range pattern's ends are at most 2^127 - 1"))
+                    }
                     self.bump()
                     self.eat(Tok.Assign)
-                    match self.pat_int() {
-                        Some(hi) => return Ok(Pat {
-                            kind: PatKind.Range(v, hi),
-                            span: start.to(self.prev_span())
-                        })
+                    match self.pat_int()? {
+                        Some((hi, wide_hi)) => {
+                            if wide_hi {
+                                return Err(self.error(
+                                    "a range pattern's ends are at most 2^127 - 1"
+                                ))
+                            }
+                            return Ok(Pat {
+                                kind: PatKind.Range(v, hi),
+                                span: start.to(self.prev_span())
+                            })
+                        }
                         None => return Err(self.error("expected the end of the range"))
                     }
                 }
-                let kind = if is_char { PatKind.Char(v as u8) } else { PatKind.Int(v) }
+                let kind = if is_char {
+                    PatKind.Char(v as u8)
+                } else if wide {
+                    PatKind.WideInt(v as u128)
+                } else {
+                    PatKind.Int(v)
+                }
                 return Ok(Pat { kind: kind, span: start.to(self.prev_span()) })
             }
             None => {}
@@ -1653,3 +1677,8 @@ fn one(s: str) -> Vec(String) {
 }
 
 fn is_order(op: Op) -> bool { op == Op.Lt || op == Op.Le || op == Op.Gt || op == Op.Ge }
+
+// Whether a literal's magnitude is an `i128`, or minus one (down to -2^127).
+fn fits_i128(v: u128, negative: bool) -> bool {
+    v >> 127 == 0 || (negative && v == (1 as u128) << 127)
+}

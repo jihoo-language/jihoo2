@@ -297,7 +297,7 @@ pub struct ForIndex {
 }
 
 pub enum ExprKind {
-    Int(u64)
+    Int(u128)
     Float(f64)
     Str(String)
     Char(u8)
@@ -362,6 +362,8 @@ pub enum PatKind {
     Name(String, bool)
     // `i128`, so that both `-5` and `0xffffffffffffffff` fit
     Int(i128)
+    // A literal of 2^127 or more, which only a `u128` holds.
+    WideInt(u128)
     Char(u8)
     Bool(bool)
     Str(String)
@@ -634,6 +636,7 @@ impl Clone for PatKind {
             Wild => PatKind.Wild
             Name(n, v) => PatKind.Name(n.clone(), v)
             Int(v) => PatKind.Int(v)
+            WideInt(v) => PatKind.WideInt(v)
             Char(c) => PatKind.Char(c)
             Bool(b) => PatKind.Bool(b)
             Str(s) => PatKind.Str(s.clone())

@@ -238,8 +238,9 @@ struct literal; write `(P { x: 1 })`.
   wrap. Unsigned values cannot be negated: write `0 -% x`.
 - Literals take the type the context expects (`let b: u8 = 200`), else
   `i64`. `int` is another name for `i64`.
-- `i128` and `u128` exist, but a literal is at most 64 bits: write
-  `u128::MAX` as `0 -% (1 as u128)` and `1 << 100` for large values.
+- There are no `MAX`/`MIN` constants: write `let m: u128 =
+  340282366920938463463374607431768211455` (or `0 -% (1 as u128)`).
+  Literals go up to 2^128 - 1.
 - `as` does not type a literal: `18446744073709551615 as u64` is an
   `i64` literal that does not fit. Give it the type by context instead,
   `let x: u64 = 18446744073709551615`.

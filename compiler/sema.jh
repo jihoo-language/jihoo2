@@ -2951,6 +2951,26 @@ impl Sema {
         }
     }
 
+    // Whether a literal's magnitude fits in `t`: up to 2^128 - 1 for
+    // `u128`, 2^127 - 1 for `i128`. Constants hold the bits as an `i128`.
+    pub fn lit_fits(self, v: u128, t: u32) -> bool {
+        let Some(i) = self.types.int(t) else { return false }
+        if i.bits == 128 && !i.signed {
+            return true
+        }
+        v >> 127 == 0 && self.int_fits(v as i128, t)
+    }
+
+    // Whether minus a literal's magnitude fits in `t`, a signed type:
+    // down to -2^127 for `i128`.
+    pub fn neg_lit_fits(self, v: u128, t: u32) -> bool {
+        let Some(i) = self.types.int(t) else { return false }
+        if i.bits == 128 && i.signed {
+            return v <= (1 as u128) << 127
+        }
+        v >> 127 == 0 && self.int_fits(0 - (v as i128), t)
+    }
+
     // Wraps an integer to its type's width, sign-extending signed types.
     pub fn wrap_int(self, v: i128, t: u32) -> i128 {
         let Some(i) = self.types.int(t) else { return v }
@@ -3032,7 +3052,7 @@ impl Sema {
                     None => {}
                 }
                 let t = exp_int.unwrap_or(types.I64)
-                if !self.int_fits(v as i128, t) {
+                if !self.lit_fits(v, t) {
                     var m = String.new()
                     v.show(&m)
                     m.push_str(" does not fit in `")
@@ -3102,6 +3122,17 @@ impl Sema {
             }
             Unary(op, inner) => match op {
                 Neg => {
+                    // `-128` is an `i8` although 128 is not, as in `let`.
+                    match inner.kind {
+                        Int(v) => if exp_float.is_none() {
+                            let t = exp_int.unwrap_or(types.I64)
+                            if self.neg_lit_fits(v, t) {
+                                let n = 0 -% (v as i128)
+                                return Ok(TypedConst { c: Const.Int(n, t), ty: t })
+                            }
+                        }
+                        _ => {}
+                    }
                     let r = self.const_expr(inner.deref(), env, exp)?
                     match r.c {
                         Int(v, t) => {

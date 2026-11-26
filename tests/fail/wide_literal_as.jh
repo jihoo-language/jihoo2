@@ -1,0 +1,6 @@
+// `as` does not type a literal, and the message says what does.
+// error: does not fit in `i64`, the type a literal has before `as`; write `let x: u128 = 1000000000000000000000` instead
+fn main() {
+    let x = 1_000_000_000_000_000_000_000 as u128
+    println(x)
+}

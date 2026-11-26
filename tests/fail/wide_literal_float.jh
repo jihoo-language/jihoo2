@@ -1,0 +1,6 @@
+// 2^128 - 1 rounds to 2^128 as a float.
+// error: this integer is not exact as a float
+fn main() {
+    let x: f64 = 340282366920938463463374607431768211455
+    println(x)
+}

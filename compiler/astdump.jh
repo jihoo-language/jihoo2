@@ -764,6 +764,11 @@ impl Dump {
                 self.open("int", sp)
                 self.pat_int(v)
             }
+            WideInt(v) => {
+                self.open("int", sp)
+                self.s(" ")
+                v.show(&self.out)
+            }
             Char(c) => {
                 self.open("char", sp)
                 self.s(" ")
