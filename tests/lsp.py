@@ -184,6 +184,14 @@ def main():
             assert "pub fn twice(x: i64) -> i64" in hover("twice"), hover("twice")
             assert "struct Point" in hover("Point", 1), hover("Point", 1)
             assert "x: i64" in hover("x", 0, fixed.encode().index(b"p.x")), hover("x")
+            # `value.name` by the receiver's type: Vec's `len`, not every `len`.
+            offset = fixed.encode().index(b"old.len") + 4
+            found = client.request("textDocument/definition", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed, offset + 1, utf8)})
+            assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/vec.jh"), found
+            assert "pub fn len(self) -> i64" in hover("len", 0, fixed.encode().index(b"old.len")), \
+                hover("len", 0, fixed.encode().index(b"old.len"))
             # The comment above a declaration comes with it.
             assert "Puts v in the place" in hover("replace"), hover("replace")
             assert client.request("textDocument/hover", {
