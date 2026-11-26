@@ -559,31 +559,54 @@ may change.
 
 ## Debug information
 
-`-g` gives every instruction the line and column of the statement, call or
-check it comes from, as DWARF 5 line tables, so that gdb, lldb, perf and
-valgrind name source lines:
+`-g` writes DWARF 5 debug information: the line and column of the
+statement, call or check every instruction comes from, and every named
+variable and parameter with its type, so that gdb and lldb show values as
+well as places, and perf and valgrind name source lines:
 
 ```sh
 jihoo build -g -O0 prog.jh -o prog
-gdb -batch -ex run -ex bt ./prog
+gdb -batch -ex run -ex bt -ex 'frame 5' -ex 'info args' ./prog
 ```
 
 ```text
-#3  std.sys.abort () at /…/lib/std/sys.jh:48
-#4  std.prelude.panic () at /…/lib/std/prelude.jh:293
-#5  std.vec.Vec_i64_.index.5 () at /…/lib/std/vec.jh:105
-#6  main.main () at prog.jh:16
+#3  abort () at /…/lib/std/sys.jh:70
+#4  panic (msg=...) at /…/lib/std/prelude.jh:363
+#5  Vec(i64).index (self=..., i=5) at /…/lib/std/vec.jh:105
+#6  pick (v=..., i=5) at prog.jh:2
+#7  main () at prog.jh:8
+self = @0x7fffffffa840: {ptr = 0x55555555b010, len = 1, cap = 4}
+i = 5
 ```
 
-Each function is a `DISubprogram` named as in error messages, with its
-symbol as the linkage name; code that comes from another file, such as an
-inlined closure or derived code, keeps that file's name. Only line tables
-are written (`emissionKind: LineTablesOnly`): there are no variables or
-types yet, so a debugger shows where a program is but not its values.
-Native and freestanding executables keep the tables; UEFI images do not
-(lld's COFF linker would put them in a PDB). Without `-g` the IR is
-unchanged, so `-g` does not affect self-hosting comparisons. Paths relative
-to the working directory are recorded with it (`$PWD`).
+Each function is a `DISubprogram` named as in error messages (`area`,
+`Vec(i64).push`), without a linkage name, so that `break area` finds it;
+`break main.area.1` finds its symbol. Code that comes from another file,
+such as an inlined closure or derived code, keeps that file's name. The
+entry block, where the arguments are stored, has no location, so a
+breakpoint on a function stops where its arguments have their values.
+
+Types come from the same layouts as the code (`types.jh`): integers,
+floats and `bool` are base types (`u8` an unsigned char, so `str` data
+prints as text); pointers and fn pointers are pointers and borrows
+references; structs, tuples (fields `__0`, `__1`, ...) and closures'
+captures are structures with their real offsets; `str` and slices are
+`{data_ptr, length}`, closures `{code, env}`; arrays are arrays. An enum is
+a structure with its tag and a variant part, one variant per case with its
+fields (`__0`, ...), so a debugger shows only the variant a value has:
+
+```text
+some = {tag = 0 '\000', Some = {__0 = 42}}
+r = {tag = 1 '\001', Rect = {__0 = {x = 0, y = 0}, __1 = {x = 2, y = 3}}}
+```
+
+Every variable is in its function's scope, so a name shadowed in an inner
+block appears twice. At `-O2` the optimizer keeps what it can: inlined
+functions and variables in registers may be gone. Native and freestanding
+executables keep the information; UEFI images do not (lld's COFF linker
+would put it in a PDB). Without `-g` the IR is unchanged, so `-g` does not
+affect self-hosting comparisons. Paths relative to the working directory
+are recorded with it (`$PWD`).
 
 ## Environment
 

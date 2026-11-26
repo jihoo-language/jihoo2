@@ -57,6 +57,9 @@ pub struct Gen {
     dty: i64
     dfiles: Map(u32, i64)
     dnodes: Map(String, i64)
+    // The `DIType` of each type described so far, -1 for one with no
+    // values.
+    dtypes: Map(u32, i64)
 }
 
 // The sources of a program, for debug information (`-g`): each file's path
@@ -299,6 +302,7 @@ fn generate(sink p: mir.Program, sink d: DebugInfo, debugging: bool) -> String {
         dty: -1
         dfiles: Map(u32, i64).new()
         dnodes: Map(String, i64).new()
+        dtypes: Map(u32, i64).new()
     }
     g.emit()
 }
@@ -509,7 +513,7 @@ impl Gen {
         let file = self.dfile(0)
         let optimized = if self.dbg.optimized { "true" } else { "false" }
         self.dcu = self.md(fmt.f(
-            "distinct !DICompileUnit(language: DW_LANG_C99, file: !{}, producer: \"jihoo\", isOptimized: {}, runtimeVersion: 0, emissionKind: LineTablesOnly)",
+            "distinct !DICompileUnit(language: DW_LANG_C99, file: !{}, producer: \"jihoo\", isOptimized: {}, runtimeVersion: 0, emissionKind: FullDebug)",
             [fmt.n(file as i128).as_str(), optimized]
         ).as_str())
         let none = self.md("!{null}")
@@ -549,15 +553,16 @@ impl Gen {
         } else {
             ""
         }
+        // The source name only: given a `linkageName`, debuggers look
+        // functions up by the symbol (`main.area.1`), and `break area`
+        // would find nothing. The symbol stays in the symbol table.
         let name = esc(self.p.fns[f as i64].name.as_str())
-        let symbol = esc(self.p.fns[f as i64].symbol.as_str())
         let fl = fmt.n(file as i128)
         let ln = fmt.n(line as i128)
         let sp = self.md(fmt.f(
-            "distinct !DISubprogram(name: \"{}\", linkageName: \"{}\", scope: !{}, file: !{}, line: {}, type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition{}, unit: !{})",
+            "distinct !DISubprogram(name: \"{}\", scope: !{}, file: !{}, line: {}, type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition{}, unit: !{})",
             [
                 name.as_str(),
-                symbol.as_str(),
                 fl.as_str(),
                 fl.as_str(),
                 ln.as_str(),
@@ -615,6 +620,302 @@ impl Gen {
             }
         }
         cx.dbg = ", !dbg !" + fmt.n(n as i128)
+    }
+
+    // ---- debug information: variables and their types ----
+
+    // A metadata node whose number was taken before it was written, so
+    // that its parts can refer to it (a struct holding a pointer to
+    // itself).
+    fn md_at(inout self, n: i64, node: str) {
+        self.meta.push_str(fmt.f("!{} = {}\n", [fmt.n(n as i128).as_str(), node]).as_str())
+    }
+
+    fn reserve(inout self, t: u32) -> i64 {
+        let n = self.nmeta
+        self.nmeta += 1
+        self.dtypes.insert(t, n)
+        n
+    }
+
+    // `!N`, or `null` for -1.
+    fn dref(n: i64) -> String {
+        if n < 0 { String.from("null") } else { "!" + fmt.n(n as i128) }
+    }
+
+    fn dbasic(inout self, name: str, bits: u64, encoding: str) -> i64 {
+        let key = "b" + name + ":" + encoding
+        match self.dnodes.get(key.clone()) {
+            Some(n) => return n
+            None => {}
+        }
+        let n = self.md(fmt.f(
+            "!DIBasicType(name: \"{}\", size: {}, encoding: {})",
+            [name, fmt.n(bits as i128).as_str(), encoding]
+        ).as_str())
+        self.dnodes.insert(key, n)
+        n
+    }
+
+    fn dpointer(inout self, tag: str, base: i64) -> i64 {
+        let bits = self.p.types.ptr_size * 8
+        self.md(fmt.f(
+            "!DIDerivedType(tag: {}, baseType: {}, size: {})",
+            [tag, Gen.dref(base).as_str(), fmt.n(bits as i128).as_str()]
+        ).as_str())
+    }
+
+    fn dmember(inout self, scope: i64, name: str, ty: i64, bits: u64, offset_bits: u64) -> i64 {
+        self.md(fmt.f(
+            "!DIDerivedType(tag: DW_TAG_member, name: \"{}\", scope: !{}, baseType: {}, size: {}, offset: {})",
+            [
+                name,
+                fmt.n(scope as i128).as_str(),
+                Gen.dref(ty).as_str(),
+                fmt.n(bits as i128).as_str(),
+                fmt.n(offset_bits as i128).as_str()
+            ]
+        ).as_str())
+    }
+
+    fn dlist(xs: Vec(i64)) -> String {
+        var s = String.from("!{")
+        for i, x in xs {
+            if i > 0 { s.push_str(", ") }
+            s.push_str(Gen.dref(x).as_str())
+        }
+        s.push('}')
+        s
+    }
+
+    // A struct of `fields` (name, type, byte offset), as node `n`.
+    fn dstruct(inout self, n: i64, name: str, bits: u64, fields: Vec((String, u32, u64))) {
+        var ms = Vec(i64).new()
+        for (fname, ft, off) in fields {
+            let fty = self.dtype(ft)
+            let fbits = self.size(ft) * 8
+            ms.push(self.dmember(n, fname.as_str(), fty, fbits, off * 8))
+        }
+        self.md_at(n, fmt.f(
+            "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, elements: {})",
+            [name, fmt.n(bits as i128).as_str(), Gen.dlist(ms).as_str()]
+        ).as_str())
+    }
+
+    // The `DIType` of `t`, made once: -1 for a type without values.
+    fn dtype(inout self, t: u32) -> i64 {
+        match self.dtypes.get(t) {
+            Some(n) => return n
+            None => {}
+        }
+        let k = self.p.types.kind(t).clone()
+        let name = esc(self.p.types.show(t).as_str())
+        let bits = self.size(t) * 8
+        let n = match k {
+            Bool => self.dbasic("bool", 8, "DW_ATE_boolean")
+            Int(i) => self.dbasic(
+                name.as_str(),
+                i.bits as u64,
+                if i.bits == 8 && !i.signed {
+                    "DW_ATE_unsigned_char"
+                } else if i.signed {
+                    "DW_ATE_signed"
+                } else {
+                    "DW_ATE_unsigned"
+                }
+            )
+            Float(b) => self.dbasic(name.as_str(), b as u64, "DW_ATE_float")
+            Never | Type => -1
+            Ptr(x) => {
+                let base = self.dtype(x)
+                self.dpointer("DW_TAG_pointer_type", base)
+            }
+            Ref(x) | RefMut(x) => {
+                let base = self.dtype(x)
+                self.dpointer("DW_TAG_reference_type", base)
+            }
+            FnPtr(_) => self.dpointer("DW_TAG_pointer_type", -1)
+            Str | Slice(_) => {
+                let elem = match self.p.types.kind(t) {
+                    Slice(e) => e
+                    _ => types.U8
+                }
+                let n = self.reserve(t)
+                let base = self.dtype(elem)
+                let data = self.dpointer("DW_TAG_pointer_type", base)
+                let word = self.p.types.ptr_size * 8
+                let len = self.dbasic("i64", 64, "DW_ATE_signed")
+                var ms = Vec(i64).new()
+                ms.push(self.dmember(n, "data_ptr", data, word, 0))
+                ms.push(self.dmember(n, "length", len, 64, word))
+                self.md_at(n, fmt.f(
+                    "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, elements: {})",
+                    [name.as_str(), fmt.n(bits as i128).as_str(), Gen.dlist(ms).as_str()]
+                ).as_str())
+                n
+            }
+            Closure(_) | Dyn(_) | DynFn(_) => {
+                let n = self.reserve(t)
+                let word = self.p.types.ptr_size * 8
+                let p = self.dpointer("DW_TAG_pointer_type", -1)
+                var ms = Vec(i64).new()
+                ms.push(self.dmember(n, "code", p, word, 0))
+                ms.push(self.dmember(n, "env", p, word, word))
+                self.md_at(n, fmt.f(
+                    "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, elements: {})",
+                    [name.as_str(), fmt.n(bits as i128).as_str(), Gen.dlist(ms).as_str()]
+                ).as_str())
+                n
+            }
+            Array(e, count) => {
+                let base = self.dtype(e)
+                let range = self.md(fmt.f(
+                    "!DISubrange(count: {})",
+                    [fmt.n(count as i128).as_str()]
+                ).as_str())
+                self.md(fmt.f(
+                    "!DICompositeType(tag: DW_TAG_array_type, baseType: {}, size: {}, elements: !{!{}})",
+                    [
+                        Gen.dref(base).as_str(),
+                        fmt.n(bits as i128).as_str(),
+                        fmt.n(range as i128).as_str()
+                    ]
+                ).as_str())
+            }
+            Tuple(_) | Lambda(_, _, _) => {
+                let n = self.reserve(t)
+                let tys = self.p.types.field_tys(t)
+                let offs = self.p.types.field_offsets(t)
+                var fields = Vec((String, u32, u64)).new()
+                for i, ft in tys {
+                    fields.push(("__" + fmt.n(i as i128).as_str(), ft, offs[i]))
+                }
+                self.dstruct(n, name.as_str(), bits, fields)
+                n
+            }
+            Adt(a) => {
+                let body = self.p.types.adts[a as i64].body.clone()
+                match body {
+                    Struct(fs) => {
+                        let n = self.reserve(t)
+                        let offs = self.p.types.field_offsets(t)
+                        var fields = Vec((String, u32, u64)).new()
+                        for i, f in fs {
+                            fields.push((f.name.clone(), f.ty, offs[i]))
+                        }
+                        self.dstruct(n, name.as_str(), bits, fields)
+                        n
+                    }
+                    Enum(vs) => self.denum(t, name.as_str(), bits, vs)
+                    Pending => -1
+                }
+            }
+        }
+        self.dtypes.insert(t, n)
+        n
+    }
+
+    // An enum: its tag, and a variant part whose variants are structs of
+    // the enum's size with each field at its offset.
+    fn denum(inout self, t: u32, name: str, bits: u64, vs: Vec(types.VariantDef)) -> i64 {
+        if vs.len() == 0 {
+            return -1
+        }
+        let n = self.reserve(t)
+        let (_, el) = self.p.types.enum_layout(t)
+        let tag_bits = el.tag_bits as u64
+        let tag_ty = self.dbasic(
+            if tag_bits == 8 { "u8" } else { "u32" },
+            tag_bits,
+            "DW_ATE_unsigned"
+        )
+        let part = self.nmeta
+        self.nmeta += 1
+        let discr = self.md(fmt.f(
+            "!DIDerivedType(tag: DW_TAG_member, name: \"tag\", scope: !{}, baseType: !{}, size: {}, offset: 0, flags: DIFlagArtificial)",
+            [
+                fmt.n(n as i128).as_str(),
+                fmt.n(tag_ty as i128).as_str(),
+                fmt.n(tag_bits as i128).as_str()
+            ]
+        ).as_str())
+        var variants = Vec(i64).new()
+        for k, v in vs {
+            let vn = self.nmeta
+            self.nmeta += 1
+            var fields = Vec((String, u32, u64)).new()
+            for j, ft in v.fields {
+                fields.push(("__" + fmt.n(j as i128).as_str(), ft, el.fields[k][j]))
+            }
+            self.dstruct(vn, esc(v.name.as_str()).as_str(), bits, fields)
+            variants.push(self.md(fmt.f(
+                "!DIDerivedType(tag: DW_TAG_member, name: \"{}\", scope: !{}, baseType: !{}, size: {}, offset: 0, extraData: i{} {})",
+                [
+                    esc(v.name.as_str()).as_str(),
+                    fmt.n(part as i128).as_str(),
+                    fmt.n(vn as i128).as_str(),
+                    fmt.n(bits as i128).as_str(),
+                    fmt.n(tag_bits as i128).as_str(),
+                    fmt.n(k as i128).as_str()
+                ]
+            ).as_str()))
+        }
+        self.md_at(part, fmt.f(
+            "distinct !DICompositeType(tag: DW_TAG_variant_part, scope: !{}, size: {}, discriminator: !{}, elements: {})",
+            [
+                fmt.n(n as i128).as_str(),
+                fmt.n(bits as i128).as_str(),
+                fmt.n(discr as i128).as_str(),
+                Gen.dlist(variants).as_str()
+            ]
+        ).as_str())
+        self.md_at(n, fmt.f(
+            "distinct !DICompositeType(tag: DW_TAG_structure_type, name: \"{}\", size: {}, elements: !{!{}})",
+            [name, fmt.n(bits as i128).as_str(), fmt.n(part as i128).as_str()]
+        ).as_str())
+        n
+    }
+
+    // `#dbg_declare` records for the named locals and parameters, whose
+    // storage is `cx.locals`: written after the allocas, at the start.
+    fn declare_locals(inout self, inout cx: FnCx, body: ref mir.Body) {
+        if cx.scope < 0 { return }
+        var arg = 0
+        for i, l in body.locals {
+            if l.kind == mir.LocalKind.Arg { arg += 1 }
+            let Some(name) = l.name else { continue }
+            if l.kind == mir.LocalKind.Ret || l.kind == mir.LocalKind.Temp { continue }
+            if name.len() == 0 || name.as_str().starts_with("$") { continue }
+            if l.span.file as i64 >= self.dbg.paths.len() { continue }
+            let ty = self.dtype(l.ty)
+            if ty < 0 { continue }
+            let (line, col) = self.dbg.line_col(l.span.file, l.span.lo)
+            let file = self.dfile(l.span.file)
+            let argno = if l.kind == mir.LocalKind.Arg { ", arg: " + fmt.n(arg as i128).as_str() } else { String.new() }
+            let v = self.md(fmt.f(
+                "!DILocalVariable(name: \"{}\"{}, scope: !{}, file: !{}, line: {}, type: !{})",
+                [
+                    esc(name.as_str()).as_str(),
+                    argno.as_str(),
+                    fmt.n(cx.scope as i128).as_str(),
+                    fmt.n(file as i128).as_str(),
+                    fmt.n(line as i128).as_str(),
+                    fmt.n(ty as i128).as_str()
+                ]
+            ).as_str())
+            let loc = self.md(fmt.f(
+                "!DILocation(line: {}, column: {}, scope: !{})",
+                [
+                    fmt.n(line as i128).as_str(),
+                    fmt.n(col as i128).as_str(),
+                    fmt.n(cx.scope as i128).as_str()
+                ]
+            ).as_str())
+            cx.body.push_str(fmt.f(
+                "    #dbg_declare(ptr {}, !{}, !DIExpression(), !{})\n",
+                [cx.locals[i].as_str(), fmt.n(v as i128).as_str(), fmt.n(loc as i128).as_str()]
+            ).as_str())
+        }
     }
 
     fn declare(inout self, name: str, decl: str) {
@@ -773,6 +1074,7 @@ impl Gen {
         let attrs = if sig.ret == types.NEVER { " cold noreturn" } else { "" }
         var cx = FnCx.new(0)
         let dbg = self.debug_function(&cx, f)
+        let first_loc = mem.replace(&cx.dbg, String.new())
         self.out.push_str(fmt.f(
             "define {}{} {}({}){}{} {\nentry:\n",
             [
@@ -822,6 +1124,8 @@ impl Gen {
                 }
             }
         }
+        self.declare_locals(&cx, body)
+        cx.dbg = first_loc
         cx.line("br label %bb0")
         for bi, b in body.blocks {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
@@ -1074,6 +1378,10 @@ impl Gen {
         var cx = FnCx.new(0)
         if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
         let dbg = self.debug_function(&cx, f)
+        // The allocas and the stores of the arguments have no location, so
+        // that a debugger's breakpoint on the function stops after them,
+        // where the arguments have their values.
+        let first_loc = mem.replace(&cx.dbg, String.new())
         var names = Vec(String).new()
         if sret {
             names.push(String.from("ptr %sret"))
@@ -1149,6 +1457,8 @@ impl Gen {
                 }
             }
         }
+        self.declare_locals(&cx, body)
+        cx.dbg = first_loc
         cx.line("br label %bb0")
         for bi, b in body.blocks {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
