@@ -36,6 +36,7 @@ once the program has none.
 | option | |
 |--------|---|
 | `-O0` … `-O3` | LLVM optimization (default `-O2`) |
+| `-g` | [line tables](#debug-information) for debuggers and profilers (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--release` | integer overflow wraps instead of trapping |
 | `--no-verify` | skip [verification](#verification): keep every check, and do not prove contracts (`build`, `run`, `test`, `emit-llvm`, `emit-obj`) |
 | `--verify` | also prove contracts in `check` (code generation always does, unless `--no-verify`) |
@@ -555,6 +556,34 @@ the model does not follow is `(any blocks...)`. Each check ends with
 `(at lo hi)`, the byte range where compile-time evaluation reports it
 failing: an `assert`, and a `set` whose `+ - *` checks for overflow. The format is research and
 may change.
+
+## Debug information
+
+`-g` gives every instruction the line and column of the statement, call or
+check it comes from, as DWARF 5 line tables, so that gdb, lldb, perf and
+valgrind name source lines:
+
+```sh
+jihoo build -g -O0 prog.jh -o prog
+gdb -batch -ex run -ex bt ./prog
+```
+
+```text
+#3  std.sys.abort () at /…/lib/std/sys.jh:48
+#4  std.prelude.panic () at /…/lib/std/prelude.jh:293
+#5  std.vec.Vec_i64_.index.5 () at /…/lib/std/vec.jh:105
+#6  main.main () at prog.jh:16
+```
+
+Each function is a `DISubprogram` named as in error messages, with its
+symbol as the linkage name; code that comes from another file, such as an
+inlined closure or derived code, keeps that file's name. Only line tables
+are written (`emissionKind: LineTablesOnly`): there are no variables or
+types yet, so a debugger shows where a program is but not its values.
+Native and freestanding executables keep the tables; UEFI images do not
+(lld's COFF linker would put them in a PDB). Without `-g` the IR is
+unchanged, so `-g` does not affect self-hosting comparisons. Paths relative
+to the working directory are recorded with it (`$PWD`).
 
 ## Environment
 

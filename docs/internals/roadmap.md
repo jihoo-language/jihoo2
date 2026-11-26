@@ -87,8 +87,17 @@ fails one test, and prints their results and the output of those that
 failed. Given a file of the standard library, it runs that module's tests;
 the `test` suite checks its output and runs every std module's tests.
 
+Implemented: [`-g`](../reference/command-line.md#debug-information) writes
+DWARF line tables: a subprogram per function and the line and column of
+every statement, call and check, with code from other files in their own
+file scopes. The `backend` suite checks the IR, both optimization levels
+and the tables in the executable.
+
 Next:
 
+- Debug information beyond line tables: variables, with their types from
+  `types.jh`'s layouts, and enums as variant parts, so that a debugger
+  shows values as well as places.
 - Unit tests for more of the standard library, next to its code
   (`std.string` has the first).
 - Definitions resolved by sema rather than by name, so that `value.method`

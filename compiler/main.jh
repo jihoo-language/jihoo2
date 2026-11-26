@@ -37,7 +37,7 @@ import verify
 // the package version.
 const VERSION = "0.1.0"
 
-const USAGE = "usage:\n  jihoo fmt <paths> [--check|--write] [--width N]  format source or check its layout\n  jihoo check <file.jh> [--lib]                check without generating code\n  jihoo lsp [-I dir] [--target t]               serve the Language Server Protocol on stdio\n  jihoo run <file.jh> [link inputs] [-- args]   compile and run a program\n  jihoo build <file.jh> [-o out] [link inputs]  compile a program\n  jihoo test <file.jh> [link inputs] [-- names]  run the file's #[test] functions\n  jihoo emit-mir <file.jh>                      print the compiler's MIR\n  jihoo emit-obligations <file.jh>              print MIR as the verification model\n  jihoo verify <file.jh> [--all]                list the checks verification cannot remove\n  jihoo emit-llvm <file.jh> [-o out]            print LLVM IR\n  jihoo emit-obj <file.jh> [-o out.o]           emit an object with LLVM\n  jihoo emit-tokens <file.jh>                   print the tokens of one file\n  jihoo emit-ast <file.jh>                      print the syntax tree of one file\n  jihoo emit-program <file.jh>                  print every module a program loads\n  jihoo --version                               print the compiler's version\n\noptions:\n  -O0 -O1 -O2 -O3   optimization (default -O2)\n  --release         integer overflow wraps instead of trapping\n  --no-verify       keep every check and do not prove contracts\n  --audit-proved    keep the proved checks too, failing as verifier bugs\n  --verify          also prove contracts in `check`\n  --target <t>      x86_64 or aarch64 (Linux, or UEFI with #![uefi])\n  -I <dir>          also look for modules in <dir>\n  -o <file>         output file\n  --lib             omit the entry point (check/emit-obj/emit-llvm)\n  -mno-red-zone     never use the stack below the stack pointer (for kernels)\n  -mgeneral-regs-only  no floating-point or vector registers (for kernels)\n  --keep-ll         keep the LLVM IR next to the output\n  --error-format=text|json   diagnostics for every failure (default text)\n  --comptime-report <path>   write interpreter resource measurements as JSON\n  --time-passes     report the time and memory of each phase on standard error"
+const USAGE = "usage:\n  jihoo fmt <paths> [--check|--write] [--width N]  format source or check its layout\n  jihoo check <file.jh> [--lib]                check without generating code\n  jihoo lsp [-I dir] [--target t]               serve the Language Server Protocol on stdio\n  jihoo run <file.jh> [link inputs] [-- args]   compile and run a program\n  jihoo build <file.jh> [-o out] [link inputs]  compile a program\n  jihoo test <file.jh> [link inputs] [-- names]  run the file's #[test] functions\n  jihoo emit-mir <file.jh>                      print the compiler's MIR\n  jihoo emit-obligations <file.jh>              print MIR as the verification model\n  jihoo verify <file.jh> [--all]                list the checks verification cannot remove\n  jihoo emit-llvm <file.jh> [-o out]            print LLVM IR\n  jihoo emit-obj <file.jh> [-o out.o]           emit an object with LLVM\n  jihoo emit-tokens <file.jh>                   print the tokens of one file\n  jihoo emit-ast <file.jh>                      print the syntax tree of one file\n  jihoo emit-program <file.jh>                  print every module a program loads\n  jihoo --version                               print the compiler's version\n\noptions:\n  -O0 -O1 -O2 -O3   optimization (default -O2)\n  -g                line tables for debuggers and profilers\n  --release         integer overflow wraps instead of trapping\n  --no-verify       keep every check and do not prove contracts\n  --audit-proved    keep the proved checks too, failing as verifier bugs\n  --verify          also prove contracts in `check`\n  --target <t>      x86_64 or aarch64 (Linux, or UEFI with #![uefi])\n  -I <dir>          also look for modules in <dir>\n  -o <file>         output file\n  --lib             omit the entry point (check/emit-obj/emit-llvm)\n  -mno-red-zone     never use the stack below the stack pointer (for kernels)\n  -mgeneral-regs-only  no floating-point or vector registers (for kernels)\n  --keep-ll         keep the LLVM IR next to the output\n  --error-format=text|json   diagnostics for every failure (default text)\n  --comptime-report <path>   write interpreter resource measurements as JSON\n  --time-passes     report the time and memory of each phase on standard error"
 
 fn main() {
     // The parser and sema recurse once per level of nesting, and a frame
@@ -77,6 +77,7 @@ fn drive() {
     var link = Vec(str).new()
     var prog_args = Vec(str).new()
     var keep_ll = false
+    var debug = false
     var json_errors = false
     var comptime_report: Option(str) = None
     var time_passes = false
@@ -161,6 +162,8 @@ fn drive() {
             verify_all = true
         } else if a == "--machine" && cmd == "verify" {
             verify_machine = true
+        } else if a == "-g" {
+            debug = true
         } else if a == "--keep-ll" {
             keep_ll = true
         } else if a == "--no-prelude" {
@@ -368,7 +371,7 @@ fn drive() {
         report_times(timer, time_passes)
         print(text)
     } else if cmd == "emit-llvm" {
-        let ll = llvm.emit(prog)
+        let ll = emit_ir(prog, sources, debug, opt)
         timer.lap("IR generation")
         report_times(timer, time_passes)
         match out {
@@ -383,7 +386,7 @@ fn drive() {
         }
     } else if cmd == "emit-obj" {
         let profile = prog.profile
-        let ll = llvm.emit(prog)
+        let ll = emit_ir(prog, sources, debug, opt)
         timer.lap("IR generation")
         let output = match out {
             Some(o) => String.from(o)
@@ -406,7 +409,7 @@ fn drive() {
                 "a UEFI program runs in firmware, not here; build it and boot the .efi file"
             )
         }
-        let ll = llvm.emit(prog)
+        let ll = emit_ir(prog, sources, debug, opt)
         let tests = a.tests.clone()
         // Nothing refers to the syntax trees any more; LLVM can use their
         // memory.
@@ -940,6 +943,16 @@ fn source_files(dir: str, inout files: Vec(String), inout visited: Vec(String)) 
 }
 
 // Both formats consume the same diagnostic, including its related notes.
+// The program's LLVM IR, with line tables when `-g` asked for them.
+fn emit_ir(sink prog: mir.Program, sources: diag.Sources, debug: bool, opt: str) -> String {
+    if !debug { return llvm.emit(prog) }
+    let dir = match env.get("PWD") {
+        Some(d) => d
+        None => "."
+    }
+    llvm.emit_debug(prog, llvm.debug_info(sources, dir, opt != "-O0"))
+}
+
 fn source_error(sources: diag.Sources, d: diag.Diag, json_errors: bool) -> never {
     // Before any source was read, the error is that the root file could not be.
     if sources.files.len() == 0 { failure(diag.Kind.Io, d.msg.as_str()) }

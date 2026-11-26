@@ -9,6 +9,7 @@
 // the checker made sure).
 
 import std.mem
+import diag
 import fmt
 import lex
 import mir
@@ -46,6 +47,58 @@ pub struct Gen {
     // needed, and their names.
     declared: Vec(String)
     declared_names: Map(String, bool)
+    // With `-g`: where source positions are, and the metadata written so
+    // far (numbered from 0), its files and the locations already made.
+    dbg: DebugInfo
+    debugging: bool
+    meta: String
+    nmeta: i64
+    dcu: i64
+    dty: i64
+    dfiles: Map(u32, i64)
+    dnodes: Map(String, i64)
+}
+
+// The sources of a program, for debug information (`-g`): each file's path
+// and the byte offsets where its lines start.
+pub struct DebugInfo {
+    paths: Vec(String)
+    starts: Vec(Vec(u32))
+    // The directory the paths are relative to.
+    dir: String
+    optimized: bool
+}
+
+pub fn debug_info(sources: diag.Sources, dir: str, optimized: bool) -> DebugInfo {
+    var paths = Vec(String).new()
+    var starts = Vec(Vec(u32)).new()
+    for f in sources.files {
+        paths.push(f.path.clone())
+        var s = Vec(u32).new()
+        s.push(0)
+        var i: u32 = 0
+        for b in f.text.as_str() {
+            i += 1
+            if b == '\n' { s.push(i) }
+        }
+        starts.push(s)
+    }
+    DebugInfo { paths: paths, starts: starts, dir: String.from(dir), optimized: optimized }
+}
+
+impl DebugInfo {
+    // The 1-based line and column of a byte offset in a file.
+    fn line_col(self, file: u32, lo: u32) -> (i64, i64) {
+        let s = self.starts[file as i64].as_slice()
+        // The last line start at or before `lo`.
+        var a: i64 = 0
+        var b: i64 = s.len
+        while b - a > 1 {
+            let m = a + (b - a) / 2
+            if s[m] <= lo { a = m } else { b = m }
+        }
+        (a + 1, (lo - s[a]) as i64 + 1)
+    }
 }
 
 // An operand's value: a scalar in a register, or an aggregate in memory.
@@ -92,6 +145,11 @@ struct FnCx {
     // whether the statement being written is one.
     audit: Vec((i64, i64))
     audited: bool
+    // With `-g`: the function's `DISubprogram` and file, and the location
+    // attached to every instruction (`, !dbg !N`), empty without one.
+    scope: i64
+    scope_file: u32
+    dbg: String
 }
 
 impl FnCx {
@@ -103,7 +161,10 @@ impl FnCx {
             sret: None,
             label: String.from("entry"),
             audit: Vec((i64, i64)).new(),
-            audited: false
+            audited: false,
+            scope: -1,
+            scope_file: 0,
+            dbg: String.new()
         }
     }
 
@@ -113,9 +174,19 @@ impl FnCx {
     }
 
     fn line(inout self, s: str) {
-        self.body.push_str("  ")
-        self.body.push_str(s)
-        self.body.push('\n')
+        if self.dbg.len() == 0 {
+            self.body.push_str("  ")
+            self.body.push_str(s)
+            self.body.push('\n')
+            return
+        }
+        // Every instruction gets the location, labels do not.
+        for l in s.lines() {
+            self.body.push_str("  ")
+            self.body.push_str(l)
+            if !l.ends_with(":") { self.body.push_str(self.dbg.as_str()) }
+            self.body.push('\n')
+        }
     }
 
     // Starts a block.
@@ -193,6 +264,22 @@ fn is_borrow(p: ParamPass) -> bool {
 }
 
 pub fn emit(sink p: mir.Program) -> String {
+    let none = DebugInfo {
+        paths: Vec(String).new(),
+        starts: Vec(Vec(u32)).new(),
+        dir: String.new(),
+        optimized: false
+    }
+    generate(p, none, false)
+}
+
+// The program's LLVM IR with debug information: line tables that say which
+// line of the sources each instruction comes from.
+pub fn emit_debug(sink p: mir.Program, sink d: DebugInfo) -> String {
+    generate(p, d, true)
+}
+
+fn generate(sink p: mir.Program, sink d: DebugInfo, debugging: bool) -> String {
     var g = Gen {
         p: p
         out: String.new()
@@ -204,6 +291,14 @@ pub fn emit(sink p: mir.Program) -> String {
         nstr: 0
         declared: Vec(String).new()
         declared_names: Map(String, bool).new()
+        dbg: d
+        debugging: debugging
+        meta: String.new()
+        nmeta: 0
+        dcu: -1
+        dty: -1
+        dfiles: Map(u32, i64).new()
+        dnodes: Map(String, i64).new()
     }
     g.emit()
 }
@@ -353,6 +448,7 @@ impl Gen {
                 self.declared_names.insert(f.symbol.clone(), true)
             }
         }
+        self.debug_start()
         for i in 0..self.p.fns.len() {
             self.function(i as u32)
         }
@@ -373,7 +469,152 @@ impl Gen {
         } else {
             with_attributes(self.out.as_str(), attrs.as_str())
         }
-        head + self.globals.as_str() + "\n" + decls.as_str() + "\n" + body.as_str()
+        let meta = self.debug_end()
+        head + self.globals.as_str() + "\n" + decls.as_str() + "\n" + body.as_str() + meta.as_str()
+    }
+
+    // ---- debug information (`-g`) ----
+
+    // A new numbered metadata node.
+    fn md(inout self, node: str) -> i64 {
+        let n = self.nmeta
+        self.nmeta += 1
+        self.meta.push_str(fmt.f("!{} = {}\n", [fmt.n(n as i128).as_str(), node]).as_str())
+        n
+    }
+
+    // The `DIFile` of a source file.
+    fn dfile(inout self, file: u32) -> i64 {
+        match self.dfiles.get(file) {
+            Some(n) => return n
+            None => {}
+        }
+        let path = esc(self.dbg.paths[file as i64].as_str())
+        let dir = if self.dbg.paths[file as i64].as_str().starts_with("/") {
+            String.new()
+        } else {
+            esc(self.dbg.dir.as_str())
+        }
+        let n = self.md(fmt.f(
+            "!DIFile(filename: \"{}\", directory: \"{}\")",
+            [path.as_str(), dir.as_str()]
+        ).as_str())
+        self.dfiles.insert(file, n)
+        n
+    }
+
+    // The compile unit and the type every function is given, once.
+    fn debug_start(inout self) {
+        if !self.debugging { return }
+        let file = self.dfile(0)
+        let optimized = if self.dbg.optimized { "true" } else { "false" }
+        self.dcu = self.md(fmt.f(
+            "distinct !DICompileUnit(language: DW_LANG_C99, file: !{}, producer: \"jihoo\", isOptimized: {}, runtimeVersion: 0, emissionKind: LineTablesOnly)",
+            [fmt.n(file as i128).as_str(), optimized]
+        ).as_str())
+        let none = self.md("!{null}")
+        self.dty = self.md(fmt.f(
+            "!DISubroutineType(types: !{})",
+            [fmt.n(none as i128).as_str()]
+        ).as_str())
+    }
+
+    // The named metadata that points at the compile unit, and every node.
+    fn debug_end(inout self) -> String {
+        if !self.debugging { return String.new() }
+        let dwarf = self.md("!{i32 7, !\"Dwarf Version\", i32 5}")
+        let version = self.md("!{i32 2, !\"Debug Info Version\", i32 3}")
+        var s = String.from("\n")
+        s.push_str("!llvm.dbg.cu = !{!")
+        s.push_str(fmt.n(self.dcu as i128).as_str())
+        s.push_str("}\n!llvm.module.flags = !{!")
+        s.push_str(fmt.n(dwarf as i128).as_str())
+        s.push_str(", !")
+        s.push_str(fmt.n(version as i128).as_str())
+        s.push_str("}\n")
+        s.push_str(self.meta.as_str())
+        s
+    }
+
+    // A function's `DISubprogram`, which its `define` line ends with; its
+    // line is the location of its instructions until a statement has one.
+    fn debug_function(inout self, inout cx: FnCx, f: u32) -> String {
+        if !self.debugging { return String.new() }
+        let span = self.p.fns[f as i64].span
+        if span.file as i64 >= self.dbg.paths.len() { return String.new() }
+        let file = self.dfile(span.file)
+        let (line, _) = self.dbg.line_col(span.file, span.lo)
+        let local = if is_internal(self.p.fns[f as i64].linkage) {
+            " | DISPFlagLocalToUnit"
+        } else {
+            ""
+        }
+        let name = esc(self.p.fns[f as i64].name.as_str())
+        let symbol = esc(self.p.fns[f as i64].symbol.as_str())
+        let fl = fmt.n(file as i128)
+        let ln = fmt.n(line as i128)
+        let sp = self.md(fmt.f(
+            "distinct !DISubprogram(name: \"{}\", linkageName: \"{}\", scope: !{}, file: !{}, line: {}, type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition{}, unit: !{})",
+            [
+                name.as_str(),
+                symbol.as_str(),
+                fl.as_str(),
+                fl.as_str(),
+                ln.as_str(),
+                fmt.n(self.dty as i128).as_str(),
+                ln.as_str(),
+                local,
+                fmt.n(self.dcu as i128).as_str()
+            ]
+        ).as_str())
+        cx.scope = sp
+        cx.scope_file = span.file
+        self.locate(&cx, span)
+        " !dbg !" + fmt.n(sp as i128)
+    }
+
+    // Attaches a span's line and column to the instructions written next.
+    fn locate(inout self, inout cx: FnCx, span: diag.Span) {
+        if cx.scope < 0 { return }
+        if span.file as i64 >= self.dbg.paths.len() { return }
+        let (line, col) = self.dbg.line_col(span.file, span.lo)
+        // Code from another file (an inlined closure, derived code) is in
+        // a `DILexicalBlockFile` of that file.
+        var scope = cx.scope
+        if span.file != cx.scope_file {
+            let key = "f" + fmt.n(cx.scope as i128).as_str() + ":" + fmt.n(
+                span.file as i128
+            ).as_str()
+            match self.dnodes.get(key.clone()) {
+                Some(n) => scope = n
+                None => {
+                    let file = self.dfile(span.file)
+                    scope = self.md(fmt.f(
+                        "!DILexicalBlockFile(scope: !{}, file: !{}, discriminator: 0)",
+                        [fmt.n(cx.scope as i128).as_str(), fmt.n(file as i128).as_str()]
+                    ).as_str())
+                    self.dnodes.insert(key, scope)
+                }
+            }
+        }
+        let key = "l" + fmt.n(scope as i128).as_str() + ":" + fmt.n(line as i128).as_str() + ":" +
+            fmt.n(col as i128).as_str()
+        var n: i64 = 0
+        match self.dnodes.get(key.clone()) {
+            Some(m) => n = m
+            None => {
+                n = self.md(fmt.f(
+                    "!DILocation(line: {}, column: {}, scope: !{})",
+                    [
+                        fmt.n(line as i128).as_str(),
+                        fmt.n(col as i128).as_str(),
+                        fmt.n(scope as i128).as_str()
+                    ]
+                ).as_str())
+                self.dnodes.insert(key, n)
+            }
+        }
+        cx.dbg = ", !dbg !" + fmt.n(n as i128)
     }
 
     fn declare(inout self, name: str, decl: str) {
@@ -530,18 +771,20 @@ impl Gen {
         for i, ty in params { names.push(ty.as_str() + " %p" + fmt.n(i as i128).as_str()) }
         let linkage = if is_internal(self.p.fns[f as i64].linkage) { "internal " } else { "" }
         let attrs = if sig.ret == types.NEVER { " cold noreturn" } else { "" }
+        var cx = FnCx.new(0)
+        let dbg = self.debug_function(&cx, f)
         self.out.push_str(fmt.f(
-            "define {}{} {}({}){} {\nentry:\n",
+            "define {}{} {}({}){}{} {\nentry:\n",
             [
                 linkage,
                 rty.as_str(),
                 sym(symbol.as_str()).as_str(),
                 join(names, ", ").as_str(),
-                attrs
+                attrs,
+                dbg.as_str()
             ]
         ).as_str())
         let body = mem.replace(&self.p.fns[f as i64].body, None).unwrap()
-        var cx = FnCx.new(0)
         if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
         if sret { cx.sret = Some(String.from("%p0")) }
         for i, local in body.locals {
@@ -584,9 +827,17 @@ impl Gen {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
             for si, s in b.stmts {
                 cx.audited = audited(cx.audit.as_slice(), bi, si)
+                match s {
+                    Assign(_, _, span) | Drop(_, span) => self.locate(&cx, span)
+                    _ => {}
+                }
                 self.stmt(&cx, body, s)
             }
             cx.audited = false
+            match b.term {
+                Call(_, _, _, _, span) | Assert(_, _, _, span) => self.locate(&cx, span)
+                _ => {}
+            }
             self.term(&cx, f, body, b.term)
         }
         self.out.push_str(cx.body.as_str())
@@ -822,6 +1073,7 @@ impl Gen {
         let attrs = if self.p.fns[f as i64].sig.ret == types.NEVER { " cold noreturn" } else { "" }
         var cx = FnCx.new(0)
         if f as i64 < self.p.audited.len() { cx.audit = self.p.audited[f as i64].clone() }
+        let dbg = self.debug_function(&cx, f)
         var names = Vec(String).new()
         if sret {
             names.push(String.from("ptr %sret"))
@@ -836,13 +1088,14 @@ impl Gen {
             pi += 1
         }
         self.out.push_str(fmt.f(
-            "define {}{} {}({}){} {\n",
+            "define {}{} {}({}){}{} {\n",
             [
                 linkage,
                 rty.as_str(),
                 sym(symbol.as_str()).as_str(),
                 join(names, ", ").as_str(),
-                attrs
+                attrs,
+                dbg.as_str()
             ]
         ).as_str())
         self.out.push_str("entry:\n")
@@ -901,9 +1154,17 @@ impl Gen {
             cx.block(("bb" + fmt.n(bi as i128)).as_str())
             for si, s in b.stmts {
                 cx.audited = audited(cx.audit.as_slice(), bi, si)
+                match s {
+                    Assign(_, _, span) | Drop(_, span) => self.locate(&cx, span)
+                    _ => {}
+                }
                 self.stmt(&cx, body, s)
             }
             cx.audited = false
+            match b.term {
+                Call(_, _, _, _, span) | Assert(_, _, _, span) => self.locate(&cx, span)
+                _ => {}
+            }
             self.term(&cx, f, body, b.term)
         }
         self.out.push_str(cx.body.as_str())
@@ -2644,8 +2905,15 @@ fn with_attributes(ir: str, attrs: str) -> String {
     var out = String.new()
     for line in ir.lines() {
         if line.starts_with("define ") && line.ends_with(" {") {
-            out.push_str(line[0..line.len - 2])
-            out.push_str(" #0 {\n")
+            // The attributes come before a `!dbg` attachment.
+            let end = match line.find(" !dbg !") {
+                Some(i) => i
+                None => line.len - 2
+            }
+            out.push_str(line[0..end])
+            out.push_str(" #0")
+            out.push_str(line[end..line.len])
+            out.push('\n')
         } else {
             out.push_str(line)
             out.push('\n')

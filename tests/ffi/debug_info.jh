@@ -1,0 +1,11 @@
+// Built with `-g`: line tables say that the multiplication is line 6,
+// column 5, of this file, in either optimization, and the program prints
+// the same.
+
+fn twice(x: i64) -> i64 {
+    x * 2
+}
+
+fn main() {
+    println(twice(21))
+}
