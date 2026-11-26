@@ -41,7 +41,8 @@ pub struct Ast {
     // Standard modules that encode computed type indices, if loaded.
     pub history: Option(u32)
     pub divisor: Option(u32)
-    // std.derive, loaded when some item has `#[derive(...)]`.
+    // std.derive, loaded with the prelude: `#[derive(...)]` and tuples'
+    // `Eq`, `Ord`, `Hash`, `Show` and `Clone` use its bodies.
     pub derive: Option(u32)
     // The function the program starts in: `main`, or for `jihoo test` the
     // harness `load_tests` adds.
@@ -199,7 +200,7 @@ fn load_all(
         }
     }
     var derive: Option(u32) = None
-    if !no_prelude && l.any_derive() {
+    if !no_prelude {
         var p = Vec(String).new()
         p.push("std".to_string())
         p.push("derive".to_string())
@@ -213,7 +214,7 @@ fn load_all(
             )?)
             None => return Err(Diag.new(
                 Span.new(0, 0, 0),
-                "cannot find std/derive.jh, which `#[derive(...)]` needs"
+                "cannot find std/derive.jh, which the prelude needs"
             ))
         }
     }

@@ -185,14 +185,17 @@ Rust struct with a lifetime parameter, without the annotation
 
 ## Equality and printing
 
-- `==` needs an `Eq` impl, even for an enum without payloads or a tuple.
-  Compare such values with `match`, or write `impl Eq for T`. `Option`,
-  `Result`, `Vec` and `()` have one when their contents do, so
-  `remove_dir(p) == Ok(())` works; tuples do not.
+- `==` needs an `Eq` impl, even for an enum without payloads. Compare
+  such values with `match`, derive `Eq`, or write `impl Eq for T`.
+  `Option`, `Result`, `Vec`, `Ordering`, `()` and tuples have one when
+  their contents do, so `remove_dir(p) == Ok(())` and
+  `pair == (1, "a")` work.
 - `String == str` and `str == String` both work.
-- `print`/`println` need `Show`: integers, floats, `bool`, `str` and
-  `String` have it. `Vec`, `Option` and tuples do not; derive or write a
-  `Show` impl. A float prints the shortest text that reads back as it,
+- `print`/`println` need `Show`, which plays the part of both `Display`
+  and `Debug`: integers, floats, `bool`, `str`, `String`, `Ordering`, and
+  `Vec`, `Option`, `Result` and tuples of them have it (`[1, 2]`,
+  `Some(x)`, `(1, a)`; strings inside print without quotes). For your own
+  types, derive or write a `Show` impl. A float prints the shortest text that reads back as it,
   like Rust's `{:?}`: `1.0`, `0.30000000000000004`, `1e21`.
 
 ## Line breaks matter

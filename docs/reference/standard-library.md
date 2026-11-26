@@ -17,7 +17,7 @@ everywhere; the others are imported (`import std.fs`).
 | `assert(cond, msg)` | panics when `cond` is false |
 | `drop(x)` | destroys `x` now |
 | `min(a, b)`, `max(a, b)` | by `Ord` |
-| `print(x)`, `println(x)`, `eprintln(x)` | anything with `Show` (integers, floats, `bool`, `str`, `String`; not `Vec` yet), to standard output (error) |
+| `print(x)`, `println(x)`, `eprintln(x)` | anything with `Show` (integers, floats, `bool`, `str`, `String`, and `Vec`, `Option`, `Result` and tuples of them), to standard output (error) |
 | `sort(&v)`, `sort_by(&v, less)` | a stable merge sort of a `Vec` |
 | `is_space`, `is_digit`, `is_alpha` | on bytes |
 

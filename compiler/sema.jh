@@ -2329,8 +2329,36 @@ impl Sema {
         if found.is_none() {
             found = self.derived_impl(tr, t)
         }
+        if found.is_none() {
+            found = self.tuple_impl(tr, t)?
+        }
         self.impl_cache.insert(key, found.clone())
         Ok(found)
+    }
+
+    // A tuple has the prelude's `Clone`, `Eq`, `Ord`, `Hash` and `Show`
+    // when each element does, with std.derive's bodies, as if derived.
+    fn tuple_impl(inout self, tr: u32, t: u32) -> Result(Option(ImplHit), Diag) {
+        let ts = match self.types.kind(t) {
+            Tuple(ts) => ts.clone()
+            _ => return Ok(None)
+        }
+        if ts.len() == 0 || self.lang.derived.is_none() {
+            return Ok(None)
+        }
+        let Some(prelude) = at(self.ast).prelude else { return Ok(None) }
+        let trait_info = self.traits[tr as i64]
+        let name = trait_info.name.as_str()
+        if trait_info.module != prelude ||
+            !(name == "Clone" || name == "Eq" || name == "Ord" || name == "Hash" || name == "Show") {
+            return Ok(None)
+        }
+        for e in ts {
+            if self.find_impl(tr, e)?.is_none() {
+                return Ok(None)
+            }
+        }
+        Ok(Some(ImplHit { imp: DERIVED_IMPL, args: Vec(CVal).new() }))
     }
 
     // `#[derive(...)]` impls are written by the compiler; they are
