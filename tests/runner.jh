@@ -1054,6 +1054,73 @@ impl Tests {
         Ok(())
     }
 
+    // `-g` embeds lib/gdb/jihoo.py in `.debug_gdb_scripts`, and gdb (if it
+    // can trace programs here) prints the std types with it.
+    fn gdb_printers(self) -> Result((), String) {
+        let file = "tests/ffi/gdb_printers.jh"
+        let exe = self.temp("gdb-printers")
+        let built = exec(self.compiler.as_str(), ["build", "-g", "-O0", file, "-o", exe.as_str()])
+        if !built.status.success() {
+            return Err("-g does not build:\n" + built.stderr.as_str())
+        }
+        let b = match fs.read_bytes(exe.as_str()) {
+            Ok(b) => b
+            Err(e) => return Err("cannot read " + exe.as_str() + ": " + e.to_string().as_str())
+        }
+        if !has_bytes(b.as_slice(), ".debug_gdb_scripts") || !has_bytes(
+            b.as_slice(),
+            "gdb.inlined-script.jihoo"
+        ) {
+            fs.remove_file(exe.as_str())
+            return Err("the -g program has no embedded pretty printers")
+        }
+        let o = exec(
+            "gdb",
+            [
+                "-q",
+                "-batch",
+                "-nx",
+                "-iex",
+                "set auto-load safe-path /",
+                "-ex",
+                "break gdb_printers.jh:15",
+                "-ex",
+                "run",
+                "-ex",
+                "print name",
+                "-ex",
+                "print owned",
+                "-ex",
+                "print words",
+                "-ex",
+                "print m",
+                "-ex",
+                "print tail",
+                exe.as_str()
+            ]
+        )
+        fs.remove_file(exe.as_str())
+        let out = o.stdout.as_str()
+        // A sandbox that forbids tracing: nothing to check there.
+        if o.stderr.as_str().contains("ptrace") { return Ok(()) }
+        // Without a UTF-8 locale gdb's character set is ASCII, and the
+        // printer escapes what it cannot hold.
+        if !out.contains("= \"héllo\"") && !out.contains("= \"h\\\\xe9llo\"") {
+            return Err("gdb does not print `name`:\n" + out + o.stderr.as_str())
+        }
+        for want in [
+            "= \"owned\"",
+            "= Vec(String) of length 2 = {\"a\", \"bc\"}",
+            "= Map(str, i64) with 1 entries = {[\"one\"] = 1}",
+            "= [i64] of length 2 = {2, 3}"
+        ] {
+            if !out.contains(want) {
+                return Err("gdb does not print `" + want + "`:\n" + out + o.stderr.as_str())
+            }
+        }
+        Ok(())
+    }
+
     fn kernel_codegen(self) -> Result((), String) {
         let file = "tests/ffi/kernel_codegen.jh"
         for t in ["x86_64", "aarch64"] {
@@ -1264,6 +1331,8 @@ impl Tests {
         self.check("backend: kernel code generation", r)
         let r = self.debug_info()
         self.check("backend: debug information", r)
+        let r = self.gdb_printers()
+        self.check("backend: gdb pretty printers", r)
         let r = self.missing_llvm()
         self.check("backend: missing LLVM", r)
     }

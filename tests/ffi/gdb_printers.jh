@@ -1,0 +1,16 @@
+// Built with `-g`: gdb prints `str`, `String`, `Vec`, slices and `Map` with
+// the pretty printers the program embeds (lib/gdb/jihoo.py). The backend
+// suite stops at the `println` and prints each.
+
+fn main() {
+    let name = "héllo"
+    let owned = String.from("owned")
+    var words = Vec(String).new()
+    words.push(String.from("a"))
+    words.push(String.from("bc"))
+    var m = Map(str, i64).new()
+    m.insert("one", 1)
+    let xs = [1, 2, 3]
+    let tail = xs[1..]
+    println(name.len + owned.len() + words.len() + m.len() + tail.len)
+}

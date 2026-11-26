@@ -13,6 +13,7 @@ import diag
 import fmt
 import lex
 import mir
+import os
 import target
 import types
 import cabi
@@ -70,6 +71,9 @@ pub struct DebugInfo {
     // The directory the paths are relative to.
     dir: String
     optimized: bool
+    // The library's gdb pretty printers (`gdb/jihoo.py` beside `std`),
+    // embedded in `.debug_gdb_scripts`; empty if not found.
+    gdb_script: String
 }
 
 pub fn debug_info(sources: diag.Sources, dir: str, optimized: bool) -> DebugInfo {
@@ -86,7 +90,25 @@ pub fn debug_info(sources: diag.Sources, dir: str, optimized: bool) -> DebugInfo
         }
         starts.push(s)
     }
-    DebugInfo { paths: paths, starts: starts, dir: String.from(dir), optimized: optimized }
+    // The library is where the prelude was loaded from.
+    var gdb_script = String.new()
+    for p in paths {
+        if p.as_str().ends_with("std/prelude.jh") {
+            let lib = p.as_str()[0..p.len() - "std/prelude.jh".len]
+            match os.read_file((lib + "gdb/jihoo.py").as_str()) {
+                Ok(t) => gdb_script = t
+                Err(_) => {}
+            }
+            break
+        }
+    }
+    DebugInfo {
+        paths: paths,
+        starts: starts,
+        dir: String.from(dir),
+        optimized: optimized,
+        gdb_script: gdb_script
+    }
 }
 
 impl DebugInfo {
@@ -276,7 +298,8 @@ pub fn emit(sink p: mir.Program) -> String {
         paths: Vec(String).new(),
         starts: Vec(Vec(u32)).new(),
         dir: String.new(),
-        optimized: false
+        optimized: false,
+        gdb_script: String.new()
     }
     generate(p, none, false)
 }
@@ -381,6 +404,21 @@ impl Gen {
                 "@jihoo.efi.image = internal global ptr null\n@jihoo.efi.system_table = internal global ptr null\n"
             )
             _ => {}
+        }
+        // With -g, the pretty printers as an inline script gdb loads from
+        // the executable (0x04: Python text, its name, a newline, the text).
+        let script = mem.replace(&self.dbg.gdb_script, String.new())
+        let elf = match self.p.profile {
+            Uefi => false
+            _ => true
+        }
+        if self.debugging && script.len() > 0 && elf {
+            let name = "gdb.inlined-script.jihoo"
+            let n = 1 + name.len + 1 + script.len() + 1
+            self.globals.push_str(fmt.f(
+                "@jihoo.gdb_scripts = linkonce_odr unnamed_addr constant [{} x i8] c\"\\04{}\\0A{}\\00\", section \".debug_gdb_scripts\", align 1\n@llvm.used = appending global [1 x ptr] [ptr @jihoo.gdb_scripts], section \"llvm.metadata\"\n",
+                [fmt.n(n as i128).as_str(), name, esc(script.as_str()).as_str()]
+            ).as_str())
         }
         for i in 0..self.p.statics.len() {
             let name = self.p.statics[i].symbol.clone()

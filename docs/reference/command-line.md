@@ -616,6 +616,23 @@ some = {tag = 0 '\000', Some = {__0 = 42}}
 r = {tag = 1 '\001', Rect = {__0 = {x = 0, y = 0}, __1 = {x = 2, y = 3}}}
 ```
 
+With `-g`, native and freestanding executables also embed gdb pretty
+printers for the standard library (`lib/gdb/jihoo.py`, in the
+`.debug_gdb_scripts` section, as Rust's compiler does), so that `str` and
+`String` print as text, `Vec` and slices as their elements and `Map` as
+its entries; `print/r` shows the fields:
+
+```text
+$1 = "héllo"
+$2 = Vec(String) of length 2 = {"a", "bc"}
+$3 = Map(str, i64) with 2 entries = {["two"] = 2, ["one"] = 1}
+```
+
+gdb loads embedded scripts only from its auto-load safe path: allow a
+directory (`gdb -iex 'add-auto-load-safe-path .'`, or the same line in
+`~/.config/gdb/gdbinit`), or load the file by hand with
+`source /path/to/lib/gdb/jihoo.py`.
+
 Each variable is in a lexical block from its declaration to the end of
 its block, as Rust's compiler writes them, so where a later `let x` hides
 an earlier one, or an inner block's `x` an outer one, `print x` shows the
