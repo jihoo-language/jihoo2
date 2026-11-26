@@ -10,7 +10,14 @@ def _bytes(ptr, length):
     if length <= 0:
         return ""
     data = gdb.selected_inferior().read_memory(ptr, min(length, 1 << 20))
-    return bytes(data).decode("utf-8", "replace")
+    text = bytes(data).decode("utf-8", "replace")
+    # gdb prints in its host character set, ASCII in a C locale: what that
+    # cannot hold is escaped (`h\xe9llo`) rather than failing.
+    try:
+        text.encode(gdb.host_charset())
+    except (UnicodeEncodeError, LookupError):
+        text = text.encode("ascii", "backslashreplace").decode("ascii")
+    return text
 
 
 class StrPrinter:

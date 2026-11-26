@@ -1103,8 +1103,12 @@ impl Tests {
         let out = o.stdout.as_str()
         // A sandbox that forbids tracing: nothing to check there.
         if o.stderr.as_str().contains("ptrace") { return Ok(()) }
+        // Without a UTF-8 locale gdb's character set is ASCII, and the
+        // printer escapes what it cannot hold.
+        if !out.contains("= \"héllo\"") && !out.contains("= \"h\\\\xe9llo\"") {
+            return Err("gdb does not print `name`:\n" + out + o.stderr.as_str())
+        }
         for want in [
-            "= \"héllo\"",
             "= \"owned\"",
             "= Vec(String) of length 2 = {\"a\", \"bc\"}",
             "= Map(str, i64) with 1 entries = {[\"one\"] = 1}",
