@@ -1,0 +1,21 @@
+// `Result(T, E)` has `==` when both T and E do.
+
+fn parse(s: str) -> Result(i64, String) {
+    match s.parse_int() {
+        Some(n) => Ok(n)
+        None => Err("not a number: " + s)
+    }
+}
+
+fn main() {
+    println(parse("42") == Ok(42))
+    println(parse("42") == Ok(41))
+    println(parse("x") == Err(String.from("not a number: x")))
+    println(parse("x") == Ok(0))
+    println(parse("7") != Err(String.from("7")))
+}
+//> true
+//> false
+//> true
+//> false
+//> true

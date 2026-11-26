@@ -343,3 +343,68 @@ impl(T: Plain) Drop for Soa(T) {
         }
     }
 }
+
+#[test]
+fn arena_ids() {
+    var a = Arena(String).new()
+    assert(a.is_empty(), "empty")
+    let x = a.add(String.from("x"))
+    let y = a.add(String.from("y"))
+    assert(a.len() == 2 && a[x] == "x" && a[y] == "y", "added")
+    a[x].push('!')
+    assert(a[x] == "x!" && x != y && x < y && x == Id(String).from_index(0), "ids")
+    var order = 0
+    for id in a.ids() {
+        assert(id.to_index() == order, "in order")
+        order += 1
+    }
+    assert(order == 2 && a.as_slice().len == 2, "every id")
+    var s = String.new()
+    y.show(&s)
+    assert(s == "#1", "show")
+}
+
+#[test]
+fn pool_handles() {
+    var p = Pool(String).new()
+    var hs = Vec(Handle(String)).new()
+    for i in 0..10 {
+        hs.push(p.insert(i.to_string()))
+    }
+    assert(p.len() == 10 && p[hs[3]] == "3", "inserted past the first growth")
+    let h3 = hs[3]
+    assert(p.remove(h3) == Some(String.from("3")), "removed")
+    assert(!p.contains(h3) && p.get(h3).is_none() && p.remove(h3).is_none(), "stale")
+    let h = p.insert(String.from("new"))
+    assert(h.index == h3.index && h != h3 && !p.contains(h3), "slot reused, generation changed")
+    assert(p.get(h).is_some() && p.len() == 10, "reused")
+    match p.get_mut(hs[0]) {
+        Some(s) => s.push_str("0")
+        None => panic("handle 0")
+    }
+    assert(p[hs[0]] == "00", "get_mut")
+    p.remove(hs[9])
+    assert(p.handles().len() == 9, "handles")
+    var s = String.new()
+    h.show(&s)
+    assert(s == "#3.3", "show")
+}
+
+pub struct Particle {
+    pub x: f64
+    pub v: f64
+}
+
+#[test]
+fn soa_columns() {
+    var s = Soa(Particle).new()
+    for i in 0..9 {
+        s.push(Particle { x: i as f64, v: 1.0 })
+    }
+    assert(s.len() == 9 && s.get(4).x == 4.0, "pushed past growth")
+    s.set(4, Particle { x: -1.0, v: 2.0 })
+    s.each_mut(field_index(Particle, "x"), fn(x) { x += 10.0 })
+    let xs = s.column(field_index(Particle, "x"))
+    assert(xs.len == 9 && xs[0] == 10.0 && xs[4] == 9.0, "column")
+    assert(s.get(4).v == 2.0 && s.get(5).v == 1.0, "other column")
+}

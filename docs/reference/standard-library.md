@@ -8,8 +8,8 @@ everywhere; the others are imported (`import std.fs`).
 
 | name | what |
 |------|------|
-| `Option(T)` | `Some(T)` or `None`: `is_some`, `is_none`, `unwrap`, `expect`, `unwrap_or` |
-| `Result(T, E)` | `Ok(T)` or `Err(E)`: `is_ok`, `is_err`, `unwrap`, `expect`, `ok`, `err` |
+| `Option(T)` | `Some(T)` or `None`: `is_some`, `is_none`, `unwrap`, `expect`, `unwrap_or`; `Eq` when `T` has it |
+| `Result(T, E)` | `Ok(T)` or `Err(E)`: `is_ok`, `is_err`, `unwrap`, `expect`, `ok`, `err`; `Eq` when `T` and `E` have it |
 | `Ordering` | `Less`, `Equal`, `Greater` |
 | `Clone`, `Eq`, `Ord`, `Hash`, `Show`, `Default`, `Drop`, `Iterator` | the [standard traits](../language/generics.md#standard-traits) |
 | `Plain`, `Int`, `Signed`, `Unsigned`, `Float`, `Number` | marker traits the compiler implements |
@@ -174,7 +174,7 @@ value at index `N`; `{{` and `}}` are braces. After `:` comes
 | `fill`, `align` | `<` left, `>` right, `^` centered, padded with any one character (a space by default); numbers align right and other values left |
 | `+` | a sign on positive numbers too |
 | `#` | `0x`, `0o` or `0b` before an integer in that base |
-| `0` | pads a number with zeros between its sign or prefix and its digits |
+| `0` | pads a number with zeros between its sign or prefix and its digits (not infinity or NaN, which pad with spaces) |
 | `width` | the least number of characters (Unicode scalar values) |
 | `.precision` | digits after the point of a float, rounded half to even; the most characters of a string |
 | `kind` | `x`, `X`, `o`, `b`: an integer in base 16, 8 or 2, negative values as their two's complement bits; `e`: a float with an exponent (`1.2345e3`) |

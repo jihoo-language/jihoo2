@@ -195,14 +195,14 @@ fn format_float(inout out: String, p: float.Parts, spec: Spec) {
     } else {
         float.write_shortest(&digits, unsigned)
     }
-    // NaN has no sign, and is not padded with zeros.
+    // Infinity and NaN are not padded with zeros, and NaN has no sign.
+    var s = spec
+    if p.special { s.zero = false }
     if p.special && p.f != 0 {
-        var s = spec
-        s.zero = false
         pad(&out, digits.as_str(), s, true)
         return
     }
-    pad_number(&out, p.negative, "", digits.as_str(), spec)
+    pad_number(&out, p.negative, "", digits.as_str(), s)
 }
 
 impl Format for str {
@@ -485,4 +485,99 @@ pub fn eprintln(comptime T: type, pattern: str, values: T) {
     var s = format(pattern, values)
     s.push('\n')
     sys.write_fd(2, s.as_str())
+}
+
+#[test]
+fn integers_in_bases_and_widths() {
+    assert(format("{}", 42) == "42" && format("{}", -42) == "-42", "decimal")
+    assert(format("{:x} {:X} {:o} {:b}", (255, 255, 8, 5)) == "ff FF 10 101", "bases")
+    assert(format("{:#x} {:#o} {:#b}", (255, 8, 5)) == "0xff 0o10 0b101", "prefixes")
+    assert(
+        format("{:x}", -1 as i8) == "ff" && format("{:b}", -2 as i16) == "1111111111111110",
+        "two's complement"
+    )
+    assert(
+        format("{:5}|{:<5}|{:^5}|{:*>5}", (42, 42, 42, 42)) == "   42|42   | 42  |***42",
+        "aligned"
+    )
+    assert(
+        format("{:05} {:+05} {:#06x}", (-42, 42, 255)) == "-0042 +0042 0x00ff",
+        "zeros after sign and prefix"
+    )
+    assert(format("{:+}", 0) == "+0", "plus zero")
+    let min = -9223372036854775807 - 1
+    assert(format("{}", min) == "-9223372036854775808", "i64 min")
+    assert(format("{:x}", min) == "8000000000000000", "i64 min in hex")
+    assert(format("{}", 0 as u64 -% 1) == "18446744073709551615", "u64 max")
+}
+
+#[test]
+fn floats() {
+    assert(format("{}", 1.5) == "1.5" && format("{}", -0.25) == "-0.25", "shortest")
+    assert(format("{:.2}", 3.14159) == "3.14" && format("{:.0}", 2.5) == "2", "fixed")
+    assert(
+        format("{:8.3}|{:<8.3}|{:08.3}", (-1.5, 1.5, -1.5)) == "  -1.500|1.500   |-001.500",
+        "padded"
+    )
+    assert(format("{:+.1}", 1.0) == "+1.0", "plus")
+    assert(format("{:e}", 1234.5) == "1.2345e3", "exponent")
+    assert(format("{:.2e}", 1234.5) == "1.23e3", "exponent with precision")
+    assert(format("{}", 0.5 as f32) == "0.5", "f32")
+    let inf = 1.0 / 0.0
+    assert(format("{:08}|{:+06}|{:<5}", (inf, -inf, inf)) == "     inf|  -inf|inf  ", "infinity")
+    assert(format("{:08}|{:+}", (0.0 / 0.0, 0.0 / 0.0)) == "     NaN|NaN", "NaN")
+}
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+impl Show for Point {
+    fn show(self, inout out: String) {
+        out.push('(')
+        self.x.show(&out)
+        out.push(' ')
+        self.y.show(&out)
+        out.push(')')
+    }
+}
+
+#[test]
+fn strings_and_other_values() {
+    assert(format("{:6}|{:>6}|{:^6}", ("ab", "ab", "ab")) == "ab    |    ab|  ab  ", "aligned")
+    assert(format("{:.2}|{:5.1}", ("héllo", "xyz")) == "hé|x    ", "precision counts characters")
+    assert(format("{:é^5}", "ab") == "éabéé", "multibyte fill")
+    assert(
+        format("{:3}", "日本語") == "日本語" && format("{:4}|", "日本") == "日本  |",
+        "width counts characters"
+    )
+    assert(format("{} {:>6}", (true, false)) == "true  false", "bools")
+    assert(format("{:>4}", String.from("s")) == "   s", "String")
+    assert(
+        format("{:>5}|{:3}", (Point { x: 1, y: 2 }, Point { x: 3, y: 4 })) == "(1 2)|(3 4)",
+        "Show"
+    )
+    assert(
+        format("{:>7}|{:<6}|", (Point { x: 1, y: 2 }, Point { x: 3, y: 4 })) == "  (1 2)|(3 4) |",
+        "Show padded"
+    )
+}
+
+#[test]
+fn patterns() {
+    assert(format("{1} {0} {1}", ("a", "b")) == "b a b", "explicit indices")
+    assert(format("{} {} {0}", (1, 2)) == "1 2 1", "implicit then explicit")
+    assert(format("{{}} {{{}}}", 7) == "{} {7}", "escaped braces")
+    assert(format("no placeholders", ()) == "no placeholders", "unit")
+    var out = String.from(">")
+    write(&out, "{}-{}", (1, 2))
+    assert(out == ">1-2", "write appends")
+    assert(check_pattern(i64, "{} {}").as_str().find("more placeholders").is_some(), "too many")
+    assert(check_pattern(i64, "{").as_str().find("unclosed").is_some(), "unclosed")
+    assert(check_pattern(i64, "}").as_str().find("unmatched").is_some(), "unmatched")
+    assert(check_pattern(i64, "{:.}").as_str().find("precision").is_some(), "dot")
+    assert(check_pattern(str, "{:x}").as_str().find("formats an integer").is_some(), "x of str")
+    assert(check_pattern(i64, "{:e}").as_str().find("formats a float").is_some(), "e of int")
+    assert(check_pattern((i64, f64), "{:x} {:e}").is_empty(), "good")
 }

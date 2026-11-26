@@ -283,6 +283,21 @@ impl(T: Eq) Eq for Option(T) {
     }
 }
 
+impl(T: Eq, E: Eq) Eq for Result(T, E) {
+    fn eq(self, other: Result(T, E)) -> bool {
+        match self {
+            Ok(a) => match other {
+                Ok(b) => a.eq(b)
+                Err(_) => false
+            }
+            Err(a) => match other {
+                Ok(_) => false
+                Err(b) => a.eq(b)
+            }
+        }
+    }
+}
+
 // ---- stopping ----
 
 // Stops the program with a message.
