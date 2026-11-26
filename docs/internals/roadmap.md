@@ -99,11 +99,12 @@ Next:
   `types.jh`'s layouts, and enums as variant parts, so that a debugger
   shows values as well as places.
 - Unit tests for more of the standard library, next to its code:
-  `std.string`, `std.vec`, `std.map`, `std.sort`, `std.utf8`, `std.boxed`
-  and `std.modint` have them. Writing `std.vec`'s found that
-  `Vec.resize` did not compile for any element type: its loop had no
-  invariant for `Vec`'s type invariant. Next: `std.fmt`, `std.iter`,
-  `std.arena` and `std.io`.
+  `std.string`, `std.vec`, `std.map`, `std.sort`, `std.utf8`, `std.boxed`,
+  `std.modint`, `std.fmt`, `std.iter`, `std.arena` and `std.io` have them.
+  Writing `std.vec`'s found that `Vec.resize` did not compile for any
+  element type: its loop had no invariant for `Vec`'s type invariant;
+  `std.fmt`'s, that `{:08}` padded infinity with zeros (`00000inf`).
+  Next: `std.float`, `std.fs`, `std.process` and `std.thread`.
 - Definitions resolved by sema rather than by name, so that `value.method`
   finds the receiver type's method; hover with types; checks that do not
   block replies.

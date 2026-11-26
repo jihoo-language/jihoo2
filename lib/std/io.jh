@@ -133,3 +133,62 @@ pub fn eprintln(comptime T: Show, x: T) {
     s.push('\n')
     sys.write_fd(2, s.as_str())
 }
+
+#[test]
+fn str_reader_lines() {
+    var r = StrReader.new("one\ntwo\n\nlast")
+    var s = String.new()
+    assert(r.read_line(&s) == Ok(4) && s == "one\n", "first line with its newline")
+    assert(r.read_line(&s) == Ok(4) && s == "one\ntwo\n", "appended")
+    s.clear()
+    assert(r.read_line(&s) == Ok(1) && s == "\n", "empty line")
+    s.clear()
+    assert(r.read_line(&s) == Ok(4) && s == "last", "no final newline")
+    assert(r.read_line(&s) == Ok(0) && r.read_line(&s) == Ok(0), "end")
+}
+
+#[test]
+fn str_reader_invalid_utf8() {
+    let bytes = [104 as u8, 0xff, 10, 111, 107, 10]
+    var r = StrReader.new(unsafe { make_str(&bytes[0], 6) })
+    var s = String.from("keep")
+    assert(r.read_line(&s) == Err(os.Error.InvalidData) && s == "keep", "invalid line rejected")
+    assert(r.read_line(&s) == Ok(3) && s == "keepok\n", "next line read")
+}
+
+// A reader of the pipe's read end with a buffer of `size` bytes, so that
+// lines cross refills.
+fn piped(text: [u8], size: i64) -> BufReader {
+    let (rd, wr) = os.pipe().unwrap()
+    var w = wr
+    w.write_all(text).unwrap()
+    BufReader { file: rd, buffer: Vec(u8).with_capacity(size), size, pos: 0, end: 0 }
+}
+
+#[test]
+fn buf_reader_lines_across_refills() {
+    var r = piped("abcdefghij\nxy\n\nhé llo\nend".as_bytes(), 3)
+    var s = String.new()
+    assert(r.read_line(&s) == Ok(11) && s == "abcdefghij\n", "longer than the buffer")
+    s.clear()
+    assert(r.read_line(&s) == Ok(3) && s == "xy\n", "ends at a refill")
+    s.clear()
+    assert(r.read_line(&s) == Ok(1) && s == "\n", "empty line")
+    s.clear()
+    assert(r.read_line(&s) == Ok(8) && s == "hé llo\n", "a character split by a refill")
+    s.clear()
+    assert(r.read_line(&s) == Ok(3) && s == "end", "no final newline")
+    assert(r.read_line(&s) == Ok(0) && s == "end", "end")
+}
+
+#[test]
+fn buf_reader_invalid_utf8() {
+    let bytes = [97 as u8, 98, 0xc3, 10, 111, 107, 10]
+    var r = piped(bytes[..], 2)
+    var s = String.from(">")
+    assert(r.read_line(&s) == Err(os.Error.InvalidData) && s == ">", "restored")
+    assert(r.read_line(&s) == Ok(3) && s == ">ok\n", "next line")
+    assert(BufReader.with_capacity("/", 0).is_err(), "zero capacity")
+    var d = BufReader.open("/").unwrap()
+    assert(d.read_line(&s) == Err(os.Error.IsADirectory) && s == ">ok\n", "read error")
+}

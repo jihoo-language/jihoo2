@@ -177,3 +177,59 @@ pub trait IteratorExt: Iterator {
 }
 
 impl(I: Iterator) IteratorExt for I {}
+
+#[test]
+fn ranges_and_slices() {
+    var r = range(2, 5)
+    assert(r.next() == Some(2) && r.next() == Some(3) && r.next() == Some(4), "2 3 4")
+    assert(r.next().is_none() && r.next().is_none(), "then none")
+    assert(range(5, 2).count() == 0 && range(3, 3).count() == 0, "empty")
+    let xs = [3, 1, 4, 1, 5]
+    var sum = 0
+    for x in xs[..].iter() {
+        sum += x
+    }
+    assert(sum == 14 && xs[1..4].iter().count() == 3, "slice iter")
+}
+
+#[test]
+fn adapters() {
+    let squares = range(0, 10).map(fn(x) { x * x }).fold(0, fn(a, x) { a + x })
+    assert(squares == 285, "map fold")
+    let evens = range(0, 10).filter(fn(x) { x % 2 == 0 }).count()
+    assert(evens == 5, "filter count")
+    let odd_sum = range(0, 10).filter(fn(x) { x % 2 == 1 }).fold(0, fn(a, x) { a + x })
+    assert(odd_sum == 25, "filter fold")
+    assert(range(0, 100).take(3).count() == 3 && range(0, 2).take(5).count() == 2, "take")
+    assert(range(0, 5).take(0).count() == 0 && range(0, 5).take(-1).count() == 0, "take none")
+    var pairs = 0
+    for (a, b) in range(0, 3).zip(range(10, 100)) {
+        assert(b == a + 10, "zip pairs")
+        pairs += 1
+    }
+    assert(pairs == 3, "zip ends with the shorter left")
+    var z = range(0, 1).zip(range(0, 1))
+    assert(z.next().is_some() && z.next().is_none() && z.next().is_none(), "zip stays done")
+    assert(range(0, 5).zip(range(0, 2)).count() == 2, "zip shorter right")
+    assert(range(1, 5).any(fn(x) { x == 4 }) && !range(1, 5).any(fn(x) { x > 4 }), "any")
+    assert(range(1, 5).all(fn(x) { x > 0 }) && !range(1, 5).all(fn(x) { x < 4 }), "all")
+    assert(!range(0, 0).any(fn(x) { true }) && range(0, 0).all(fn(x) { false }), "empty any all")
+    var seen = 0
+    range(0, 4).for_each(fn(x) { seen += x })
+    assert(seen == 6, "for_each")
+}
+
+#[test]
+fn owned_items() {
+    var v = Vec(String).new()
+    for i in 0..6 {
+        v.push(i.to_string())
+    }
+    let long = v.into_iter().map(fn(s) { s + "!" }).filter(fn(s) { s != "3!" }).count()
+    assert(long == 5, "strings mapped, filtered and dropped")
+    let joined = range(0, 4).map(fn(i) { i.to_string() }).fold(
+        String.new(),
+        fn(a, s) { a + s.as_str() }
+    )
+    assert(joined == "0123", "fold owned")
+}
