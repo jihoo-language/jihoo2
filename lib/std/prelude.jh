@@ -95,6 +95,13 @@ impl Eq for bool {
     }
 }
 
+// So that a `Result((), E)` compares.
+impl Eq for () {
+    fn eq(self, other: ()) -> bool {
+        true
+    }
+}
+
 impl(T: Number) Ord for T {
     fn compare(self, other: T) -> Ordering {
         if self < other {

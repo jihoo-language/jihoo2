@@ -262,6 +262,19 @@ pub fn unlink_raw(path: str) -> i64 {
     unsafe { syscall(sysno.UNLINKAT, CWD, p.ptr, 0) }
 }
 
+pub fn mkdir_raw(path: str, mode: i32) -> i64 {
+    let p = c_path(path)
+    // mkdirat(AT_FDCWD, path, mode)
+    unsafe { syscall(sysno.MKDIRAT, CWD, p.ptr, mode as i64) }
+}
+
+// Removes an empty directory.
+pub fn rmdir_raw(path: str) -> i64 {
+    let p = c_path(path)
+    // unlinkat(AT_FDCWD, path, AT_REMOVEDIR)
+    unsafe { syscall(sysno.UNLINKAT, CWD, p.ptr, 0x200) }
+}
+
 // Starts a program in a new process with `stdio[i]` as its file descriptor
 // `i` (-1 keeps this process's own); the child's pid, or `-errno` when it
 // cannot fork. When `execve` fails, the child writes its error number to

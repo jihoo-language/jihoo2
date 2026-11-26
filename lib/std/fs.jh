@@ -2,6 +2,7 @@
 
 import std.os
 import std.sys
+import std.env
 
 // The whole file as text. Its bytes are not checked to be UTF-8; see
 // `std.utf8.validate`.
@@ -34,10 +35,32 @@ pub fn append_bytes(path: str, data: [u8]) -> Result((), os.Error) {
 }
 
 pub fn remove_file(path: str) -> Result((), os.Error) {
+    check_path(path)?
+    done(sys.unlink_raw(path))
+}
+
+// A new directory, readable and writable by everyone the umask allows;
+// `AlreadyExists` if there is something at `path`.
+pub fn create_dir(path: str) -> Result((), os.Error) {
+    check_path(path)?
+    done(sys.mkdir_raw(path, 0o777))
+}
+
+// Removes a directory, which must be empty.
+pub fn remove_dir(path: str) -> Result((), os.Error) {
+    check_path(path)?
+    done(sys.rmdir_raw(path))
+}
+
+// A path with a zero byte cannot reach the system.
+fn check_path(path: str) -> Result((), os.Error) {
     for b in path {
         if b == 0 { return Err(os.Error.InvalidInput) }
     }
-    let r = sys.unlink_raw(path)
+    Ok(())
+}
+
+fn done(r: i64) -> Result((), os.Error) {
     if r < 0 { return Err(os.Error.from_code((0 - r) as i32)) }
     Ok(())
 }
@@ -72,4 +95,73 @@ pub fn read_dir(path: str) -> Result(Vec(String), os.Error) {
     }
     sort(&names)
     Ok(names)
+}
+
+// A directory of its own for a test, empty, under `$TMPDIR` or `/tmp`.
+fn scratch(name: str) -> String {
+    let base = match env.get("TMPDIR") {
+        Some(t) => t
+        None => "/tmp"
+    }
+    let dir = base + "/jihoo-std-fs-" + name
+    match read_dir(dir.as_str()) {
+        Ok(names) => {
+            for n in names {
+                let p = dir.as_str() + "/" + n.as_str()
+                if remove_file(p.as_str()).is_err() { remove_dir(p.as_str()).unwrap() }
+            }
+            remove_dir(dir.as_str()).unwrap()
+        }
+        Err(_) => {}
+    }
+    create_dir(dir.as_str()).unwrap()
+    dir
+}
+
+#[test]
+fn files_written_read_and_removed() {
+    let dir = scratch("files")
+    let path = dir.as_str() + "/a.txt"
+    let p = path.as_str()
+    write_file(p, "héllo\n").unwrap()
+    assert(read_file(p).unwrap() == "héllo\n", "written then read")
+    append_bytes(p, "more".as_bytes()).unwrap()
+    let bytes = read_bytes(p).unwrap()
+    assert(bytes.len() == 11 && bytes[7] == 'm', "appended")
+    write_bytes(p, [1 as u8, 0, 2][..]).unwrap()
+    assert(read_bytes(p).unwrap().len() == 3, "replaced, zero bytes kept")
+    write_file(p, "").unwrap()
+    assert(read_file(p).unwrap().is_empty(), "emptied")
+    remove_file(p).unwrap()
+    assert(read_file(p).is_err() && remove_file(p) == Err(os.Error.NotFound), "removed")
+    assert(remove_file("a\0b") == Err(os.Error.InvalidInput), "zero byte")
+    remove_dir(dir.as_str()).unwrap()
+}
+
+#[test]
+fn directories() {
+    let dir = scratch("dirs")
+    let d = dir.as_str()
+    assert(read_dir(d).unwrap().is_empty(), "new and empty")
+    assert(create_dir(d) == Err(os.Error.AlreadyExists), "exists")
+    // Enough names for several reads of the directory.
+    for i in 0..300 {
+        write_file((d + "/f" + i.to_string().as_str()).as_str(), "x").unwrap()
+    }
+    create_dir((d + "/sub").as_str()).unwrap()
+    let names = read_dir(d).unwrap()
+    assert(
+        names.len() == 301 && names[0] == "f0" && names[1] == "f1" && names[2] == "f10",
+        "sorted"
+    )
+    assert(names[300] == "sub", "the subdirectory too")
+    assert(remove_dir(d) == Err(os.Error.NotEmpty), "not empty")
+    assert(remove_dir((d + "/f0").as_str()) == Err(os.Error.NotADirectory), "a file")
+    assert(read_dir((d + "/f0").as_str()) == Err(os.Error.NotADirectory), "read a file")
+    remove_dir((d + "/sub").as_str()).unwrap()
+    for i in 0..300 {
+        remove_file((d + "/f" + i.to_string().as_str()).as_str()).unwrap()
+    }
+    remove_dir(d).unwrap()
+    assert(read_dir(d) == Err(os.Error.NotFound), "removed")
 }

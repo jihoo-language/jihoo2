@@ -473,3 +473,63 @@ pub fn write_exponent(inout out: String, p: Parts, precision: i64) {
     }
     write_scientific(&out, exact(p, precision + 1, false))
 }
+
+fn fixed(x: f64, precision: i64) -> String {
+    var s = String.new()
+    write_fixed(&s, parts_f64(x), precision)
+    s
+}
+
+fn exponent(x: f64, precision: i64) -> String {
+    var s = String.new()
+    write_exponent(&s, parts_f64(x), precision)
+    s
+}
+
+fn short(x: f64) -> String {
+    var s = String.new()
+    write_shortest(&s, parts_f64(x))
+    s
+}
+
+#[test]
+fn taken_apart() {
+    let one = parts_f64(1.0)
+    assert(!one.negative && !one.special && one.f == 1 << 52 && one.e == -52, "1.0")
+    let tiny = parts_f64(5e-324)
+    assert(tiny.f == 1 && tiny.e == -1074, "the smallest subnormal")
+    let inf = parts_f64(-1.0 / 0.0)
+    assert(inf.special && inf.f == 0 && inf.negative, "-inf")
+    assert(parts_f64(0.0 / 0.0).f != 0, "NaN")
+    let half = parts_f32(0.5 as f32)
+    assert(half.f == 1 << 23 && half.e == -24 && half.bits == 24, "f32")
+    let d = shortest(parts_f64(123.25))
+    assert(d.k == 3 && d.digits.len() == 5 && d.digits[0] == 1 && d.digits[4] == 5, "digits")
+    assert(shortest(parts_f64(0.0)).digits.is_empty(), "zero has no digits")
+}
+
+#[test]
+fn rounded_half_to_even() {
+    // 0.125, 0.375 and 2.5 are exact, so these are ties.
+    assert(fixed(0.125, 2) == "0.12" && fixed(0.375, 2) == "0.38", "ties")
+    assert(fixed(2.5, 0) == "2" && fixed(3.5, 0) == "4" && fixed(0.5, 0) == "0", "whole ties")
+    // 0.1 is a little more than a tenth; 2.675 a little less.
+    assert(fixed(0.15, 1) == "0.1" && fixed(2.675, 2) == "2.67", "not ties")
+    assert(fixed(9.996, 2) == "10.00" && fixed(-0.0006, 3) == "-0.001", "carried")
+    assert(fixed(0.0004, 3) == "0.000" && fixed(1e-30, 2) == "0.00", "too small")
+    assert(fixed(1e21, 1) == "1000000000000000000000.0", "large")
+    assert(exponent(9.96, 1) == "1.0e1" && exponent(1234.5, 2) == "1.23e3", "exponent")
+    assert(exponent(0.0, 2) == "0.00e0" && exponent(5e-324, 0) == "5e-324", "exponent ends")
+}
+
+#[test]
+fn shortest_text() {
+    assert(short(0.1) == "0.1" && short(100.0) == "100.0" && short(-0.0) == "-0.0", "plain")
+    assert(short(1e16) == "1e16" && short(1e15) == "1000000000000000.0", "large")
+    assert(short(0.0001) == "0.0001" && short(0.00001) == "1e-5", "small")
+    assert(
+        short(2.5e-7) == "2.5e-7" && short(1.7976931348623157e308) == "1.7976931348623157e308",
+        "ends"
+    )
+    assert(short(1.0 / 0.0) == "inf" && short(0.0 / 0.0) == "NaN", "special")
+}

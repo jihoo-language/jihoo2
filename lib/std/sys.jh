@@ -155,6 +155,17 @@ pub fn unlink_raw(path: str) -> i64 {
     result(unsafe { libc.unlink(p.ptr) } as i64)
 }
 
+pub fn mkdir_raw(path: str, mode: i32) -> i64 {
+    let p = c_path(path)
+    result(unsafe { libc.mkdir(p.ptr, mode as u32) } as i64)
+}
+
+// Removes an empty directory.
+pub fn rmdir_raw(path: str) -> i64 {
+    let p = c_path(path)
+    result(unsafe { libc.rmdir(p.ptr) } as i64)
+}
+
 // Starts a program in a new process with `stdio[i]` as its file descriptor
 // `i` (-1 keeps this process's own); the child's pid, or `-errno` when it
 // cannot fork. When `execve` fails, the child writes its error number to

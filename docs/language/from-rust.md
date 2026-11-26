@@ -181,7 +181,9 @@ Rust struct with a lifetime parameter, without the annotation
 ## Equality and printing
 
 - `==` needs an `Eq` impl, even for an enum without payloads or a tuple.
-  Compare such values with `match`, or write `impl Eq for T`.
+  Compare such values with `match`, or write `impl Eq for T`. `Option`,
+  `Result`, `Vec` and `()` have one when their contents do, so
+  `remove_dir(p) == Ok(())` works; tuples do not.
 - `String == str` and `str == String` both work.
 - `print`/`println` need `Show`: integers, floats, `bool`, `str` and
   `String` have it. `Vec`, `Option` and tuples do not; derive or write a

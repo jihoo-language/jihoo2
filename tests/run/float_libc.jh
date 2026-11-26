@@ -1,0 +1,96 @@
+// std.float against the C library: floats from random bits, written with
+// `{:.Ne}` and `{:.Nf}` digits, must match glibc's `printf` (correctly
+// rounded, half to even), and the shortest text must read back through
+// `strtod` and `strtof` as the same value.
+import std.fmt
+import std.float
+import std.libc
+
+extern fn strtod(s: *u8, end: **u8) -> f64
+extern fn strtof(s: *u8, end: **u8) -> f32
+
+fn c(spec: str, prec: i64, x: f64) -> String {
+    var buf = [0 as u8; 512]
+    let f = spec + "\0"
+    let n = unsafe { libc.snprintf(&buf[0], 512, f.as_str().ptr, prec as i32, x) }
+    unsafe { make_str(&buf[0], n as i64) }.to_string()
+}
+
+// glibc's `1.23e+03` as `1.23e3`.
+fn c_exp(prec: i64, x: f64) -> String {
+    let s = c("%.*e", prec, x)
+    let t = s.as_str()
+    let at = t.find("e").unwrap()
+    var out = t[0..at + 1].to_string()
+    if t[at + 1] == '-' { out.push('-') }
+    var rest = t[at + 2..]
+    while rest.len > 1 && rest[0] == '0' {
+        rest = rest[1..]
+    }
+    out.push_str(rest)
+    out
+}
+
+fn f64_of(b: u64) -> f64 {
+    var v = b
+    unsafe { *(&v as *f64) }
+}
+
+fn f32_of(b: u32) -> f32 {
+    var v = b
+    unsafe { *(&v as *f32) }
+}
+
+fn report(inout bad: i64, what: str, x: f64, mine: str, theirs: str) {
+    if bad < 10 {
+        println(what + " " + c("%a", 0, x).as_str() + ": " + mine + " vs " + theirs)
+    }
+    bad += 1
+}
+
+fn main() {
+    var seed: u64 = 88172645463325252
+    var bad = 0
+    var checked = 0
+    for i in 0..20000 {
+        seed = seed ^ seed << 13
+        seed = seed ^ seed >> 7
+        seed = seed ^ seed << 17
+        var b = seed
+        // Every other one between 2^-30 and 2^30, where fixed digits are few.
+        let near = i % 2 == 0
+        if near {
+            b = b & 0x800fffffffffffff | (993 + (seed >> 40) % 60) << 52
+        }
+        let x = f64_of(b)
+        if x != x { continue }
+        let prec = ((seed >> 20) % 20) as i64
+        let p = float.parts_f64(x)
+        var e = String.new()
+        float.write_exponent(&e, p, prec)
+        let ce = c_exp(prec, x)
+        if e != ce { report(&bad, "e", x, e.as_str(), ce.as_str()) }
+        if near {
+            var f = String.new()
+            float.write_fixed(&f, p, prec)
+            let cf = c("%.*f", prec, x)
+            if f != cf { report(&bad, "f", x, f.as_str(), cf.as_str()) }
+        }
+        let s = x.to_string() + "\0"
+        if unsafe { strtod(s.as_str().ptr, null) } != x {
+            report(&bad, "shortest", x, s.as_str(), "")
+        }
+        let y = f32_of(seed as u32)
+        if y == y {
+            let t = fmt.format("{}\0", y)
+            if unsafe { strtof(t.as_str().ptr, null) } != y {
+                report(&bad, "shortest f32", y as f64, t.as_str(), "")
+            }
+        }
+        checked += 1
+    }
+    println(checked > 19000)
+    println(bad)
+}
+//> true
+//> 0

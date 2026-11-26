@@ -271,3 +271,46 @@ fn levels(n: i64) -> i64 {
     }
     d
 }
+
+#[test]
+fn join_both() {
+    var left = Vec(i64).new()
+    let (a, b) = join(fn() {
+        left.push(1)
+        String.from("a")
+    }, fn() { 2 })
+    assert(a == "a" && b == 2 && left.len() == 1, "both results")
+    assert(cpu_count() >= 1, "a processor")
+}
+
+#[test]
+fn each_and_map() {
+    for n in [0, 1, 2, 3, 17, 1000] {
+        let hits = sync.Atomic(i64).new(0)
+        let sum = sync.Atomic(i64).new(0)
+        each(5, 5 + n, fn(i) {
+            hits.add(1)
+            sum.add(i)
+        })
+        assert(hits.load() == n && sum.load() == n * (n + 9) / 2, "each index once")
+        let uneven = sync.Atomic(i64).new(0)
+        each_uneven(5, 5 + n, fn(i) { uneven.add(i) })
+        assert(uneven.load() == sum.load(), "each_uneven index once")
+    }
+    each(3, 1, fn(i) { panic("a reversed range is empty") })
+    var xs = Vec(i64).new()
+    for i in 0..500 {
+        xs.push(i)
+    }
+    let squares = map(xs.as_slice(), fn(x) { x * x })
+    let names = map_uneven(xs.as_slice(), fn(x) { x.to_string() })
+    assert(squares.len() == 500 && squares[499] == 249001, "map in order")
+    assert(names.len() == 500 && names[123] == "123", "map_uneven owned, in order")
+    assert(map(xs.as_slice()[0..0], fn(x) { x.to_string() }).is_empty(), "map nothing")
+    each_mut(&xs, fn(x) { x *= 2 })
+    each_mut_uneven(&xs, fn(x) { x += 1 })
+    assert(xs[0] == 1 && xs[499] == 999, "each_mut")
+}
+
+// `scope` is tested by tests/run/scoped_threads.jh: the compiler does not
+// join scoped jobs for functions of this module, which implements them.

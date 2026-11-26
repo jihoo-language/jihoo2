@@ -125,6 +125,12 @@ python3 tests/differential.py --compiler out/jihoo --seed 1000 --count 500 --kee
 python3 tests/differential.py --print --seed 1007     # the program of a seed
 ```
 
+[`tests/run/float_libc.jh`](../../tests/run/float_libc.jh) does the same
+for float text: 20,000 floats from random bits, written by `std.float`
+with an exponent and with fixed digits, must match glibc's `printf`, and
+the shortest text must read back through `strtod` and `strtof` as the same
+value.
+
 `--keep` saves the programs that fail. It found that the interpreter and
 constant folding rejected `MIN / -1` and `MIN % -1` as overflow, which
 compiled code wraps as [documented](../language/types.md#integers)
