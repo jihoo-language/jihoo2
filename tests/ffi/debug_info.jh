@@ -1,7 +1,7 @@
 // Built with `-g`: line tables say that the multiplication is line 6,
 // column 5, of this file, in either optimization, and the program prints
 // the same. The variables are described too: `x`, `pair` with its fields,
-// and `Tag` as a variant part.
+// and `Tag` as a variant part, the second `pair` in a lexical block.
 
 fn twice(x: i64) -> i64 {
     x * 2
@@ -19,5 +19,7 @@ enum Tag {
 
 fn main() {
     let pair = Pair { left: 21, right: Tag.Nothing }
+    // A shadowed name: the second `pair` is in a lexical block of its own.
+    let pair = Pair { left: pair.left, right: Tag.Number(1) }
     println(twice(pair.left))
 }

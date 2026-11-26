@@ -1005,6 +1005,7 @@ impl Tests {
             "!DILocalVariable(name: \"pair\", ",
             "#dbg_declare(ptr ",
             "tag: DW_TAG_variant_part",
+            "distinct !DILexicalBlock(scope: !",
             "!DIDerivedType(tag: DW_TAG_member, name: \"right\", "
         ] {
             if !ir.contains(want) {

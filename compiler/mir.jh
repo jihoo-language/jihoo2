@@ -297,6 +297,10 @@ pub struct LocalDecl {
     pub span: Span
     pub mutable: bool
     pub kind: LocalKind
+    // Where the block it was declared in ends (a byte offset in
+    // `span.file`), 0 when not in a block: for debug information, where the
+    // name is in scope, from `span.lo` to here.
+    pub scope_end: u32
 }
 
 pub enum ParamPass {
@@ -1114,6 +1118,7 @@ impl Clone for LocalDecl {
             span: self.span
             mutable: self.mutable
             kind: self.kind
+            scope_end: self.scope_end
         }
     }
 }
