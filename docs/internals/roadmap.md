@@ -90,14 +90,16 @@ the `test` suite checks its output and runs every std module's tests.
 Implemented: [`-g`](../reference/command-line.md#debug-information) writes
 DWARF line tables: a subprogram per function and the line and column of
 every statement, call and check, with code from other files in their own
-file scopes. The `backend` suite checks the IR, both optimization levels
-and the tables in the executable.
+file scopes; and every named variable and parameter with its type from
+`types.jh`'s layouts, enums as variant parts, so that a debugger shows
+values as well as places. The `backend` suite checks the IR, both
+optimization levels, and the tables and variables in the executable
+(llvm-dwarfdump).
 
 Next:
 
-- Debug information beyond line tables: variables, with their types from
-  `types.jh`'s layouts, and enums as variant parts, so that a debugger
-  shows values as well as places.
+- Debug information: lexical scopes, so that a shadowed name is the
+  innermost one, and pretty printers for `String`, `Vec` and `Map`.
 - Unit tests for more of the standard library, next to its code: every
   module with run-time code of its own has them except `std.prelude`,
   `std.derive` and the profile layers (`std.sys`, `std.os_thread`,

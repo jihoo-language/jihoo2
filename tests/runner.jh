@@ -983,8 +983,10 @@ impl Tests {
     // std.rt's float conversions and reject floats; without them the IR has
     // no attributes.
     // `-g`: a compile unit, a subprogram for every function (after its
-    // attributes), statements' lines and columns, and `.debug_line` in the
-    // program, which runs the same; without it, no debug information.
+    // attributes), statements' lines and columns, variables with their
+    // types (an enum as a variant part), and `.debug_line` and the
+    // variables in the program (llvm-dwarfdump), which runs the same;
+    // without it, no debug information.
     fn debug_info(self) -> Result((), String) {
         let file = "tests/ffi/debug_info.jh"
         let plain = exec(self.compiler.as_str(), ["emit-llvm", file])
@@ -994,9 +996,20 @@ impl Tests {
         let o = exec(self.compiler.as_str(), ["emit-llvm", "-g", "-mno-red-zone", file])
         let ir = o.stdout.as_str()
         if !o.status.success() || !ir.contains("!llvm.dbg.cu = !{!") ||
-            !ir.contains("emissionKind: LineTablesOnly") ||
-            !ir.contains("!DILocation(line: 6, column: 5, scope: !") {
+            !ir.contains("emissionKind: FullDebug") ||
+            !ir.contains("!DILocation(line: 7, column: 5, scope: !") {
             return Err("the IR with -g has no line tables:\n" + ir + o.stderr.as_str())
+        }
+        for want in [
+            "!DILocalVariable(name: \"x\", arg: 1, ",
+            "!DILocalVariable(name: \"pair\", ",
+            "#dbg_declare(ptr ",
+            "tag: DW_TAG_variant_part",
+            "!DIDerivedType(tag: DW_TAG_member, name: \"right\", "
+        ] {
+            if !ir.contains(want) {
+                return Err("the IR with -g has no `" + want + "`:\n" + ir)
+            }
         }
         for line in ir.lines() {
             if line.starts_with("define internal ") && line.contains("@\"main.") &&
@@ -1015,13 +1028,27 @@ impl Tests {
                 Ok(b) => b
                 Err(e) => return Err("cannot read " + exe.as_str() + ": " + e.to_string().as_str())
             }
-            fs.remove_file(exe.as_str())
             if ran.stdout.as_str() != "42\n" {
                 return Err("-g " + opt + " prints " + ran.stdout.as_str())
             }
             if !has_bytes(b.as_slice(), ".debug_line") {
                 return Err("the -g " + opt + " program has no .debug_line")
             }
+            if opt == "-O0" {
+                let dump = exec("llvm-dwarfdump", ["--debug-info", exe.as_str()])
+                let d = dump.stdout.as_str()
+                for want in [
+                    "DW_AT_name\t(\"pair\")",
+                    "DW_TAG_variant_part",
+                    "DW_AT_name\t(\"Nothing\")"
+                ] {
+                    if !d.contains(want) {
+                        return Err("the -g -O0 program's DWARF has no `" + want + "`:\n" + d +
+                            dump.stderr.as_str())
+                    }
+                }
+            }
+            fs.remove_file(exe.as_str())
         }
         Ok(())
     }

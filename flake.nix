@@ -184,7 +184,7 @@
             pname = "jihoo-tests";
             inherit version;
             src = testSrc;
-            nativeBuildInputs = [ jihoo llvm.clang llvm.lld pkgs.python3 pkgs.time ];
+            nativeBuildInputs = [ jihoo llvm.clang llvm.lld llvm.llvm pkgs.python3 pkgs.time ];
             dontConfigure = true;
             buildPhase = ''
               export JIHOO_PATH=$PWD/lib JIHOO_COMPILER=${jihoo}/bin/jihoo

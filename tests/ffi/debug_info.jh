@@ -1,11 +1,23 @@
 // Built with `-g`: line tables say that the multiplication is line 6,
 // column 5, of this file, in either optimization, and the program prints
-// the same.
+// the same. The variables are described too: `x`, `pair` with its fields,
+// and `Tag` as a variant part.
 
 fn twice(x: i64) -> i64 {
     x * 2
 }
 
+struct Pair {
+    left: i64
+    right: Tag
+}
+
+enum Tag {
+    Number(i64)
+    Nothing
+}
+
 fn main() {
-    println(twice(21))
+    let pair = Pair { left: 21, right: Tag.Nothing }
+    println(twice(pair.left))
 }
