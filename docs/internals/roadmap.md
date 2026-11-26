@@ -65,7 +65,8 @@ Implemented: [`jihoo fmt`](../reference/command-line.md#source-formatting)
 normalizes indentation and token spacing while preserving comments, literal
 spellings and meaningful line breaks. `--check` detects files whose layout
 differs. Parser-selected lists wrap at a soft width of 100 byte columns,
-configurable with `--width`. It re-lexes and reparses its output and requires
+configurable with `--width`, and lines still too long break after their
+loosest operators. It re-lexes and reparses its output and requires
 the same syntax tree apart from positions. Corpus tests compare comment
 bytes, syntax trees, idempotence and generated LLVM IR, including the compiler
 and standard library on both supported targets. Narrow-width cases exercise

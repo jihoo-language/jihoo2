@@ -59,7 +59,12 @@ pub fn source(file: u32, text: str, width: i64) -> Result(String, Diag) {
             ))
         }
         let selected = overflowing(formatted.as_str(), current, groups, breaks, width)
-        if selected.is_empty() { break }
+        if selected.is_empty() {
+            // Lines still too long once the lists fit: break after operators.
+            if !break_operators(formatted.as_str(), current, &breaks, width) { break }
+            formatted = layout(file, text, tokens, breaks, clauses)
+            continue
+        }
         for index in selected {
             let g = groups[index]
             breaks[g.open + 1] = true
@@ -123,7 +128,8 @@ fn layout(
             // it nests from the statement's level.
             line_indent = indent
             let hugged = !opens.is_empty() && opens[opens.len() - 1].hugging
-            if !is_close(kind) && (kind == Tok.Dot || continues(previous) || clauses[i]) && !hugged {
+            if !is_close(kind) && (kind == Tok.Dot || continues(previous) || clauses[i]) &&
+                !hugged {
                 indent += 1
             }
         }
@@ -322,7 +328,8 @@ fn overflowing(
             let next = tokens[end + 1].tok
             if next == Tok.RParen || next == Tok.RBracket || next == Tok.Question {
                 end += 1
-            } else if next == Tok.Dot && end + 4 < tokens.len() && tokens[end + 2].tok == Tok.Ident &&
+            } else if next == Tok.Dot && end + 4 < tokens.len() &&
+                tokens[end + 2].tok == Tok.Ident &&
                 tokens[end + 3].tok == Tok.LParen && tokens[end + 4].tok == Tok.RParen {
                 end += 4
             } else {
@@ -340,6 +347,139 @@ fn overflowing(
         if wide { selected.push(i); covered = g.close; covered_line = lines[g.close] }
     }
     selected
+}
+
+// How loosely a binary operator binds, 0 for a token that is not one:
+// `||` loosest, then `&&`, comparisons, `|`, `^`, `&`, shifts, `+`/`-`,
+// then `*`/`/`/`%`.
+fn looseness(t: Tok, prev: Tok) -> i64 {
+    match t {
+        OrOr => 9
+        AndAnd => 8
+        EqEq | NotEq | Lt | Le | Gt | Ge => 7
+        Pipe => 6
+        Caret => 5
+        Amp => if is_prefix(t, prev, false) { 0 } else { 4 }
+        Shl | Shr => 3
+        Plus | PlusWrap | MinusWrap => 2
+        Minus => if is_prefix(t, prev, false) { 0 } else { 2 }
+        Star => if is_prefix(t, prev, false) { 0 } else { 1 }
+        StarWrap | Slash | Percent => 1
+        _ => 0
+    }
+}
+
+// A line wider than `width` breaks after the loosest binary operators at
+// its outermost level of nesting, filling each line as far as it fits:
+// `a + b +` then `c`, the continuation indented once. Whether a break was
+// added.
+fn break_operators(text: str, tokens: Vec(Token), inout breaks: Vec(bool), width: i64) -> bool {
+    var lines = Vec(i64).filled(tokens.len(), 0)
+    var columns = Vec(i64).filled(tokens.len(), 0)
+    var widths = Vec(i64).new()
+    var cursor = 0
+    var line = 0
+    var column = 0
+    for i, token in tokens {
+        while cursor < token.span.lo as i64 {
+            if text[cursor] == '\n' { widths.push(column); column = 0; line += 1 }
+            else { column += 1 }
+            cursor += 1
+        }
+        lines[i] = line
+        columns[i] = column
+    }
+    widths.push(column)
+    var added = false
+    var i = 0
+    while i < tokens.len() {
+        let l = lines[i]
+        var j = i
+        while j < tokens.len() && lines[j] == l { j += 1 }
+        // Tokens `i..j` are line `l`.
+        if widths[l] > width && tokens[i].tok != Tok.Eof {
+            // Each operator's depth within the line, and the loosest class at
+            // the shallowest depth.
+            var depth = 0
+            var best_depth = 1000000
+            var best = 0
+            var depths = Vec(i64).filled(j - i, 0)
+            for k in i..j {
+                let t = tokens[k].tok
+                if is_close(t) { depth -= 1 }
+                depths[k - i] = depth
+                let prev = if k > 0 { tokens[k - 1].tok } else { Tok.Eof }
+                let loose = looseness(t, prev)
+                // Not the line's last token: there is something to move.
+                if loose > 0 && k + 1 < j {
+                    if depth < best_depth || (depth == best_depth && loose > best) {
+                        best_depth = depth
+                        best = loose
+                    }
+                }
+                if is_open(t) { depth += 1 }
+            }
+            // A block after the operators that does not end the line (`if a
+            // != 1 { return x }`) is what is long, and one that opens
+            // outside their parentheses (`!(a ||` then `b) {`) would be
+            // indented by them: such lines keep their operators.
+            var block = false
+            if best > 0 {
+                var first = -1
+                for k in i..j {
+                    let prev = if k > 0 { tokens[k - 1].tok } else { Tok.Eof }
+                    if first < 0 && depths[k - i] == best_depth &&
+                        looseness(tokens[k].tok, prev) == best {
+                        first = k
+                    }
+                    if first >= 0 && tokens[k].tok == Tok.LBrace {
+                        if depths[k - i] < best_depth { block = true }
+                        var d = 0
+                        var m = k
+                        while m < j {
+                            if is_open(tokens[m].tok) { d += 1 }
+                            if is_close(tokens[m].tok) {
+                                d -= 1
+                                if d == 0 { break }
+                            }
+                            m += 1
+                        }
+                        if m < j && depths[k - i] <= best_depth { block = true }
+                        // Only a block that the line ends by opening.
+                        if k + 1 < j && depths[k - i] <= best_depth { block = true }
+                    }
+                }
+            }
+            if best > 0 && !block {
+                var ops = Vec(i64).new()
+                for k in i..j {
+                    let prev = if k > 0 { tokens[k - 1].tok } else { Tok.Eof }
+                    if depths[k - i] == best_depth && k + 1 < j &&
+                        looseness(tokens[k].tok, prev) == best {
+                        ops.push(k)
+                    }
+                }
+                let indent = columns[i]
+                // How much a token's column shrinks once it starts a line.
+                var shift = 0
+                for n, op in ops {
+                    let next = if n + 1 < ops.len() {
+                        let o = ops[n + 1]
+                        columns[o] + (tokens[o].span.hi - tokens[o].span.lo) as i64
+                    } else {
+                        widths[l]
+                    }
+                    if next - shift > width && !breaks[op + 1] {
+                        breaks[op + 1] = true
+                        added = true
+                        shift = columns[op + 1] - (indent + 4)
+                    }
+                }
+            }
+        }
+        i = j
+    }
+    added
 }
 
 impl Layout {

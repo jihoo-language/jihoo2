@@ -231,7 +231,8 @@ fn escapes(t: Types, b: Body, lent: [Option(Place)]) -> Vec(bool) {
             match st {
                 Assign(dst, rv, _) => match rv {
                     RefMut(p) => {
-                        let scalar = p.proj.len() == 0 && match t.kind(b.locals[p.local as i64].ty) {
+                        let scalar = p.proj.len() == 0 &&
+                            match t.kind(b.locals[p.local as i64].ty) {
                             Int(_) | Bool => true
                             _ => false
                         }

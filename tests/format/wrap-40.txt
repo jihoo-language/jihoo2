@@ -10,7 +10,9 @@ fn combine(
     second_measurement: i64,
     third_measurement: i64
 ) -> i64 {
-    first_measurement + second_measurement + third_measurement
+    first_measurement +
+        second_measurement +
+        third_measurement
 }
 
 fn main() {
@@ -31,7 +33,8 @@ fn main() {
         combine(4, 5, 6),
         combine(7, 8, 9)
     ]
-    println(results[0] + data.third_measurement)
+    println(results[0] +
+        data.third_measurement)
 }
 
 fn checked(
@@ -61,4 +64,20 @@ fn report(
         code
     ).as_str().len)
     Ok(code)
+}
+
+// Long expressions break after their loosest operators, except where a
+// block on the line is what is long.
+fn limits(
+    first_value: i64,
+    second_value: i64
+) -> bool {
+    if first_value < 2 && second_value > 3 { return false }
+    if first_value > 100 ||
+        second_value > 200 ||
+        first_value == second_value {
+        return true
+    }
+    first_value * 2 + second_value * 3 >
+        10
 }
