@@ -155,8 +155,9 @@ specialized library work; they do not by themselves require new syntax.
 - Done: [differential testing](testing.md#differential-testing). Random
   integer programs run in Python, in the compile-time interpreter and
   compiled at four settings (`--audit-proved` among them) must agree; the
-  `run` suite checks fixed seeds. Next: floats, structs and enums, `Vec`
-  and `String`, and closures in the generated programs.
+  `run` suite checks fixed seeds. The programs also have floats, a
+  struct, an enum and `Vec`. Next: `String`, closures and generic
+  functions in the generated programs.
 - Maintain the [fusion benchmark](../../benchmarks/functional-fusion/README.md)
   as compiler and library implementations change.
 
