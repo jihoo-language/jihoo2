@@ -106,10 +106,14 @@ every way the borrow rules can be broken.
 ## Differential testing
 
 [`tests/differential.py`](../../tests/differential.py) writes random
-programs of integer functions `fK(a: i64, b: i64) -> i64`: wrapping
+programs of functions `fK(a: i64, b: i64) -> i64`: wrapping
 arithmetic, bit operations, shifts, division by values that are never
-zero (sometimes `-1`), conversions between every integer type, `if`,
-`match` on ranges, `for` loops, arrays and calls to earlier functions.
+zero (sometimes `-1`), `f32` and `f64` arithmetic (with NaN, infinities
+and division by zero), conversions between every integer and float type,
+`if`, `match` on ranges, `for` loops, arrays, a struct whose fields change,
+an enum built and matched, a `Vec(i64)` that is filled, indexed and popped,
+and calls to earlier functions. The Python model rounds `f32` arithmetic
+after each operation and integers to `f32` once.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
 compile-time interpreter (a `const` table) and by compiled code, given
