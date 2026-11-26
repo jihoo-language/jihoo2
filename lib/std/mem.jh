@@ -69,3 +69,44 @@ pub unsafe fn dyn_drop(comptime T: type, p: *u8) {
     drop_at(T, p as *T)
     dealloc(T, p as *T, 1)
 }
+
+#[test]
+fn moving_values() {
+    var a = String.from("a")
+    var b = String.from("b")
+    swap(&a, &b)
+    assert(a == "b" && b == "a", "swap")
+    let old = replace(&a, String.from("c"))
+    assert(old == "b" && a == "c", "replace")
+    let t = take(&a)
+    assert(t == "c" && a.is_empty(), "take leaves the default")
+    var n = 3
+    assert(take(&n) == 3 && n == 0, "take an integer")
+}
+
+#[test]
+fn allocation() {
+    unsafe {
+        let p = alloc(String, 2)
+        write(p, String.from("x"))
+        write(p + 1, String.from("y"))
+        let q = realloc(String, p, 2, 100)
+        assert(*(q + 1) == "y", "realloc keeps values")
+        drop_at(q)
+        drop_at(q + 1)
+        dealloc(q, 100)
+        // Nothing to allocate: a pointer that is not null, and aligned.
+        let e = alloc(u64, 0)
+        assert(e != null && (e as i64) % 8 == 0, "zero elements")
+        dealloc(e, 0)
+        let z = alloc((), 10)
+        assert(z != null, "zero-sized")
+        dealloc(z, 10)
+        let r = realloc(i64, null, 0, 4)
+        *(r + 3) = 7
+        assert(*(r + 3) == 7, "realloc from nothing")
+        dealloc(r, 4)
+        let d = dyn_box(String.from("boxed"))
+        dyn_drop(String, d)
+    }
+}

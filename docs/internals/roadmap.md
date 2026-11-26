@@ -98,16 +98,16 @@ Next:
 - Debug information beyond line tables: variables, with their types from
   `types.jh`'s layouts, and enums as variant parts, so that a debugger
   shows values as well as places.
-- Unit tests for more of the standard library, next to its code:
-  `std.string`, `std.vec`, `std.map`, `std.sort`, `std.utf8`, `std.boxed`,
-  `std.modint`, `std.fmt`, `std.iter`, `std.arena`, `std.io`, `std.float`,
-  `std.fs`, `std.process` and `std.thread` have them (`thread.scope` is
-  tested by `tests/run/scoped_threads.jh`, as the compiler does not join
-  scoped jobs inside `std.thread`). Writing `std.vec`'s found that
-  `Vec.resize` did not compile for any element type: its loop had no
-  invariant for `Vec`'s type invariant; `std.fmt`'s, that `{:08}` padded
-  infinity with zeros (`00000inf`). Next: `std.os`, `std.env`, `std.sync`,
-  `std.mem` and `std.history`.
+- Unit tests for more of the standard library, next to its code: every
+  module with run-time code of its own has them except `std.prelude`,
+  `std.derive`, `std.rt` (128-bit division and float conversions, which a
+  differential test against Clang's compiler-rt would suit) and the
+  profile layers (`std.sys`, `std.os_thread`, `std.uefi`), which the run
+  and uefi suites exercise. `thread.scope` is tested by
+  `tests/run/scoped_threads.jh`, as the compiler does not join scoped
+  jobs inside `std.thread`. Writing them found that `Vec.resize` did not
+  compile for any element type, that `{:08}` padded infinity with zeros
+  (`00000inf`), and that SIGPIPE made `os.Error.BrokenPipe` unreachable.
 - Definitions resolved by sema rather than by name, so that `value.method`
   finds the receiver type's method; hover with types; checks that do not
   block replies.
