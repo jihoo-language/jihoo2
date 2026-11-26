@@ -326,8 +326,8 @@ def program(seed, functions):
     out += [
         "",
         "fn main() {",
-        "    // 0, unknown while compiling",
-        "    let z = env.args().len() as i64 - 1",
+        "    // 0 however many arguments there are, unknown while compiling",
+        "    let z = env.args().len() >> 40",
         f"    let xs: [i64; {INPUTS}] = [{xs}]",
         f"    let ys: [i64; {INPUTS}] = [{ys}]",
         f"    for j in 0..{INPUTS} {{",

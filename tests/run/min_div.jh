@@ -18,8 +18,9 @@ const F128: i128 = ((1 as i128) << 127) % (0 -% (1 as i128))
 fn minimum() -> i8 { 128 as i8 }
 
 fn main() {
-    // 0, unknown while compiling
-    let z = env.args().len() as i64 - 1
+    // 0 however many arguments there are (UEFI gives none), and unknown
+    // while compiling
+    let z = env.args().len() >> 40
     let r8 = q8((0 -% 127 -% 1) +% z as i8, (0 -% 1) +% z as i8)
     let r32 = q32((0 -% 2147483647 -% 1) +% z as i32, (0 -% 1) +% z as i32)
     let r64 = q64((0 -% 9223372036854775807 -% 1) +% z, (0 -% 1) +% z)
