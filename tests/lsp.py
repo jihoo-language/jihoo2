@@ -106,12 +106,14 @@ def main():
         main_file.write_text("fn main() {}\n")
         source = ("import std.mem\nimport helper\n\n"
                   "struct Point {\n    x: i64\n}\n\n"
+                  "struct Bag {\n    items: Vec(String)\n}\n\n"
                   "fn main() {\n"
                   "    let s = \"가😀\"; let value = helper.twice(2)\n"
                   "    var v = Vec(String).new()\n"
                   "    let p = Point { x: value }\n"
                   "    let old = mem.replace(&v, Vec(String).new())\n"
-                  "    println(value + p.x + old.len() + s.len + missing)\n"
+                  "    let bag = Bag { items: Vec(String).new() }\n"
+                  "    println(value + p.x + old.len() + s.len + bag.items.len() + missing)\n"
                   "}\n")
         error_offset = source.encode().index(b"missing")
 
@@ -192,6 +194,26 @@ def main():
             assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/vec.jh"), found
             assert "pub fn len(self) -> i64" in hover("len", 0, fixed.encode().index(b"old.len")), \
                 hover("len", 0, fixed.encode().index(b"old.len"))
+            # Through a field: `bag.items.len()` is Vec's too.
+            offset = fixed.encode().index(b"bag.items.len") + 10
+            found = client.request("textDocument/definition", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed, offset + 1, utf8)})
+            assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/vec.jh"), found
+            assert "items: Vec(String)" in hover("items", 1), hover("items", 1)
+            # A trait's default method: Show's `to_string`, not String's.
+            fixed2 = fixed.replace("    let bag =", "    let shown = p.x.to_string()\n    let bag =")
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 100},
+                                                     "contentChanges": [{"text": fixed2}]})
+            assert client.diagnostics(uri(main_file)) == []
+            offset = fixed2.encode().index(b"p.x.to_string") + 4
+            found = client.request("textDocument/definition", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed2, offset + 1, utf8)})
+            assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/prelude.jh"), found
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 101},
+                                                     "contentChanges": [{"text": fixed}]})
+            assert client.diagnostics(uri(main_file)) == []
             # The comment above a declaration comes with it.
             assert "Puts v in the place" in hover("replace"), hover("replace")
             assert client.request("textDocument/hover", {

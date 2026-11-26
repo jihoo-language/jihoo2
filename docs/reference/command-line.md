@@ -388,13 +388,14 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   the modules it makes visible, then variants, fields and methods by name.
   `module.name` looks in that module and `Type.name` among that type's
   variants, fields and methods. `value.name`, where `value` is a local or
-  parameter, looks among the fields and methods of the type the compiler
-  gave `value` (through borrows, in every instance of a generic
-  function): methods for a call `value.name(...)`, fields first
-  otherwise. When the program does not check, the receiver is a longer
-  path (`a.b.name`), or the type has no such member (a trait's default
-  method), every field and method of that name is found instead; such a
-  request may return several locations.
+  parameter, or a path of fields from one (`self.items.name`), looks
+  among the fields and methods of the type the compiler gave it (through
+  borrows, in every instance of a generic function): methods for a call
+  `value.name(...)`, fields first otherwise, then the methods of traits
+  (a default method such as `to_string`). When the program does not
+  check, or the receiver is a call or an index (`f().name`, `v[i].name`),
+  every field and method of that name is found instead; such a request
+  may return several locations.
 - **Hover**, on what go to definition finds (so `value.method` is the
   receiver type's method): a local or parameter shows its
   type as the compiler inferred it, from the checked program (`total: f64`;
