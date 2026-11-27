@@ -59,7 +59,8 @@ pub fn parse_module(file: u32, sink toks: Vec(Token)) -> Result(Module, Diag) {
 
 pub struct FormatModule {
     pub module: Module
-    // Opening delimiters and separators in lists, not blocks or for indices.
+    // Opening delimiters and separators in lists, blocks and matches, not
+    // for indices.
     pub lists: Vec(u32)
     pub separators: Vec(u32)
     // The words that start contract clauses (`requires`, `invariant`).
@@ -816,11 +817,15 @@ impl Parser {
 
     pub fn block(inout self) -> Result(Block, Diag) {
         self.enter()?
-        let start = self.expect(Tok.LBrace)?
+        // For the formatter, a block is a list of statements, separated by
+        // newlines or `;`.
+        let start = self.list_open(Tok.LBrace)?
         var stmts = Vec(Stmt).new()
         var tail: Option(Box(Expr)) = None
         loop {
-            while self.eat(Tok.Semi) {}
+            while self.eat(Tok.Semi) {
+                if self.collect_layout { self.separators.push(self.prev_span().lo) }
+            }
             if self.at(Tok.RBrace) {
                 break
             }
@@ -1269,7 +1274,7 @@ impl Parser {
             Match => {
                 self.bump()
                 let scrut = self.expr_ns()?
-                self.expect(Tok.LBrace)?
+                self.list_open(Tok.LBrace)?
                 var arms = Vec(Arm).new()
                 while !self.at(Tok.RBrace) {
                     let astart = self.span()

@@ -1475,7 +1475,9 @@ impl Sema {
                     span,
                     "a type family takes one type argument"
                 )) }
-                if a.len() != 1 { return Err(ty_err(span, "a type family takes one type argument")) }
+                if a.len() != 1 {
+                    return Err(ty_err(span, "a type family takes one type argument"))
+                }
                 let input = self.expr_ty(a[0], env)?
                 self.reduce_family(i, input, span)
             }

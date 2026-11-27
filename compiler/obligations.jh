@@ -149,7 +149,9 @@ fn lendings(t: Types, b: Body) -> Vec(Option(Place)) {
         for st in bl.stmts {
             match st {
                 Assign(p, rv, _) => match rv {
-                    RefMut(q) => if p.proj.len() == 0 { candidate[p.local as i64] = Some(q.clone()) }
+                    RefMut(q) => if p.proj.len() == 0 {
+                        candidate[p.local as i64] = Some(q.clone())
+                    }
                     _ => {}
                 }
                 _ => {}
@@ -500,7 +502,11 @@ fn source_place(rv: mir.Rvalue, rest: [mir.Proj]) -> Option(Place) {
             Copy(q) | Move(q) => Some(below(q, rest))
             Const(_) => None
         }
-        Ref(q) | RefMut(q) => if rest[0] == mir.Proj.Deref { Some(below(q, rest[1..])) } else { None }
+        Ref(q) | RefMut(q) => if rest[0] == mir.Proj.Deref {
+            Some(below(q, rest[1..]))
+        } else {
+            None
+        }
         Aggregate(agg, os) => match agg {
             Struct(_) => {
                 let Field(k) = rest[0] else { return None }
@@ -580,9 +586,9 @@ fn find_fields(t: Types, b: Body, lent: [Option(Place)], wanted: [Place]) -> Vec
                 ) {
                     match rv {
                         Use(o) => match o {
-                            Copy(q) | Move(q) => if q.proj.len() > 0 { work.push(q.with(mir.Proj.Field(
-                                1
-                            ))) }
+                            Copy(q) | Move(q) => if q.proj.len() > 0 {
+                                work.push(q.with(mir.Proj.Field(1)))
+                            }
                             Const(_) => {}
                         }
                         _ => {}
@@ -823,7 +829,9 @@ fn writes_through(p: Program, b: Body, pl: Place, inout out: Vec(u32)) {
     for x in pl.proj {
         match x {
             Field(_) => match place_type(p.types, b, q) {
-                Some(ty) => if p.invariants.contains(ty) && !has(out.as_slice(), ty) { out.push(ty) }
+                Some(ty) => if p.invariants.contains(ty) && !has(out.as_slice(), ty) {
+                    out.push(ty)
+                }
                 None => {}
             }
             _ => {}
@@ -1084,7 +1092,9 @@ fn call_invariants(
         if writes.len > 0 {
             match arg_base(t, b, m.lent.as_slice(), a) {
                 Some(x) => {
-                    for h in invariant_facts(p, b, m, x, Some(writes)).into_iter() { before.push(h) }
+                    for h in invariant_facts(p, b, m, x, Some(writes)).into_iter() {
+                        before.push(h)
+                    }
                 }
                 None => {}
             }
@@ -1255,7 +1265,9 @@ pub fn interfaces(p: Program) -> Vec(Interface) {
                     find_fields(t, b, lent.as_slice(), places.as_slice())
                 } else { find_fields_of(t, b, lent.as_slice(), places.as_slice()) }
                 for x in fields {
-                    if x.local as i64 <= b.arg_count { iface.push((x.local as i64, x.path.clone())) }
+                    if x.local as i64 <= b.arg_count {
+                        iface.push((x.local as i64, x.path.clone()))
+                    }
                 }
             }
             None => {}
@@ -2236,13 +2248,17 @@ fn model_rvalue(p: Program, b: Body, m: Model, rv: mir.Rvalue) -> vc.Rvalue {
                 Mul => if p.checked { vc.Rvalue.Mul(a, c) } else { opaque_rv("wrap") }
                 AddWrap => vc.Rvalue.AddWrap(a, c)
                 SubWrap => vc.Rvalue.SubWrap(a, c)
-                And | LogAnd => if is_bool(t, b, x) { vc.Rvalue.And(a, c) } else { opaque_rv("bits") }
+                And | LogAnd => if is_bool(t, b, x) {
+                    vc.Rvalue.And(a, c)
+                } else {
+                    opaque_rv("bits")
+                }
                 _ => match model_cmp(op) {
-                    Some(k) => if is_bool(t, b, x) { opaque_rv("bool") } else { vc.Rvalue.Compare(
-                        k,
-                        a,
-                        c
-                    ) }
+                    Some(k) => if is_bool(t, b, x) {
+                        opaque_rv("bool")
+                    } else {
+                        vc.Rvalue.Compare(k, a, c)
+                    }
                     None => match op {
                         Div => vc.Rvalue.Div(a, c)
                         Rem => vc.Rvalue.Rem(a, c)

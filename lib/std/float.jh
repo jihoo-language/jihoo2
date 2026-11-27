@@ -184,7 +184,9 @@ impl Big {
     }
 
     fn cmp(self, other: Big) -> i64 {
-        if self.d.len() != other.d.len() { return if self.d.len() < other.d.len() { -1 } else { 1 } }
+        if self.d.len() != other.d.len() {
+            return if self.d.len() < other.d.len() { -1 } else { 1 }
+        }
         var i = self.d.len()
         while i > 0 {
             i -= 1

@@ -87,14 +87,17 @@ end statements or separate list elements. Lists that exceed a soft width
 of 100 byte columns expand with a break after the opening delimiter, after
 each separator and before the closing delimiter. This covers arguments,
 parameters, arrays, tuples, struct fields and variant lists identified by
-the parser. Outer lists expand first; nested lists are reconsidered at their
+the parser, and blocks and `match`es written on one line, whose statements
+(separated by `;`) and arms (by `,`) go on lines of their own; the blocks
+of an `if ... else` chain expand together. Outer lists expand first; nested lists are reconsidered at their
 new indentation, and only the lines holding a list's own delimiters and
 separators make it overflow, with any `?`, closing delimiters and calls
 without arguments that follow it, as in `f(a, b).as_str())`. Parameter
 lists also expand for a long return type after them. A list whose only
 element is a call or struct literal, as in `Err(err(span, message))`, lets
 that element expand instead (`Err(err(` ... `))`), and a single element
-that would not fit on a line of its own either is left in place.
+that would not fit on a line of its own either is left in place; a block's
+statement goes on its own line either way, where its lists can expand.
 
 A line still wider than the width once its lists fit, such as a long
 string concatenation or condition, breaks after binary operators: those at
@@ -109,9 +112,10 @@ if (int_kind && !is_int_name(name)) ||
     (spec.kind == 'e' && name != "f64" && name != "f32") {
 ```
 
-A line where a block follows the operators and does not end the line (`if
-a != 1 { return x }`), or opens outside their parentheses, keeps its
-operators: the block is what is long. Commas and semicolons retain their
+Blocks expand before operators break, so `if a != 1 { return x }` opens
+its block first and breaks the condition only if `if a != 1 {` is still too
+long. A line where a block opens outside the operators' parentheses keeps
+its operators. Commas and semicolons retain their
 original spelling.
 
 `--width N` accepts decimal integers from 20 through 1000. It counts UTF-8
