@@ -142,10 +142,12 @@ accept different schedules that agree for that output.
 [Protocol duality](../language/type-families.md) and
 [observer-indexed histories](../language/observed-histories.md)
 
-- Add an optional external regression command for a configurable Banana
-  checkout. Check its modules and run its parser, selection and PTY tests
-  against the compiler under development. Keep the compiler's ordinary test
-  suite independent of sibling repositories and graphical drivers.
+- Done: [an external regression command](testing.md#banana).
+  `scripts/banana_regression.py` runs the `jihoo` commands of a Banana
+  checkout's `tools/test.sh` (its modules checked, its parser, selection,
+  style and PTY tests run) with the compiler under development; the
+  ordinary suite stays independent of it. Banana, last updated for jihoo
+  0.3.0, passes them all with jihoo2.
 - Develop resource and callback wrappers in the application first. State
   registration lifetime, thread and reentrancy requirements before exposing
   a safe interface. Extract reusable pieces after their behavior is tested.
