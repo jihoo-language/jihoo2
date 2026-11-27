@@ -1754,6 +1754,7 @@ impl sema.Sema {
                     // Numbers: the value first, then the place.
                     let guess = self.peek_type(fb, place)
                     let v = self.expr(&fb, value, guess)?
+                    let v = self.scalar_deref(&fb, v, value.span)?
                     let v = self.value_operand_val(&fb, v, value.span)?
                     let pv = self.expr_mut(&fb, place)?
                     let p = match pv.vk.clone() {
@@ -4305,6 +4306,21 @@ impl sema.Sema {
         Ok(self.rvalue(&fb, Rvalue.Bin(op, ao, bo), at, span))
     }
 
+    // A borrow of a number, bool or pointer, as an element of a
+    // `Vec(ref i64)` is, read through: operators see through it as
+    // patterns do.
+    fn scalar_deref(inout self, inout fb: Fb, sink v: Val, span: Span) -> Result(Val, Diag) {
+        var v = v
+        while self.types.is_ref(v.ty) {
+            let inner = self.types.pointee(v.ty).unwrap()
+            let scalar = self.types.is_int(inner) || self.types.is_float(inner) ||
+                inner == types.BOOL || self.types.is_ptr(inner) || self.types.is_ref(inner)
+            if !scalar { break }
+            v = self.auto_deref(&fb, v, span)?
+        }
+        Ok(v)
+    }
+
     pub fn binary_on(
         inout self,
         inout fb: Fb,
@@ -4313,6 +4329,7 @@ impl sema.Sema {
         b: ast.Expr,
         span: Span
     ) -> Result(Val, Diag) {
+        let av = self.scalar_deref(&fb, av, span)?
         let at = av.ty
         // Operators on library types call their methods.
         let compound = match self.types.kind(at) {
@@ -4328,6 +4345,7 @@ impl sema.Sema {
         }
         let bexp: Option(u32) = if shift { None } else { Some(at) }
         let bv = self.expr(&fb, b, bexp)?
+        let bv = self.scalar_deref(&fb, bv, b.span)?
         let bt = bv.ty
         let num_at = self.types.is_int(at) || self.types.is_float(at)
         var rt = at
@@ -6194,6 +6212,17 @@ impl sema.Sema {
             if name != "deref" && self.find_method(recv.ty, "deref")?.is_some() {
                 recv = self.method_call_val(&fb, recv, "deref", Vec(Val).new(), span, None)?
                 continue
+            }
+            // An array has the methods of its slice: `[1, 2].iter()`.
+            match self.types.kind(recv.ty).clone() {
+                Array(e, _) => {
+                    let st = self.view_ty(TyKind.Slice(e))
+                    if self.find_method(st, name)?.is_some() {
+                        recv = self.coerce(&fb, recv, st, span)?
+                        continue
+                    }
+                }
+                _ => {}
             }
             break
         }
