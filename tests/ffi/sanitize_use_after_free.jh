@@ -1,0 +1,11 @@
+// A read of freed memory, which only `unsafe` code can do.
+// `--sanitize=address` must report it.
+extern fn malloc(n: i64) -> *i64
+extern fn free(p: *i64)
+
+fn main() {
+    let p = unsafe { malloc(16) }
+    unsafe { p[0] = 7 }
+    unsafe { free(p) }
+    println(unsafe { p[0] })
+}

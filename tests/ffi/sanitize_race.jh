@@ -1,0 +1,10 @@
+// A data race, which only `unsafe` code can write: two threads store to
+// one place through a raw pointer. `--sanitize=thread` must report it.
+import std.thread
+
+fn main() {
+    var x: i64 = 0
+    let at = &x as *i64 as u64
+    thread.join(fn() { unsafe { *(at as *i64) = 1 } }, fn() { unsafe { *(at as *i64) = 2 } })
+    println(x)
+}

@@ -99,17 +99,51 @@ impl Profile {
 pub struct Codegen {
     pub no_red_zone: bool
     pub general_regs_only: bool
+    pub sanitize: Sanitizer
+}
+
+// `--sanitize`: LLVM's instrumentation for checking a native program as it
+// runs, and the runtime clang links for it.
+pub enum Sanitizer {
+    Off
+    // AddressSanitizer: memory used out of bounds, after it is freed, or
+    // twice freed, in `unsafe` code and C alike.
+    Address
+    // ThreadSanitizer: data races between threads.
+    Thread
+}
+
+impl Sanitizer {
+    // Its name, as `-fsanitize=` and `--sanitize=` take it, or "".
+    pub fn name(self) -> str {
+        match self {
+            Off => ""
+            Address => "address"
+            Thread => "thread"
+        }
+    }
 }
 
 impl Codegen {
     pub fn default() -> Codegen {
-        Codegen { no_red_zone: false, general_regs_only: false }
+        Codegen { no_red_zone: false, general_regs_only: false, sanitize: Sanitizer.Off }
     }
 
     // The LLVM function attributes, or "" for the Linux ABI's defaults.
     pub fn attributes(self, t: Target) -> String {
         var a = String.new()
         if self.no_red_zone { a.push_str("noredzone") }
+        match self.sanitize {
+            Off => {}
+            Address => {
+                if a.len() > 0 { a.push(' ') }
+                a.push_str("sanitize_address")
+            }
+            Thread => {
+                if a.len() > 0 { a.push(' ') }
+                a.push_str("sanitize_thread")
+            }
+        }
         if self.general_regs_only {
             if a.len() > 0 { a.push(' ') }
             // What Rust's x86_64-unknown-none and aarch64-unknown-none-softfloat

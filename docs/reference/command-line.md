@@ -48,6 +48,7 @@ once the program has none.
 | `--lib` | omit the entry point, using `check`, `emit-obj` or `emit-llvm` |
 | `-mno-red-zone` | never keep data below the stack pointer ([kernels](../language/profiles.md#kernel-code-generation)) |
 | `-mgeneral-regs-only` | use no floating-point or vector registers, and reject floats ([kernels](../language/profiles.md#kernel-code-generation)) |
+| `--sanitize=address\|thread` | check memory or data races as a native program runs ([sanitizers](#sanitizers)) |
 | `--error-format=text\|json` | diagnostic format for every failure (default `text`) |
 | `--comptime-report <path>` | write interpreter resource measurements as a separate JSON file |
 | `--time-passes` | report the time and memory of each phase on standard error |
@@ -700,6 +701,32 @@ executables keep the information; UEFI images do not (lld's COFF linker
 would put it in a PDB). Without `-g` the IR is unchanged, so `-g` does not
 affect self-hosting comparisons. Paths relative to the working directory
 are recorded with it (`$PWD`).
+
+## Sanitizers
+
+`--sanitize=address` and `--sanitize=thread` build a native program with
+LLVM's AddressSanitizer or ThreadSanitizer: every function the compiler
+writes gets the attribute (`sanitize_address`, `sanitize_thread`), the
+instrumentation runs after the optimizations, and clang links the runtime
+(`-fsanitize=...`; `cc` is not used then, since the runtime must be LLVM's).
+The program then stops with a report at the first memory error (a use
+after free, an access out of bounds, a double free; leaks when it exits)
+or data race.
+
+Safe jihoo cannot write either; they come from `unsafe` code and from C
+linked in, which is where the sanitizers help:
+
+```sh
+out/jihoo run --sanitize=thread tests/ffi/sanitize_race.jh
+# WARNING: ThreadSanitizer: data race ...
+out/jihoo run --sanitize=address tests/ffi/sanitize_use_after_free.jh
+# ERROR: AddressSanitizer: heap-use-after-free ...
+```
+
+Every native program of `tests/run` runs under each without a report.
+Freestanding and UEFI programs are refused, since the runtimes are built on
+libc. At `-O2` LLVM may remove an access it can prove out of bounds before
+the instrumentation sees it, as it may for C; `-O0` keeps every access.
 
 ## Environment
 

@@ -982,6 +982,52 @@ impl Tests {
     // compiler writes their attributes, on either machine, leave out
     // std.rt's float conversions and reject floats; without them the IR has
     // no attributes.
+    // `--sanitize`: the functions' attribute in the IR; ThreadSanitizer
+    // reports a race of `unsafe` code and AddressSanitizer a use after
+    // free, while programs without one run as they do without the
+    // sanitizer; a freestanding program is refused.
+    fn sanitizers(self) -> Result((), String) {
+        let c = self.compiler.as_str()
+        let ir = exec(c, ["emit-llvm", "--sanitize=thread", "tests/ffi/sanitize_race.jh"])
+        if !ir.status.success() || !ir.stdout.as_str().contains(" sanitize_thread ") {
+            return Err("no sanitize_thread in the IR:\n" + ir.stderr.as_str())
+        }
+        // A race is a matter of timing; ThreadSanitizer reports it nearly
+        // always, but once of three runs is enough here.
+        var race = exec(c, ["run", "--sanitize=thread", "tests/ffi/sanitize_race.jh"])
+        for _ in 0..2 {
+            if race.stderr.as_str().contains("WARNING: ThreadSanitizer: data race") { break }
+            race = exec(c, ["run", "--sanitize=thread", "tests/ffi/sanitize_race.jh"])
+        }
+        if !race.stderr.as_str().contains("WARNING: ThreadSanitizer: data race") {
+            return Err("ThreadSanitizer did not report the race (exit " + status(race).to_string() + "):\n" +
+                race.stdout.as_str() + race.stderr.as_str())
+        }
+        let freed = exec(c, ["run", "--sanitize=address", "tests/ffi/sanitize_use_after_free.jh"])
+        if !freed.stderr.as_str().contains("ERROR: AddressSanitizer: heap-use-after-free") {
+            return Err("AddressSanitizer did not report the use after free:\n" +
+                freed.stderr.as_str())
+        }
+        for (mode, file) in [
+            ("--sanitize=thread", "tests/run/threads.jh"),
+            ("--sanitize=thread", "tests/run/channels.jh"),
+            ("--sanitize=address", "tests/run/maps.jh"),
+            ("--sanitize=address", "tests/run/closures.jh")
+        ] {
+            let plain = exec(c, ["run", file])
+            let checked = exec(c, ["run", mode, file])
+            if !checked.status.success() || checked.stdout != plain.stdout ||
+                checked.stderr.as_str().contains("Sanitizer") {
+                return Err(file + " under " + mode + ":\n" + checked.stderr.as_str())
+            }
+        }
+        let bare = exec(c, ["run", "--sanitize=address", "tests/run/freestanding.jh"])
+        if bare.status.success() || !bare.stderr.as_str().contains("--sanitize needs a native program") {
+            return Err("a freestanding program was not refused:\n" + bare.stderr.as_str())
+        }
+        Ok(())
+    }
+
     // `-g`: a compile unit, a subprogram for every function (after its
     // attributes), statements' lines and columns, variables with their
     // types (an enum as a variant part), and `.debug_line` and the
@@ -1333,6 +1379,8 @@ impl Tests {
         self.check("backend: debug information", r)
         let r = self.gdb_printers()
         self.check("backend: gdb pretty printers", r)
+        let r = self.sanitizers()
+        self.check("backend: sanitizers", r)
         let r = self.missing_llvm()
         self.check("backend: missing LLVM", r)
     }
