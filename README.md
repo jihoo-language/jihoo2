@@ -267,18 +267,23 @@ notes for editor integration, and every other failure (usage, files, the
 backend and linker) in the same document; text remains the default.
 [`jihoo fmt`](docs/reference/command-line.md#source-formatting) formats
 source files while preserving comments, literals and meaningful line breaks.
-Long argument, parameter and field lists wrap at a soft width of 100 byte
-columns; `--width N` adjusts it. `--check` checks layout without printing
+Long argument, parameter and field lists, one-line blocks and `match`es
+wrap at a soft width of 100 byte columns, and longer expressions break
+after their loosest operators; `--width N` adjusts it. `--check` checks layout without printing
 formatted source and `--write` rewrites files, including every `.jh` file in
 the directories given. The output is reparsed and must retain the same syntax tree.
 
 [`-g`](docs/reference/command-line.md#debug-information) writes DWARF line
 tables, so gdb, lldb, perf and valgrind name the source line of each
-frame and instruction.
+frame and instruction, and every variable with its type and scope; gdb
+shows `str`, `String`, `Vec`, slices and `Map` by their contents.
 
 [`jihoo lsp`](docs/reference/command-line.md#language-server) is a language
 server built on the same checking and diagnostics: errors in unsaved
-documents, go to definition and formatting.
+documents, go to definition and hover (members by the type the compiler
+resolved), references, rename (refused when the renamed program would not
+check), completion of names and members, signature help, document
+outlines and formatting.
 
 Next ([roadmap](docs/internals/roadmap.md)): application-driven library work,
 and jihoo2 0.2.0, after which the compiler can use what came after 0.1.0.
