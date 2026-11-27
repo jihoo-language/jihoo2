@@ -350,6 +350,9 @@ def main():
             assert complete("ret")["return"]["kind"] == 14
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 107},
                                                      "contentChanges": [{"text": fixed}]})
+            # The checks of the unfinished texts publish first.
+            while client.diagnostics(uri(main_file)) != []:
+                pass
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
