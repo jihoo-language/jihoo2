@@ -109,7 +109,10 @@ every way the borrow rules can be broken.
 programs of integer functions `fK(a: i64, b: i64) -> i64`: wrapping
 arithmetic, bit operations, shifts, division by values that are never
 zero (sometimes `-1`), conversions between every integer type, `if`,
-`match` on ranges, `for` loops, arrays and calls to earlier functions.
+`match` on ranges, `for` loops, arrays, a struct changed in place and
+read through a method and a borrowing function, an enum matched with
+bindings and a guard, `Vec(i64)` pushed, changed and iterated, closures
+that capture the variables around them, and calls to earlier functions.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
 compile-time interpreter (a `const` table) and by compiled code, given
