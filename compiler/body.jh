@@ -3421,7 +3421,10 @@ impl sema.Sema {
             _ => {}
         }
         let bv = self.expr(&fb, base, None)?
-        self.field_of(&fb, bv, name, span)
+        self.expect_use(span, name)
+        let v = self.field_of(&fb, bv, name, span)
+        self.use_at = None
+        v
     }
 
     pub fn field_of(
@@ -3459,6 +3462,16 @@ impl sema.Sema {
                                 return Err(err(span, ("the field `" + name + "` of `" +
                                     self.types.adts[a as i64].name.as_str() +
                                     "` is private").as_str()))
+                            }
+                            if self.use_at.is_some() {
+                                match self.adts[decl as i64].kind {
+                                    Struct(sd) => {
+                                        for f in sema.at(sd).fields {
+                                            if f.name == name { self.found_use(f.span) }
+                                        }
+                                    }
+                                    Enum(_) => {}
+                                }
                             }
                             let temp = bv.temp
                             let (p, _) = self.as_place(&fb, bv, span)
@@ -5828,13 +5841,18 @@ impl sema.Sema {
                         }
                         if has_field && self.find_method(target, name.as_str())?.is_none() &&
                             self.find_method(recv.ty, name.as_str())?.is_none() {
+                            self.expect_use(callee.span, name.as_str())
                             let fv = self.field_of(&fb, recv, name.as_str(), span)?
+                            self.use_at = None
                             return self.call_value(&fb, fv, args, span)
                         }
                     }
                     None => {}
                 }
-                self.method_call(&fb, recv, name.as_str(), args, span, exp)
+                self.expect_use(callee.span, name.as_str())
+                let v = self.method_call(&fb, recv, name.as_str(), args, span, exp)
+                self.use_at = None
+                v
             }
             _ => {
                 if self.try_expr_ty(callee, env)?.is_some() {
@@ -6145,15 +6163,20 @@ impl sema.Sema {
                 continue
             }
             match self.find_method(recv.ty, name)? {
-                Some(h) => return self.call_decl(
-                    &fb,
-                    h.imp,
-                    h.args.clone(),
-                    Some(recv),
-                    args,
-                    span,
-                    exp
-                )
+                Some(h) => {
+                    if self.use_at.is_some() {
+                        self.found_use(sema.at(self.fns[h.imp as i64].decl).name_span)
+                    }
+                    return self.call_decl(
+                        &fb,
+                        h.imp,
+                        h.args.clone(),
+                        Some(recv),
+                        args,
+                        span,
+                        exp
+                    )
+                }
                 None => {}
             }
             if self.types.is_ref(recv.ty) {

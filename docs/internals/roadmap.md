@@ -78,8 +78,8 @@ Implemented: [`jihoo lsp`](../reference/command-line.md#language-server),
 a Language Server Protocol server that checks open documents, unsaved text
 included, with the compiler's loader, checker and diagnostics, publishes
 errors with their notes as related information, finds definitions in the
-loaded syntax trees (`value.name` among the members of the type the
-compiler gave `value`), shows locals' inferred types and items'
+loaded syntax trees (the member of `x.name`, with any receiver, as the
+compiler resolved it), shows locals' inferred types and items'
 declarations on hover, and formats documents. Checks run in a child
 process, so replies do not wait for them, and an edit stops a check that
 has become stale. A client test drives it over
@@ -117,8 +117,6 @@ Next:
   `std.rt`, the 128-bit runtime of freestanding and UEFI programs, is
   checked against the C runtime by `tests/run/int128_runtime.jh` and its
   freestanding twin, which print the same checksum.
-- Members of receivers that are calls or indexes (`f().method`,
-  `v[i].method`) by their types.
 - Additional formatter layout rules, retaining syntax preservation checks.
 
 Completion: valid checks are silent and create no output files; invalid

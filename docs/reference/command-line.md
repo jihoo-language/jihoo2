@@ -401,15 +401,15 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   binding), then items of the module and of its imports, the prelude and
   the modules it makes visible, then variants, fields and methods by name.
   `module.name` looks in that module and `Type.name` among that type's
-  variants, fields and methods. `value.name`, where `value` is a local or
-  parameter, or a path of fields from one (`self.items.name`), looks
-  among the fields and methods of the type the compiler gave it (through
-  borrows, in every instance of a generic function): methods for a call
-  `value.name(...)`, fields first otherwise, then the methods of traits
-  (a default method such as `to_string`). When the program does not
-  check, or the receiver is a call or an index (`f().name`, `v[i].name`),
-  every field and method of that name is found instead; such a request
-  may return several locations.
+  variants, fields and methods. The member of `x.name` or `x.name(...)`,
+  with any receiver (a local, a path of fields `self.items.name`, a call
+  `f().name`, an index `v[i].name`), is the field or method the compiler
+  resolved it to while lowering the program (through borrows and
+  `deref`, in every instance of a generic function, a trait's default
+  method such as `to_string` included), as far as the program could be
+  lowered. When it was not lowered (it comes after an error in its function,
+  or the program does not get that far), every field and method of that name
+  is found instead; such a request may return several locations.
 - **Hover**, on what go to definition finds (so `value.method` is the
   receiver type's method): a local or parameter shows its
   type as the compiler inferred it, from the checked program (`total: f64`;

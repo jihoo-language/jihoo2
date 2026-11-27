@@ -212,6 +212,24 @@ def main():
                 "textDocument": {"uri": uri(main_file)},
                 "position": position(fixed2, offset + 1, utf8)})
             assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/prelude.jh"), found
+            # Receivers that are calls and indexes: `origin().x` is Point's
+            # field, `bag.items[0].len()` String's method.
+            fixed3 = fixed.replace("fn main() {", "fn origin() -> Point { Point { x: 1 } }\n\nfn main() {").replace(
+                "    println(", "    let ox = origin().x + bag.items[0].len()\n    println(")
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 102},
+                                                     "contentChanges": [{"text": fixed3}]})
+            assert client.diagnostics(uri(main_file)) == []
+            offset = fixed3.encode().index(b"origin().x") + 9
+            found = client.request("textDocument/definition", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed3, offset, utf8)})
+            assert isinstance(found, dict) and found["uri"] == uri(main_file), found
+            assert found["range"]["start"] == position(fixed3, fixed3.encode().index(b"x: i64"), utf8), found
+            offset = fixed3.encode().index(b"[0].len") + 5
+            found = client.request("textDocument/definition", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed3, offset, utf8)})
+            assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/string.jh"), found
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 101},
                                                      "contentChanges": [{"text": fixed}]})
             assert client.diagnostics(uri(main_file)) == []

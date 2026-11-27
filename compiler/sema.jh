@@ -462,6 +462,12 @@ pub struct Sema {
     pub dyn_methods_of: Map(u32, Vec(DynMethod))
     // The table of each type for each trait: "trait,type" -> functions.
     pub vtables: Map(String, Vec(u32))
+    // For editors (`member_uses`): the member names of `x.name` and
+    // `x.name(...)` as lowered, each with the declaration it resolved to,
+    // and the use being lowered, until its member is found.
+    pub record_uses: bool
+    pub uses: Vec((Span, Span))
+    pub use_at: Option(Span)
 }
 
 pub fn ty_err(span: Span, msg: str) -> Diag {
@@ -552,7 +558,23 @@ impl Sema {
             adt_args_of: Map(u32, Vec(CVal)).new()
             dyn_methods_of: Map(u32, Vec(DynMethod)).new()
             vtables: Map(String, Vec(u32)).new()
+            record_uses: false
+            uses: Vec((Span, Span)).new()
+            use_at: None
         }
+    }
+
+    // The member name `name` at the end of `whole` (`x.name`) is the next
+    // use whose declaration `found_use` records.
+    pub fn expect_use(inout self, whole: Span, name: str) {
+        if !self.record_uses { return }
+        self.use_at = Some(Span { file: whole.file, lo: whole.hi - name.len as u32, hi: whole.hi })
+    }
+
+    pub fn found_use(inout self, decl: Span) {
+        let Some(u) = self.use_at else { return }
+        self.uses.push((u, decl))
+        self.use_at = None
     }
 
     // ---- collecting declarations ----
@@ -3787,6 +3809,16 @@ pub fn compile(
     let result = compile_inner(&s, a, tgt, checked, library, codegen)
     reports = mem.replace(&s.evaluations, Vec(interp.Report).new())
     result
+}
+
+// The members of `x.name` and `x.name(...)` the program uses, each with
+// the declaration it resolved to (in every generic instance), as far as
+// the program could be lowered: for editors.
+pub fn member_uses(a: load.Ast, tgt: target.Target) -> Vec((Span, Span)) {
+    var s = Sema.new(a, tgt, true)
+    s.record_uses = true
+    let _ = compile_inner(&s, a, tgt, true, true, target.Codegen.default())
+    mem.replace(&s.uses, Vec((Span, Span)).new())
 }
 
 fn compile_inner(
