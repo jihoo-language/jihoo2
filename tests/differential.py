@@ -9,7 +9,8 @@ zero, shifts, conversions between every integer type, `if`, `match` on
 ranges, `for` loops, fixed arrays, a struct with a method, an enum
 matched with bindings and guards, `Vec(i64)`, closures that capture,
 `String`, generic functions at every integer type, `Option`, `Result`
-with `?`, `while` with `break`, and calls to earlier functions. Nothing
+with `?`, `while` with `break`, `Map`, trait objects (`dyn`) with a
+default method, `std.sort`, and calls to earlier functions. Nothing
 in them overflows a checked operation, so every build must print the
 same, and that must be what Python computes.
 
@@ -350,10 +351,12 @@ class Gen:
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
                            "enum", "vec", "closure", "slice", "string", "option",
-                           "while"]) if depth > 0 \
+                           "while", "map", "dyn", "sort"]) if depth > 0 \
             else rng.choice(["var", "set"])
-        if kind in ("vec", "string") and self.cost + self.repeat > CALL_BUDGET:
+        if kind in HEAP and self.cost + HEAP[kind] * self.repeat > CALL_BUDGET:
             kind = "var"
+        if kind in HEAP:
+            self.cost += HEAP[kind] * self.repeat
         if kind == "var" or (kind == "set" and not [n for n in env_types if n[0] == "v"]):
             t = rng.choice(list(TYPES))
             e = self.expr(env_types, t, 3)
@@ -412,18 +415,18 @@ class Gen:
         if kind == "enum":
             return self.enum(env_types, pad)
         if kind == "vec":
-            self.cost += self.repeat
             return self.vec(env_types, pad)
         if kind == "closure":
             return self.closure(env_types, pad)
         if kind == "slice":
             return self.slice(env_types, pad)
+        if kind in ("map", "dyn", "sort"):
+            return {"map": self.map, "dyn": self.dyn, "sort": self.sort}[kind](env_types, pad)
         if kind == "option":
             return self.option(env_types, pad)
         if kind == "while":
             return self.while_loop(env_types, pad)
         if kind == "string":
-            self.cost += self.repeat
             return self.string(env_types, pad)
         # an array: built, one element changed, one read into a variable
         n = f"v{len(env_types)}"
@@ -587,6 +590,83 @@ class Gen:
             f"{pad}var {n}: i64 = {c}({a[0]}) -% {c}({b[0]})",
         ], run
 
+    def map(self, env_types, pad):
+        """A `Map(i64, i64)` of four keys, added to in a loop, then read."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        m, j = f"m{n}", f"j{n}"
+        count = rng.randint(1, 6)
+        inner = dict(env_types)
+        inner[j] = "i64"
+        self.loops += 1
+        key = self.expr(inner, "i64", 2)
+        value = self.expr(inner, "i64", 2)
+        self.loops -= 1
+        probe = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, j=j, count=count, key=key, value=value, probe=probe):
+            d = {}
+            for x in range(count):
+                inner = dict(env)
+                inner[j] = x
+                k = wrap(key[2](inner) + x, "i64") & 3
+                d[k] = wrap(d.get(k, 0) + value[2](inner), "i64")
+            p = probe[2](env) & 3
+            env[n] = wrap(d.get(p, -1) + len(d), "i64")
+        return [
+            f"{pad}var {m} = Map(i64, i64).new()",
+            f"{pad}for {j} in 0..{count} {{",
+            f"{pad}    let key = ({key[0]} +% {j}) & 3",
+            f"{pad}    let old = match {m}.get(key) {{ Some(x) => x, None => 0 }}",
+            f"{pad}    {m}.insert(key, old +% {value[0]})",
+            f"{pad}}}",
+            f"{pad}var {n}: i64 = match {m}.get({probe[0]} & 3) {{ Some(x) => x, None => 0 -% 1 }} +% {m}.len()",
+        ], run
+
+    def dyn(self, env_types, pad):
+        """`Op`s of two types in a `Vec(dyn Op)`, applied through a default
+        method that calls the other."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        w = f"d{n}"
+        ops = [(rng.choice(["Add", "Mul"]), self.expr(env_types, "i64", 2))
+               for _ in range(rng.randint(1, 3))]
+        start = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, ops=ops, start=start):
+            v = start[2](env)
+            for kind, k in ops:
+                kv = k[2](env)
+                for _ in range(2):
+                    v = wrap(v + kv if kind == "Add" else v * kv, "i64")
+            env[n] = v
+        return [f"{pad}var {w} = Vec(dyn Op).new()"] + [
+            f"{pad}{w}.push({kind} {{ k: {k[0]} }})" for kind, k in ops
+        ] + [
+            f"{pad}var {n}: i64 = {start[0]}",
+            f"{pad}for o in {w} {{ {n} = o.twice({n}) }}",
+        ], run
+
+    def sort(self, env_types, pad):
+        """A `Vec(i64)` sorted by `std.sort`, read by index."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        w = f"q{n}"
+        elems = [self.expr(env_types, "i64", 2) for _ in range(rng.randint(1, 5))]
+        at = rng.randrange(len(elems))
+        env_types[n] = "i64"
+
+        def run(env, n=n, elems=elems, at=at):
+            env[n] = sorted(e[2](env) for e in elems)[at]
+        return [f"{pad}var {w} = Vec(i64).new()"] + [
+            f"{pad}{w}.push({e[0]})" for e in elems
+        ] + [
+            f"{pad}sort.sort(&{w})",
+            f"{pad}var {n}: i64 = {w}[{at}]",
+        ], run
+
     def option(self, env_types, pad):
         """An `Option(i64)` made by `if` and matched."""
         rng = self.rng
@@ -718,8 +798,33 @@ def literal_i64(v):
     return f"(0 -% {-(v + 1)} -% 1)"
 
 
+# Statements that allocate, with what they cost in calls' worth of
+# interpreter steps (a `Map` is filled in a loop).
+HEAP = {"vec": 1, "string": 1, "map": 3, "dyn": 1, "sort": 2}
+
 # The types the statements use.
-PRELUDE = """struct P {
+PRELUDE = """trait Op {
+    fn apply(self, x: i64) -> i64
+    fn twice(self, x: i64) -> i64 { self.apply(self.apply(x)) }
+}
+
+struct Add {
+    k: i64
+}
+
+impl Op for Add {
+    fn apply(self, x: i64) -> i64 { x +% self.k }
+}
+
+struct Mul {
+    k: i64
+}
+
+impl Op for Mul {
+    fn apply(self, x: i64) -> i64 { x *% self.k }
+}
+
+struct P {
     x: i64
     y: i32
 }
@@ -776,7 +881,7 @@ def program(seed, functions):
             expected.append(c(a, b, calls))
     xs = ", ".join(literal_i64(a) for a, _ in inputs)
     ys = ", ".join(literal_i64(b) for _, b in inputs)
-    out = ["import std.env", "", PRELUDE] + texts + [""]
+    out = ["import std.env", "import std.sort", "", PRELUDE] + texts + [""]
     for k in range(functions):
         out.append(f"fn table{k}() -> [i64; {INPUTS}] {{")
         out.append(f"    let xs: [i64; {INPUTS}] = [{xs}]")
