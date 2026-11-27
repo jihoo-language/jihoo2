@@ -353,6 +353,34 @@ def main():
             # The checks of the unfinished texts publish first.
             while client.diagnostics(uri(main_file)) != []:
                 pass
+            # Signature help inside an unfinished call.
+            assert client.capabilities["signatureHelpProvider"]["triggerCharacters"] == ["(", ","]
+
+            def signature(typed):
+                text = fixed.replace("    println(", "    let w = " + typed + "\n    println(")
+                client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 108},
+                                                         "contentChanges": [{"text": text}]})
+                offset = text.encode().index(b"let w = ") + 8 + len(typed.encode())
+                return client.request("textDocument/signatureHelp", {
+                    "textDocument": {"uri": uri(main_file)}, "position": position(text, offset, utf8)})
+            found = signature("helper.twice(")
+            assert found["signatures"][0]["label"] == "pub fn twice(x: i64) -> i64", found
+            assert found["signatures"][0]["parameters"] == [{"label": "x: i64"}], found
+            assert found["activeParameter"] == 0, found
+            # A method's receiver is not a parameter; the second argument.
+            found = signature("old.insert(0, ")
+            assert [p["label"] for p in found["signatures"][0]["parameters"]] == ["i: i64", "sink x: T"], found
+            assert found["activeParameter"] == 1, found
+            # A generic's type parameter is inferred, not written.
+            found = signature("mem.replace(&v, ")
+            labels = [p["label"] for p in found["signatures"][0]["parameters"]]
+            assert len(labels) == 2 and labels[0].startswith("inout"), found
+            assert signature("1 + 2") is None
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 109},
+                                                     "contentChanges": [{"text": fixed}]})
+            # The checks of the unfinished texts publish first.
+            while client.diagnostics(uri(main_file)) != []:
+                pass
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -463,7 +491,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, references, rename, completion, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, rename, completion, signatures, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":
