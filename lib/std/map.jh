@@ -82,6 +82,11 @@ impl(K: Hash + Eq, V: type) Map(K, V) {
 
     // Puts the value under the key; returns the one it replaces.
     pub fn insert(inout self, sink k: K, sink v: V) -> Option(V) {
+        self.put(k, v).1
+    }
+
+    // `insert`, and the slot the value is in.
+    fn put(inout self, sink k: K, sink v: V) -> (i64, Option(V)) {
         if (self.used + 1) * 4 > self.cap * 3 {
             self.grow()
         }
@@ -98,7 +103,7 @@ impl(K: Hash + Eq, V: type) Map(K, V) {
             }
             if s == 1 && unsafe { (*(self.keys + i)).eq(k) } {
                 let old = unsafe { mem.replace(&*(self.vals + i), v) }
-                return Some(old)
+                return (i, Some(old))
             }
             i = (i + 1) & mask
         }
@@ -113,7 +118,7 @@ impl(K: Hash + Eq, V: type) Map(K, V) {
             write(self.vals + i, v)
         }
         self.len += 1
-        None
+        (i, None)
     }
 
     pub fn remove(inout self, k: K) -> Option(V) {
@@ -195,6 +200,16 @@ impl(K: Hash + Eq, V: type) Map(K, V) {
         Iter(K, V) { state: self.state.as_slice(), keys: self.keys, vals: self.vals, next: 0 }
     }
 
+    // The value under the key, put there first if the key is missing:
+    // `m.get_or_insert(word, 0) += 1`.
+    pub fn get_or_insert(inout self, sink k: K, sink v: V) -> inout V {
+        var i = self.find(k)
+        if i < 0 {
+            i = self.put(k, v).0
+        }
+        unsafe { *(self.vals + i) }
+    }
+
     // Removes every entry, keeping the allocation.
     pub fn clear(inout self) {
         for i in 0..self.cap {
@@ -249,6 +264,192 @@ impl(K: type, V: type) Drop for Map(K, V) {
             mem.dealloc(K, self.keys, self.cap)
             mem.dealloc(V, self.vals, self.cap)
         }
+    }
+}
+
+impl(K: Hash + Eq + Clone, V: Clone) Clone for Map(K, V) {
+    fn clone(self) -> Map(K, V) {
+        var out = Map(K, V).new()
+        for (k, v) in self.iter() {
+            out.insert(k.clone(), v.clone())
+        }
+        out
+    }
+}
+
+// Equal when they have the same keys, each with an equal value.
+impl(K: Hash + Eq, V: Eq) Eq for Map(K, V) {
+    fn eq(self, other: Map(K, V)) -> bool {
+        if self.len != other.len {
+            return false
+        }
+        for (k, v) in self.iter() {
+            match other.get(k) {
+                Some(w) => if !v.eq(w) { return false }
+                None => return false
+            }
+        }
+        true
+    }
+}
+
+// `{k: v, ...}`, in no particular order.
+impl(K: Hash + Eq + Show, V: Show) Show for Map(K, V) {
+    fn show(self, inout out: String) {
+        out.push('{')
+        var first = true
+        for (k, v) in self.iter() {
+            if !first {
+                out.push_str(", ")
+            }
+            first = false
+            k.show(&out)
+            out.push_str(": ")
+            v.show(&out)
+        }
+        out.push('}')
+    }
+}
+
+// Set(T): distinct values, with `Hash` and `Eq`: a `Map(T, ())`.
+pub struct Set(T: type) {
+    map: Map(T, ())
+}
+
+impl(T: Hash + Eq) Set(T) {
+    pub fn new() -> Set(T) {
+        Set(T) { map: Map(T, ()).new() }
+    }
+
+    pub fn len(self) -> i64 {
+        self.map.len()
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.map.is_empty()
+    }
+
+    // Adds the value; false if it was there already (and is kept).
+    pub fn insert(inout self, sink x: T) -> bool {
+        if self.map.contains(x) {
+            return false
+        }
+        self.map.insert(x, ())
+        true
+    }
+
+    pub fn contains(self, x: T) -> bool {
+        self.map.contains(x)
+    }
+
+    // Removes the value; false if it was not there.
+    pub fn remove(inout self, x: T) -> bool {
+        self.map.remove(x).is_some()
+    }
+
+    pub fn clear(inout self) {
+        self.map.clear()
+    }
+
+    // Borrows the values one by one, in no particular order: `for x in s`.
+    pub fn iter(self) -> SetIter(T) {
+        SetIter(T) { inner: self.map.iter() }
+    }
+
+    // The values, in the order of `iter`.
+    pub fn values(self) -> Vec(ref T) {
+        self.map.keys()
+    }
+
+    // Whether every value of this set is in `other`.
+    pub fn is_subset(self, other: Set(T)) -> bool {
+        for x in self.iter() {
+            if !other.contains(x) {
+                return false
+            }
+        }
+        true
+    }
+}
+
+impl(T: Hash + Eq + Clone) Set(T) {
+    // The values in this set or `other`, in both, or in this one only.
+    pub fn union(self, other: Set(T)) -> Set(T) {
+        var out = self.clone()
+        for x in other.iter() {
+            out.insert(x.clone())
+        }
+        out
+    }
+
+    pub fn intersection(self, other: Set(T)) -> Set(T) {
+        var out = Set(T).new()
+        for x in self.iter() {
+            if other.contains(x) {
+                out.insert(x.clone())
+            }
+        }
+        out
+    }
+
+    pub fn difference(self, other: Set(T)) -> Set(T) {
+        var out = Set(T).new()
+        for x in self.iter() {
+            if !other.contains(x) {
+                out.insert(x.clone())
+            }
+        }
+        out
+    }
+}
+
+// Borrows the values of a `Set` one by one.
+#[view]
+pub struct SetIter(T: type) {
+    inner: Iter(T, ())
+}
+
+impl(T: type) Iterator for SetIter(T) {
+    type Item = ref T
+
+    fn next(inout self) -> Option(ref T) {
+        match self.inner.next() {
+            Some((k, _)) => Some(k)
+            None => None
+        }
+    }
+}
+
+impl(T: Hash + Eq + Clone) Clone for Set(T) {
+    fn clone(self) -> Set(T) {
+        Set(T) { map: self.map.clone() }
+    }
+}
+
+impl(T: Hash + Eq) Eq for Set(T) {
+    fn eq(self, other: Set(T)) -> bool {
+        self.len() == other.len() && self.is_subset(other)
+    }
+}
+
+impl(T: Hash + Eq + Show) Show for Set(T) {
+    fn show(self, inout out: String) {
+        out.push('{')
+        var first = true
+        for x in self.iter() {
+            if !first {
+                out.push_str(", ")
+            }
+            first = false
+            x.show(&out)
+        }
+        out.push('}')
+    }
+}
+
+impl(T: Hash + Eq) Default for Set(T) {
+    fn default() -> Set(T) {
+        Set(T).new()
     }
 }
 
@@ -318,4 +519,52 @@ fn iterate_and_clear() {
     assert(again == 0, "nothing left")
     m.insert(String.from("x"), 5)
     assert(m.len() == 1 && m["x"] == 5, "usable after clear")
+}
+
+#[test]
+fn get_or_insert_counts() {
+    var m = Map(String, i64).new()
+    for w in "a b a c a b".split(" ") {
+        m.get_or_insert(w.to_string(), 0) += 1
+    }
+    assert(m.len() == 3 && m["a"] == 3 && m["b"] == 2 && m["c"] == 1, "counts")
+}
+
+#[test]
+fn maps_clone_compare_and_show() {
+    var m = Map(String, i64).new()
+    m.insert(String.from("x"), 1)
+    let c = m.clone()
+    assert(c == m && c["x"] == 1, "clone")
+    m.insert(String.from("x"), 2)
+    assert(c != m, "a changed value")
+    var one = Map(i64, i64).new()
+    one.insert(7, 8)
+    var shown = String.new()
+    one.show(&shown)
+    assert(shown == "{7: 8}", "show")
+}
+
+#[test]
+fn sets() {
+    var s = Set(String).new()
+    assert(s.insert(String.from("a")) && s.insert(String.from("b")), "new values")
+    assert(!s.insert(String.from("a")) && s.len() == 2, "a value once")
+    assert(s.contains(String.from("b")) && !s.contains(String.from("z")), "contains")
+    var n = 0
+    for x in s {
+        assert(x == "a" || x == "b", "iterated")
+        n += 1
+    }
+    assert(n == 2 && s.values().len() == 2, "iter")
+    var t = Set(String).new()
+    t.insert(String.from("b"))
+    t.insert(String.from("c"))
+    assert(s.union(t).len() == 3 && s.intersection(t).len() == 1, "union, intersection")
+    assert(s.difference(t).contains(String.from("a")) && s.difference(t).len() == 1, "difference")
+    assert(s.intersection(t).is_subset(s) && !s.is_subset(t), "subset")
+    assert(s.clone() == s && s != t, "eq")
+    assert(s.remove(String.from("a")) && !s.remove(String.from("a")) && s.len() == 1, "remove")
+    s.clear()
+    assert(s.is_empty(), "clear")
 }

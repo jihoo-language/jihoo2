@@ -224,7 +224,18 @@ A hash map with open addressing, for keys with `Hash` and `Eq`. `new`,
 `get_mut(k)` (an `Option` of a borrow), `contains`, `remove`, `clear`,
 `keys` and `values` (`Vec`s of borrows, in the same order), and `iter`,
 which borrows each entry as `(key, value)`: `for (k, v) in m`. `m[k]`
-panics if the key is missing.
+panics if the key is missing; `get_or_insert(k, v)` puts `v` there first,
+so `m.get_or_insert(word, 0) += 1` counts. `Clone`, `Eq` (the same keys
+with equal values) and `Show` (`{k: v, ...}`) when the keys and values
+have them.
+
+## `Set(T)`
+
+Distinct values with `Hash` and `Eq`, kept in a `Map(T, ())`: `new`,
+`len`, `is_empty`, `insert(x)` (false if it was there), `contains`,
+`remove` (false if it was not), `clear`, `iter` (`for x in s` borrows
+each value), `values`, `is_subset`, and with `Clone`, `union`,
+`intersection` and `difference`. `Clone`, `Eq` and `Show` like `Map`'s.
 
 ## `Box(T)`
 
