@@ -6,7 +6,9 @@ optimization levels, with `--release` and with `--audit-proved`).
 Each program is a few functions `fK(a: i64, b: i64) -> i64` built from
 wrapping arithmetic, bit operations, division by values that are never
 zero, shifts, conversions between every integer type, `if`, `match` on
-ranges, `for` loops, fixed arrays and calls to earlier functions. Nothing
+ranges, `for` loops, fixed arrays, a struct with a method, an enum
+matched with bindings and guards, `Vec(i64)`, closures that capture, and
+calls to earlier functions. Nothing
 in them overflows a checked operation, so every build must print the
 same, and that must be what Python computes.
 
@@ -198,8 +200,8 @@ class Gen:
     def stmt(self, env_types, depth, indent):
         rng = self.rng
         pad = "    " * indent
-        kind = rng.choice(["var", "var", "set", "set", "for", "if", "array"]) if depth > 0 \
-            else rng.choice(["var", "set"])
+        kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
+                           "enum", "vec", "closure"]) if depth > 0 else rng.choice(["var", "set"])
         if kind == "var" or (kind == "set" and not [n for n in env_types if n[0] == "v"]):
             t = rng.choice(list(TYPES))
             e = self.expr(env_types, t, 3)
@@ -251,6 +253,14 @@ class Gen:
                         del env[n]
             return ([f"{pad}if {x[0]} < {y[0]} {{"] + then_lines + [f"{pad}}} else {{"] +
                     else_lines + [f"{pad}}}"]), run
+        if kind == "struct":
+            return self.struct(env_types, pad)
+        if kind == "enum":
+            return self.enum(env_types, pad)
+        if kind == "vec":
+            return self.vec(env_types, pad)
+        if kind == "closure":
+            return self.closure(env_types, pad)
         # an array: built, one element changed, one read into a variable
         n = f"v{len(env_types)}"
         elems = [self.expr(env_types, "i64", 2) for _ in range(4)]
@@ -268,6 +278,149 @@ class Gen:
             f"{pad}var {arr}: [i64; 4] = [{', '.join(e[0] for e in elems)}]",
             f"{pad}{arr}[{at[0]} & 3] = {value[0]}",
             f"{pad}var {n}: i64 = {arr}[{read[0]} & 3]",
+        ], run
+
+    def struct(self, env_types, pad):
+        """A `P` built, one field changed, and read into a variable directly
+        and through `P.mix(self)` or `mix(p: P)`, which borrow it."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        p = f"s{n}"
+        x = self.expr(env_types, "i64", 2)
+        y = self.expr(env_types, "i32", 2)
+        field = rng.choice(["x", "y"])
+        value = self.expr(env_types, "i64" if field == "x" else "i32", 2)
+        read = rng.choice(["mix", "method", "x", "y"])
+        env_types[n] = "i64"
+
+        def run(env, n=n, x=x, y=y, field=field, value=value, read=read):
+            s = {"x": x[2](env), "y": y[2](env)}
+            s[field] = value[2](env)
+            if read == "x":
+                env[n] = s["x"]
+            elif read == "y":
+                env[n] = s["y"]
+            elif read == "mix":
+                env[n] = s["x"] ^ s["y"]
+            else:
+                env[n] = wrap(s["x"] * 3 + s["y"], "i64")
+        text = {"x": f"{p}.x", "y": f"({p}.y as i64)", "mix": f"mix({p})",
+                "method": f"{p}.scaled()"}[read]
+        return [
+            f"{pad}var {p} = P {{ x: {x[0]}, y: {y[0]} }}",
+            f"{pad}{p}.{field} = {value[0]}",
+            f"{pad}var {n}: i64 = {text}",
+        ], run
+
+    def enum(self, env_types, pad):
+        """An `E` chosen by `match`, then matched with bindings and a guard."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        e = f"e{n}"
+        k = self.expr(env_types, rng.choice(list(TYPES)), 2)
+        a = self.expr(env_types, "i64", 2)
+        q = self.expr(env_types, "u8", 2)
+        r = self.expr(env_types, "i64", 2)
+        c = self.expr(env_types, "i64", 2)
+        g = rng.randint(0, 255)
+        env_types[n] = "i64"
+
+        def run(env, n=n, k=k, a=a, q=q, r=r, c=c, g=g):
+            sel = k[2](env) & 3
+            if sel == 0:
+                v = ("A", a[2](env))
+            elif sel == 1:
+                v = ("B", q[2](env), r[2](env))
+            else:
+                v = ("C",)
+            if v[0] == "A":
+                env[n] = v[1]
+            elif v[0] == "B" and v[1] > g:
+                env[n] = wrap(v[2] - v[1], "i64")
+            elif v[0] == "B":
+                env[n] = v[1] ^ v[2]
+            else:
+                env[n] = c[2](env)
+        kt = k[1]
+        return [
+            f"{pad}var {e}: E = match {k[0]} & (3 as {kt}) {{ 0 => E.A({a[0]}), "
+            f"1 => E.B({q[0]}, {r[0]}), _ => E.C }}",
+            f"{pad}var {n}: i64 = match {e} {{ A(x) => x, B(x, y) if x > {g} => y -% (x as i64), "
+            f"B(x, y) => (x as i64) ^ y, C => {c[0]} }}",
+        ], run
+
+    def vec(self, env_types, pad):
+        """A `Vec(i64)` pushed in a loop, one element changed, then read by
+        index, by length or by a `for` over it."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        w, j = f"w{n}", f"j{n}"
+        count = rng.randint(1, 6)
+        inner = dict(env_types)
+        inner[j] = "i64"
+        self.loops += 1
+        elem = self.expr(inner, "i64", 2)
+        self.loops -= 1
+        at = self.convert(self.expr(env_types, rng.choice(list(TYPES)), 2), "u64")
+        value = self.expr(env_types, "i64", 2)
+        read = rng.choice(["index", "len", "fold"])
+        env_types[n] = "i64"
+
+        def run(env, n=n, j=j, count=count, elem=elem, at=at, value=value, read=read):
+            v = []
+            for x in range(count):
+                inner = dict(env)
+                inner[j] = x
+                v.append(wrap(elem[2](inner) + x, "i64"))
+            i = at[2](env) % count
+            v[i] = value[2](env)
+            if read == "index":
+                env[n] = v[(i + 1) % count]
+            elif read == "len":
+                env[n] = len(v)
+            else:
+                t = 0
+                for x in v:
+                    t = wrap(t * 31 + x, "i64")
+                env[n] = t
+        i = f"(({at[0]}) % {count})"
+        reads = {
+            "index": [f"{pad}var {n}: i64 = {w}[(({i} + 1) % {count}) as i64]"],
+            "len": [f"{pad}var {n}: i64 = {w}.len()"],
+            "fold": [f"{pad}var {n}: i64 = 0",
+                     f"{pad}for x in {w} {{ {n} = {n} *% 31 +% x }}"],
+        }[read]
+        return [
+            f"{pad}var {w} = Vec(i64).new()",
+            f"{pad}for {j} in 0..{count} {{ {w}.push({elem[0]} +% {j}) }}",
+            f"{pad}{w}[{i} as i64] = {value[0]}",
+        ] + reads, run
+
+    def closure(self, env_types, pad):
+        """A closure of one parameter that captures the variables in scope,
+        called twice."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        c, x = f"c{n}", f"x{n}"
+        inner = dict(env_types)
+        inner[x] = "i64"
+        # Called twice, so without calls, as in a loop.
+        self.loops += 1
+        body = self.expr(inner, "i64", 2)
+        self.loops -= 1
+        a = self.expr(env_types, "i64", 2)
+        b = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, x=x, body=body, a=a, b=b):
+            def call(v):
+                inner = dict(env)
+                inner[x] = v
+                return body[2](inner)
+            env[n] = wrap(call(a[2](env)) - call(b[2](env)), "i64")
+        return [
+            f"{pad}let {c} = fn({x}: i64) -> i64 {{ {body[0]} }}",
+            f"{pad}var {n}: i64 = {c}({a[0]}) -% {c}({b[0]})",
         ], run
 
     def function(self):
@@ -295,6 +448,26 @@ def literal_i64(v):
     return f"(0 -% {-(v + 1)} -% 1)"
 
 
+# The types the statements use.
+PRELUDE = """struct P {
+    x: i64
+    y: i32
+}
+
+impl P {
+    fn scaled(self) -> i64 { self.x *% 3 +% (self.y as i64) }
+}
+
+fn mix(p: P) -> i64 { p.x ^ (p.y as i64) }
+
+enum E {
+    A(i64)
+    B(u8, i64)
+    C
+}
+"""
+
+
 def program(seed, functions):
     rng = random.Random(seed)
     g = Gen(rng)
@@ -313,7 +486,7 @@ def program(seed, functions):
             expected.append(c(a, b, calls))
     xs = ", ".join(literal_i64(a) for a, _ in inputs)
     ys = ", ".join(literal_i64(b) for _, b in inputs)
-    out = ["import std.env", ""] + texts + [""]
+    out = ["import std.env", "", PRELUDE] + texts + [""]
     for k in range(functions):
         out.append(f"fn table{k}() -> [i64; {INPUTS}] {{")
         out.append(f"    let xs: [i64; {INPUTS}] = [{xs}]")
