@@ -1011,6 +1011,7 @@ impl Tests {
         for (mode, file) in [
             ("--sanitize=thread", "tests/run/threads.jh"),
             ("--sanitize=thread", "tests/run/channels.jh"),
+            ("--sanitize=thread", "tests/run/sync_stress.jh"),
             ("--sanitize=address", "tests/run/maps.jh"),
             ("--sanitize=address", "tests/run/closures.jh")
         ] {
@@ -1638,6 +1639,7 @@ fn runs_on_uefi(path: str) -> bool {
         "process",
         "scoped_threads",
         "sync",
+        "sync_stress",
         "threads"
     ] {
         if name == n {

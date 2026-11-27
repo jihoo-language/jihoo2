@@ -1,0 +1,45 @@
+// Many threads at once through the standard library's unsafe concurrency
+// code: a bounded channel of owned strings, a mutex, atomics, once-cells
+// and the thread pool; the backend suite also runs it under
+// ThreadSanitizer.
+import std.sync
+import std.thread
+
+fn main() {
+    let jobs = sync.Channel(String).bounded(3)
+    let counted = sync.Atomic(i64).new(0)
+    let total = sync.Mutex(Vec(i64)).new(Vec(i64).new())
+    let once = sync.Once(String).new()
+    let (_, received) = thread.join(fn() {
+        thread.each(0, 400, fn(i) {
+            let s = once.get_or_init(fn() { String.from("init") })
+            jobs.send(i.to_string() + s.as_str())
+            counted.add(1)
+        })
+        jobs.close()
+    }, fn() {
+        var n = 0
+        for s in jobs.iter() {
+            total.lock(fn(v) { v.push(s.len()) })
+            n += 1
+        }
+        n
+    })
+    var squares = Vec(i64).new()
+    for i in 0..2000 { squares.push(i) }
+    thread.each_mut_uneven(&squares, fn(x) { x *= x })
+    let sum = thread.map(squares.as_slice(), fn(x) { x % 7 })
+    var s = 0
+    for x in sum { s += x }
+    let lens = total.into_inner()
+    var l = 0
+    for x in lens { l += x }
+    println(received)
+    println(counted.load())
+    println(l)
+    println(s)
+}
+//> 400
+//> 400
+//> 2690
+//> 3999
