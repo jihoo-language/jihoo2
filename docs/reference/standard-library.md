@@ -26,16 +26,20 @@ everywhere; the others are imported (`import std.fs`).
 A growable array. `Vec(T).new()`, `with_capacity(n)`, `Vec.filled(n, x)`;
 `len`, `is_empty`, `capacity`, `push`, `pop`, `insert`, `remove`, `swap`,
 `truncate`, `clear`, `extend`, `reverse`, `reserve`, `resize`, `first`,
-`last`, `as_slice`, `iter`; `v[i]` (bounds-checked). `Clone` and `Eq` when
+`last`, `as_slice`, `iter`; `v[i]` (bounds-checked). A slice or array
+of `Clone` values gives a `Vec` of copies with `to_vec()`. `Clone` and `Eq` when
 `T` has them. `for x in v` borrows each element; `for x in v.into_iter()`
 owns each one (`into_iter` takes the `Vec`; the values a loop that stops
 early does not reach are dropped with it).
 
 ## Iterators
 
-`import std.iter` enables `IteratorExt` for every `Iterator`: `map`,
-`filter`, `take`, `zip`, `fold`, `for_each`, `count`, `any` and `all`.
-Slices gain `.iter()`, and `iter.range(start, end)` supplies a half-open
+`import std.iter` enables `IteratorExt` for every `Iterator`: the
+adapters `map`, `filter`, `take`, `skip`, `step_by`, `take_while`,
+`skip_while`, `enumerate`, `zip` and `chain`, and the consumers `fold`,
+`for_each`, `count`, `any`, `all`, `find`, `position`, `last`, `nth`,
+`min`, `max` (items with `Ord`), `sum`, `product` (number items) and
+`collect` (a `Vec`). Slices gain `.iter()`, and `iter.range(start, end)` supplies a half-open
 `i64` range. Adapters are lazy and own their input iterator; `map` and
 `filter` hold their callback as given, a borrowing closure or a `move fn`,
 so a function can return a pipeline (`-> impl Iterator`). See

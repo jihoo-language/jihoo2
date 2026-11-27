@@ -29,14 +29,26 @@ elements to the iterator. `iter.range(start, end)` yields `i64` values from
 | `map(f)` | Transform each item; infer the output type from `f` |
 | `filter(pred)` | Yield the items for which `pred` returns true |
 | `take(n)` | Yield at most `n` items; nonpositive counts are empty |
+| `skip(n)` | Drop the first `n` items; nonpositive counts drop none |
+| `step_by(n)` | Yield the first item, then every `n`th; `n` must be positive |
+| `take_while(pred)` | Yield items until `pred` fails, dropping that one |
+| `skip_while(pred)` | Drop items while `pred` holds, then yield the rest |
+| `enumerate()` | Yield `(index, item)` pairs, counting from 0 |
 | `zip(other)` | Yield pairs, stopping when either input ends |
+| `chain(other)` | Yield this input's items, then `other`'s (the same item type) |
 | `fold(initial, combine)` | Accumulate a result in input order |
 | `for_each(f)` | Call `f` for each item |
 | `count()` | Count the items |
 | `any(pred)` | Stop at the first true result; empty input gives false |
 | `all(pred)` | Stop at the first false result; empty input gives true |
+| `find(pred)` | The first item `pred` holds of, as an `Option` |
+| `position(pred)` | The index of that item, as an `Option(i64)` |
+| `last()`, `nth(n)` | The last item, or the one at index `n` |
+| `min()`, `max()` | The least (first of equals) or greatest (last of equals) item with `Ord` |
+| `sum()`, `product()` | The total or product of number items (0 and 1 for none) |
+| `collect()` | The items in a `Vec`, in order |
 
-`map`, `filter`, `take` and `zip` construct adapters. They pull no elements
+The adapters (`map` to `chain` above) construct new iterators. They pull no elements
 until `next`, a consumer, or a `for` loop requests them. Each adapter owns
 its input iterator. Callbacks borrow their arguments; an owned input item
 is dropped after its callback finishes unless the adapter yields that item.

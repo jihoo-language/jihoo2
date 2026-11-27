@@ -6213,6 +6213,17 @@ impl sema.Sema {
                 recv = self.method_call_val(&fb, recv, "deref", Vec(Val).new(), span, None)?
                 continue
             }
+            // An array has the methods of its slice: `[1, 2].iter()`.
+            match self.types.kind(recv.ty).clone() {
+                Array(e, _) => {
+                    let st = self.view_ty(TyKind.Slice(e))
+                    if self.find_method(st, name)?.is_some() {
+                        recv = self.coerce(&fb, recv, st, span)?
+                        continue
+                    }
+                }
+                _ => {}
+            }
             break
         }
         let d = err(span, ("`" + self.types.show(recv.ty).as_str() + "` has no method `" +

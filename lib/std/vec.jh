@@ -270,6 +270,15 @@ impl(T: type) Drop for IntoIter(T) {
     }
 }
 
+impl(T: Clone) [T] {
+    // A `Vec` of copies of the values.
+    pub fn to_vec(self) -> Vec(T) {
+        var v = Vec(T).with_capacity(self.len)
+        for x in self { v.push(x.clone()) }
+        v
+    }
+}
+
 impl(T: Clone) Vec(T) {
     // n copies of x (none when n is negative).
     pub fn filled(n: i64, x: T) -> Vec(T) {

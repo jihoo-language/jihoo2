@@ -174,6 +174,8 @@ Rust struct with a lifetime parameter, without the annotation
   `t` is used. Every other arm must then give a place too (not a new
   value), and the `match` cannot be moved out of: `.clone()` in the arms
   makes it owned.
+- An array has its slice's methods: `[1, 2, 3].iter()`, `xs.to_vec()`.
+  `collect()` always makes a `Vec`; there is no `FromIterator`.
 - Patterns see through `ref` and `inout` values, as Rust's default binding
   modes do: `Some(Circle(r))` matches an `Option(ref Shape)`. So do
   operators on a borrow of a number, bool or pointer, where Rust writes
