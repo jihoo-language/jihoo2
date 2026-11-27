@@ -152,8 +152,10 @@ def safety(args, compiler):
             if r.returncode != 0:
                 return None
             run = [str(exe)] if args.threads else ["valgrind", "-q", "--error-exitcode=99", str(exe)]
+            # From the temporary directory, where a core dump (valgrind's
+            # vgcore.*, of a program that dies by a signal) is removed with it.
             try:
-                v = subprocess.run(run, capture_output=True, timeout=120)
+                v = subprocess.run(run, capture_output=True, timeout=120, cwd=directory)
             except subprocess.TimeoutExpired:
                 return True
             report = b"ThreadSanitizer" in v.stderr if args.threads else v.returncode == 99
