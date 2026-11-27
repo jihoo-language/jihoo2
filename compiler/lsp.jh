@@ -827,11 +827,11 @@ fn word_at(sources: diag.Sources, a: load.Ast, offset: i64) -> Option((String, S
     None
 }
 
-// `value.name`, or `value.f.g.name`, where `value` is a local or
-// parameter: the fields, variants and methods named `name` of the type
-// the compiler gave `value` (through borrows, in every instance), or of
-// the type of its field `f`'s field `g`. Empty otherwise, or when the
-// program does not check, so that resolving by name takes over.
+// The member at `offset`, in `x.name` or `x.name(...)` with any
+// receiver (`value.f.g.name`, `f().name`, `v[i].name`): the fields and
+// methods the compiler resolved it to, in every instance, as far as the
+// program could be lowered. Empty when it is not one, so that resolving
+// by name takes over.
 fn typed_members(a: load.Ast, sources: diag.Sources, tgt: target.Target, offset: i64) -> Vec(Span) {
     var out = Vec(Span).new()
     let root = a.modules[a.root as i64]
@@ -847,155 +847,15 @@ fn typed_members(a: load.Ast, sources: diag.Sources, tgt: target.Target, offset:
             at = i
         }
     }
-    if at < 2 || toks[at - 1].tok != lex.Tok.Dot || toks[at - 2].tok != lex.Tok.Ident {
-        return out
-    }
-    // The receiver's path, `value` then its fields, innermost last.
-    var path = Vec(i64).new()
-    var j = at
-    while j >= 2 && toks[j - 1].tok == lex.Tok.Dot && toks[j - 2].tok == lex.Tok.Ident {
-        path.insert(0, j - 2)
-        j -= 2
-    }
-    // Not the result of a call or an index (`f().name`, `v[i].name`).
-    if j >= 1 && toks[j - 1].tok == lex.Tok.Dot { return out }
-    let q = toks[path[0]].text.as_str()
-    let name = toks[at].text.as_str()
-    var binding: Option(Span) = None
-    for b in locals(root.ast, toks[path[0]].span.lo) {
-        if b.name == q { binding = Some(narrow(sources, b.span, q)) }
-    }
-    let Some(sp) = binding else { return out }
-    var reports = Vec(interp.Report).new()
-    let prog = match sema.compile(a, tgt, true, true, target.Codegen.default(), false, &reports) {
-        Ok(p) => p
-        Err(_) => return out
-    }
-    // `value.name(...)` calls a method; otherwise a field, or a method
-    // named as a value.
-    let call = at + 1 < toks.len() && toks[at + 1].tok == lex.Tok.LParen
-    var tys = receiver_types(prog, sp, q)
-    for k in 1..path.len() {
-        tys = field_types(prog, tys, toks[path[k]].text.as_str())
-    }
-    let types = type_names(prog, tys)
-    for ty in types {
-        for m in a.modules {
-            for it in m.ast.items {
-                match it.kind {
-                    Impl(_) => if call { type_member(m, sources, it, ty.as_str(), name, &out) }
-                    _ => if !call { type_member(m, sources, it, ty.as_str(), name, &out) }
-                }
-            }
-        }
-    }
-    if out.len() == 0 && !call {
-        for ty in types {
-            for m in a.modules {
-                for it in m.ast.items {
-                    type_member(m, sources, it, ty.as_str(), name, &out)
-                }
-            }
-        }
-    }
-    // A method the type's impls do not write: a trait's (a default method
-    // such as `Show.to_string`), rather than every member of that name.
-    if out.len() == 0 && tys.len() > 0 {
-        for m in a.modules {
-            for it in m.ast.items {
-                match it.kind {
-                    Trait(t) => items_named_in(t.items, sources, name, &out)
-                    _ => {}
-                }
-            }
-        }
-    }
-    out
-}
-
-// The types (through borrows) of the locals named `name` declared at
-// `sp`, one per instance, without repeats.
-fn receiver_types(p: mir.Program, sp: Span, name: str) -> Vec(u32) {
-    var out = Vec(u32).new()
-    for f in p.fns {
-        match f.body {
-            Some(b) => {
-                for l in b.locals {
-                    let Some(n) = l.name else { continue }
-                    if n != name || l.span.file != sp.file { continue }
-                    if l.span.lo > sp.lo || sp.lo >= l.span.hi { continue }
-                    push_new(&out, through_borrows(p, l.ty))
-                }
-            }
-            None => {}
-        }
-    }
-    out
-}
-
-fn through_borrows(p: mir.Program, t: u32) -> u32 {
-    var t = t
-    loop {
-        match p.types.kind(t) {
-            Ref(x) | RefMut(x) => t = x
-            _ => return t
-        }
-    }
-}
-
-fn push_new(inout out: Vec(u32), t: u32) {
-    for x in out {
-        if x == t { return }
-    }
-    out.push(t)
-}
-
-// The types of the structs' fields named `field`.
-fn field_types(p: mir.Program, tys: Vec(u32), field: str) -> Vec(u32) {
-    var out = Vec(u32).new()
-    for t in tys {
-        let Some(a) = p.types.adt_index(t) else { continue }
-        match p.types.adts[a as i64].body {
-            Struct(fs) => {
-                for f in fs {
-                    if f.name == field { push_new(&out, through_borrows(p, f.ty)) }
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-// The names of struct and enum types, without module or arguments.
-fn type_names(p: mir.Program, tys: Vec(u32)) -> Vec(String) {
-    var out = Vec(String).new()
-    for t in tys {
-        // Built-in types by name (`str`, for `impl str`).
-        let Some(a) = p.types.adt_index(t) else {
-            let n = p.types.show(t)
-            var seen = false
-            for x in out {
-                if x == n { seen = true }
-            }
-            if !seen { out.push(n) }
-            continue
-        }
-        let full = p.types.adts[a as i64].name.as_str()
-        var end = full.len
-        for i in 0..full.len {
-            if full[i] == '(' && end == full.len { end = i }
-        }
-        var start = 0
-        for i in 0..end {
-            if full[i] == '.' { start = i + 1 }
-        }
-        let bare = full[start..end].to_string()
+    if at < 1 || toks[at - 1].tok != lex.Tok.Dot { return out }
+    let name = toks[at].span
+    for u in sema.member_uses(a, tgt) {
+        if u.0.file != name.file || u.0.lo != name.lo || u.0.hi != name.hi { continue }
         var seen = false
         for x in out {
-            if x == bare { seen = true }
+            if x.file == u.1.file && x.lo == u.1.lo && x.hi == u.1.hi { seen = true }
         }
-        if !seen { out.push(bare) }
+        if !seen { out.push(u.1) }
     }
     out
 }
