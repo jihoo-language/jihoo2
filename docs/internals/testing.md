@@ -116,8 +116,9 @@ that capture the variables around them, a `String` grown and read,
 generic functions instantiated at every integer type, `f64` arithmetic,
 `%`, comparisons and the math builtins (back to integers by a saturating
 `as` or by their bits, every NaN as one value), `Option` matched,
-`Result` through `?`, `while` loops ended by `break`, and calls to
-earlier functions.
+`Result` through `?`, `while` loops ended by `break`, a `Map` filled in
+a loop, trait objects (`Vec(dyn Op)`) called through a default method,
+`std.sort`, and calls to earlier functions.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
 compile-time interpreter (a `const` table) and by compiled code, given
