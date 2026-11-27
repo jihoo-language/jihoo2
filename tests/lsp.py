@@ -247,6 +247,44 @@ def main():
             shape = symbols[3]
             assert [c["name"] for c in shape["children"]] == ["Dot", "Square"], shape
             assert [(c["name"], c["kind"]) for c in symbols[4]["children"]] == [("to_string", 12)], symbols[4]
+            # References.
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 105},
+                                                     "contentChanges": [{"text": fixed}]})
+            assert client.diagnostics(uri(main_file)) == []
+            assert client.capabilities["referencesProvider"] is True
+
+            def references(word, occurrence, after, declaration):
+                offset = fixed.encode().index(word.encode(), after)
+                for _ in range(occurrence):
+                    offset = fixed.encode().index(word.encode(), offset + 1)
+                found = client.request("textDocument/references", {
+                    "textDocument": {"uri": uri(main_file)},
+                    "position": position(fixed, offset + 1, utf8),
+                    "context": {"includeDeclaration": declaration}})
+                return sorted((r["uri"], r["range"]["start"]["line"], r["range"]["start"]["character"])
+                              for r in found)
+            def at(offset, file=None):
+                start = position(fixed, offset, utf8)
+                return (file or uri(main_file), start["line"], start["character"])
+            src = fixed.encode()
+            # A local's uses, then with its declaration.
+            declared = src.index(b"value")
+            uses = sorted([at(src.index(b"x: value") + 3), at(src.index(b"(value") + 1)])
+            assert references("value", 0, 0, False) == uses, references("value", 0, 0, False)
+            assert references("value", 2, 0, True) == sorted(uses + [at(declared)])
+            # A field: its declaration, the struct literal's field and `p.x`.
+            found = references("x", 0, src.index(b"p.x"), True)
+            assert found == sorted([at(src.index(b"x: i64")), at(src.index(b"x: value")),
+                                    at(src.index(b"p.x") + 2)]), found
+            # Vec's `len`, not `str`'s (`s.len`): `old.len()` and
+            # `bag.items.len()`, besides those in other files.
+            found = [r for r in references("len", 0, src.index(b"old.len"), False)
+                     if r[0] == uri(main_file)]
+            assert found == sorted([at(src.index(b"old.len") + 4),
+                                    at(src.index(b"items.len") + 6)]), found
+            # An item of another module, from its use.
+            found = references("twice", 0, 0, True)
+            assert found == sorted([(uri(helper), 0, 7), at(src.index(b"twice"))]), found
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -355,7 +393,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":

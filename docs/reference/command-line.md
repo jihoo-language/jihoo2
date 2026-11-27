@@ -421,6 +421,10 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   method shows its declaration up to its body, with the `//` comment just
   above it. When the program does not check, a local shows its
   declaration's line instead.
+- **References**: the uses of what go to definition finds, with its
+  declaration when the client asks: the members the compiler resolved to
+  it (`x.name`, `f().name`) in every loaded file, and the names of the
+  document that resolve to it, a local or an item of any module.
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show

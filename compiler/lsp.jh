@@ -280,6 +280,9 @@ impl Server {
                 "hoverProvider",
                 Json.Bool(true)
             ).with("documentFormattingProvider", Json.Bool(true)).with(
+                "referencesProvider",
+                Json.Bool(true)
+            ).with(
                 "documentSymbolProvider",
                 Json.Bool(true)
             )
@@ -356,6 +359,21 @@ impl Server {
             match self.doc(uri.as_str()) {
                 Some(i) => {
                     let found = self.hover(i, line, character)
+                    reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/references" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let line = params.at(["position", "line"]).int_or(-1)
+            let character = params.at(["position", "character"]).int_or(-1)
+            let declaration = match params.at(["context", "includeDeclaration"]) {
+                Bool(b) => b
+                _ => false
+            }
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let found = self.references(i, line, character, declaration)
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
@@ -853,7 +871,8 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        var found = typed_members(a, sources, self.tgt, offset)
+        let uses = sema.member_uses(a, self.tgt)
+        var found = typed_members(a, sources, uses, offset)
         if found.len() == 0 { found = resolve(a, sources, offset) }
         var locations = Vec(Json).new()
         for sp in found {
@@ -885,7 +904,8 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        var found = typed_members(a, sources, self.tgt, offset)
+        let uses = sema.member_uses(a, self.tgt)
+        var found = typed_members(a, sources, uses, offset)
         if found.len() == 0 { found = resolve(a, sources, offset) }
         if found.len() == 0 { return Json.Null }
         let Some((name, at)) = word_at(sources, a, offset) else { return Json.Null }
@@ -935,6 +955,116 @@ impl Server {
     }
 }
 
+impl Server {
+    // The uses of what the name at a position stands for, as `Location`s,
+    // with its declarations if asked: the members the compiler resolved to
+    // it, in every loaded file, and the names of the document that resolve
+    // to it as go to definition resolves them.
+    fn references(self, i: i64, line: i64, character: i64, declaration: bool) -> Json {
+        let d = self.docs[i]
+        let offset = self.offset(d.text.as_str(), line, character)
+        var sources = diag.Sources.new()
+        let overlay = self.overlay()
+        let a = match load.load_with(
+            d.path.as_str(),
+            load.default_search(self.search.clone()),
+            self.tgt.name(),
+            &sources,
+            false,
+            overlay
+        ) {
+            Ok(a) => a
+            Err(_) => return Json.Null
+        }
+        let uses = sema.member_uses(a, self.tgt)
+        let Some((name, _)) = word_at(sources, a, offset) else { return Json.Null }
+        // Declarations by their names, however each was found.
+        let defs = names_in(sources, definitions(a, sources, uses, offset), name.as_str())
+        if defs.len() == 0 { return Json.Null }
+        var found = Vec(Span).new()
+        for u in uses {
+            if has_span(defs, narrow(sources, u.1, name.as_str())) { push_span(&found, u.0) }
+        }
+        let file = a.modules[a.root as i64].ast.file
+        let text = sources.files[file as i64].text.as_str()
+        match lex.lex(file, text) {
+            Ok(toks) => {
+                for k, t in toks {
+                    if t.tok != lex.Tok.Ident || t.text != name { continue }
+                    // A member of a value is the compiler's to resolve: its
+                    // uses are those above. `module.name` and `Type.name`
+                    // resolve as go to definition does.
+                    let member = k > 0 && toks[k - 1].tok == lex.Tok.Dot
+                    if member && (k < 2 || toks[k - 2].tok != lex.Tok.Ident ||
+                        !path_head(a, toks[k - 2].text.as_str())) { continue }
+                    let there = names_in(
+                        sources,
+                        definitions(a, sources, uses, t.span.lo as i64),
+                        name.as_str()
+                    )
+                    for x in there {
+                        if has_span(defs, x) { push_span(&found, t.span) }
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        var locations = Vec(Json).new()
+        for sp in found {
+            if !declaration && has_span(defs, sp) { continue }
+            locations.push(self.location(sp, sources))
+        }
+        if declaration {
+            for sp in defs {
+                if !has_span(found, sp) { locations.push(self.location(sp, sources)) }
+            }
+        }
+        Json.Arr(locations)
+    }
+}
+
+// What go to definition finds at `offset`.
+fn definitions(
+    a: load.Ast,
+    sources: diag.Sources,
+    uses: Vec((Span, Span)),
+    offset: i64
+) -> Vec(Span) {
+    let found = typed_members(a, sources, uses, offset)
+    if found.len() > 0 { return found }
+    resolve(a, sources, offset)
+}
+
+fn names_in(sources: diag.Sources, spans: Vec(Span), name: str) -> Vec(Span) {
+    var out = Vec(Span).new()
+    for sp in spans {
+        push_span(&out, narrow(sources, sp, name))
+    }
+    out
+}
+
+// Whether `q` in `q.name` names a module the root imports or a type
+// (capitalized), rather than a value.
+fn path_head(a: load.Ast, q: str) -> bool {
+    for imp in a.modules[a.root as i64].imports {
+        if imp.alias == q { return true }
+    }
+    q.len > 0 && q[0] >= 'A' && q[0] <= 'Z'
+}
+
+fn same_span(a: Span, b: Span) -> bool { a.file == b.file && a.lo == b.lo && a.hi == b.hi }
+
+fn has_span(spans: Vec(Span), s: Span) -> bool {
+    for x in spans {
+        if same_span(x, s) { return true }
+    }
+    false
+}
+
+fn push_span(inout spans: Vec(Span), s: Span) {
+    if !has_span(spans, s) { spans.push(s) }
+}
+
 // The identifier at `offset` in the root module, and its span.
 fn word_at(sources: diag.Sources, a: load.Ast, offset: i64) -> Option((String, Span)) {
     let file = a.modules[a.root as i64].ast.file
@@ -956,7 +1086,12 @@ fn word_at(sources: diag.Sources, a: load.Ast, offset: i64) -> Option((String, S
 // methods the compiler resolved it to, in every instance, as far as the
 // program could be lowered. Empty when it is not one, so that resolving
 // by name takes over.
-fn typed_members(a: load.Ast, sources: diag.Sources, tgt: target.Target, offset: i64) -> Vec(Span) {
+fn typed_members(
+    a: load.Ast,
+    sources: diag.Sources,
+    uses: Vec((Span, Span)),
+    offset: i64
+) -> Vec(Span) {
     var out = Vec(Span).new()
     let root = a.modules[a.root as i64]
     let file = root.ast.file
@@ -973,7 +1108,7 @@ fn typed_members(a: load.Ast, sources: diag.Sources, tgt: target.Target, offset:
     }
     if at < 1 || toks[at - 1].tok != lex.Tok.Dot { return out }
     let name = toks[at].span
-    for u in sema.member_uses(a, tgt) {
+    for u in uses {
         if u.0.file != name.file || u.0.lo != name.lo || u.0.hi != name.hi { continue }
         var seen = false
         for x in out {
