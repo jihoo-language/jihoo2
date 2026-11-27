@@ -432,6 +432,14 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   when a program that checked would not check renamed, as when a use it
   cannot see remains (a module that uses an item of another, neither of
   them the document).
+- **Completion** of the word before the cursor, also on typing `.`.
+  After `x.`, where `x` is a local or parameter: the fields and methods of
+  the type the compiler gave it (public ones outside its module, trait
+  methods included), found with the `.word` being typed left out, so as
+  far as the rest of the program checks. After `module.`: the module's
+  public items; after `Type.`: its variants and functions. Elsewhere: the
+  locals in scope, the module's items, the modules it imports, the
+  prelude's items, and keywords. Each comes with its kind and declaration.
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show

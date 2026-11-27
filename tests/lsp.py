@@ -320,6 +320,36 @@ def main():
             assert "`old` is already used" in error["message"], error
             error = client.request_error("textDocument/rename", rename_params("len", src.index(b"old.len"), "size"))
             assert "standard library" in error["message"], error
+            # Completion, at the end of an unfinished line.
+            assert client.capabilities["completionProvider"]["triggerCharacters"] == ["."]
+
+            def complete(typed):
+                text = fixed.replace("    println(", "    let w = " + typed + "\n    println(")
+                client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 106},
+                                                         "contentChanges": [{"text": text}]})
+                offset = text.encode().index(b"let w = ") + 8 + len(typed.encode())
+                found = client.request("textDocument/completion", {
+                    "textDocument": {"uri": uri(main_file)}, "position": position(text, offset, utf8)})
+                return {c["label"]: c for c in found}
+            # A local's type's public fields and methods, trait methods too.
+            found = complete("old.")
+            assert {"push", "len", "clone", "iter"} <= set(found) and "cap" not in found, sorted(found)
+            assert found["push"]["kind"] == 2 and "fn push(" in found["push"]["detail"], found["push"]
+            assert sorted(complete("old.pu")) == ["push"]
+            found = complete("p.")
+            assert sorted(found) == ["x"] and found["x"]["kind"] == 5, found
+            # A module's items; a type's functions, not its methods.
+            assert sorted(complete("helper.")) == ["twice"]
+            found = complete("Vec.")
+            assert "new" in found and "push" not in found, sorted(found)
+            # Locals, items, the prelude's and keywords.
+            assert sorted(complete("val")) == ["value"]
+            assert complete("val")["value"]["kind"] == 6
+            assert sorted(complete("Poi")) == ["Point"]
+            assert "println" in complete("pri")
+            assert complete("ret")["return"]["kind"] == 14
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 107},
+                                                     "contentChanges": [{"text": fixed}]})
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -370,7 +400,7 @@ def main():
             assert related[0]["location"]["uri"] == uri(ROOT / "lib/std/thread.jh"), related
             assert "in the instance" in related[1]["message"], related
 
-            error = client.request_error("textDocument/completion", {
+            error = client.request_error("textDocument/codeAction", {
                 "textDocument": {"uri": uri(main_file)}, "position": {"line": 0, "character": 0}})
             assert error["code"] == -32601, error
 
@@ -428,7 +458,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, references, rename, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, rename, completion, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":

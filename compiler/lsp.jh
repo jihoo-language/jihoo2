@@ -22,6 +22,7 @@ import load
 import mir
 import os
 import parse
+import types
 import sema
 import target
 import timing
@@ -284,6 +285,9 @@ impl Server {
                 "referencesProvider",
                 Json.Bool(true)
             ).with("renameProvider", Json.Bool(true)).with(
+                "completionProvider",
+                json.obj().with("triggerCharacters", Json.Arr(vec_of(json.text("."))))
+            ).with(
                 "documentSymbolProvider",
                 Json.Bool(true)
             )
@@ -376,6 +380,17 @@ impl Server {
                 Some(i) => {
                     let found = self.references(i, line, character, declaration)
                     reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/completion" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let line = params.at(["position", "line"]).int_or(-1)
+            let character = params.at(["position", "character"]).int_or(-1)
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let items = self.completion(i, line, character)
+                    reply(id, items)
                 }
                 None => reply(id, Json.Null)
             }
@@ -1152,6 +1167,310 @@ impl Server {
     }
 }
 
+fn vec_of(sink x: Json) -> Vec(Json) {
+    var v = Vec(Json).new()
+    v.push(x)
+    v
+}
+
+// A completion candidate: its name, protocol `CompletionItemKind` and the
+// line declaring it.
+struct Candidate {
+    name: String
+    kind: i64
+    detail: String
+}
+
+impl Server {
+    // The names that can complete the word before a position. After `x.`:
+    // the fields and methods of the type the compiler gave the local `x`
+    // (with the `.word` being typed removed, so the text checks as far as
+    // it can), the items of a module, or the variants and functions of a
+    // type. Elsewhere: the locals in scope, the items of the module, of
+    // the modules it imports and of the prelude, and keywords.
+    fn completion(self, i: i64, line: i64, character: i64) -> Json {
+        let d = self.docs[i]
+        let text = d.text.as_str()
+        let offset = min(self.offset(text, line, character), text.len)
+        var start = offset
+        while start > 0 && word(text[start - 1]) { start -= 1 }
+        let prefix = text[start..offset]
+        let member = start > 0 && text[start - 1] == '.'
+        var q_start = start - 1
+        if member {
+            while q_start > 0 && word(text[q_start - 1]) { q_start -= 1 }
+        }
+        let q = if member { text[q_start..start - 1] } else { "" }
+        // The text without the `.word` being typed, which may not parse.
+        var edited = text.to_string()
+        if member {
+            edited = text[0..start - 1].to_string() + text[offset..text.len]
+        }
+        var overlay = self.overlay()
+        overlay.insert(load.file_key(d.path.as_str()), edited)
+        var sources = diag.Sources.new()
+        var out = Vec(Candidate).new()
+        match load.load_with(
+            d.path.as_str(),
+            load.default_search(self.search.clone()),
+            self.tgt.name(),
+            &sources,
+            false,
+            overlay
+        ) {
+            Ok(a) => {
+                if member {
+                    if q.len > 0 { self.member_candidates(a, sources, q, q_start, &out) }
+                } else {
+                    scope_candidates(a, sources, start, &out)
+                }
+            }
+            Err(_) => {}
+        }
+        if !member {
+            for k in [
+                "fn", "let", "var", "if", "else", "match", "for", "in", "while", "loop", "return",
+                "break", "continue", "struct", "enum", "impl", "trait", "import", "pub", "const",
+                "static", "type", "inout", "sink", "comptime", "unsafe", "move", "true", "false",
+                "self", "inline"
+            ] {
+                out.push(Candidate { name: String.from(k), kind: 14, detail: String.new() })
+            }
+        }
+        var items = Vec(Json).new()
+        var seen = Vec(String).new()
+        for c in out {
+            if !c.name.as_str().starts_with(prefix) { continue }
+            var dup = false
+            for x in seen {
+                if x == c.name { dup = true }
+            }
+            if dup { continue }
+            seen.push(c.name.clone())
+            var item = json.obj().with("label", json.text(c.name.as_str())).with(
+                "kind",
+                json.int(c.kind)
+            )
+            if c.detail.len() > 0 { item = item.with("detail", json.text(c.detail.as_str())) }
+            items.push(item)
+        }
+        Json.Arr(items)
+    }
+
+    // The members after `q.`, where `q` starts at byte `at` of the root.
+    fn member_candidates(
+        self,
+        a: load.Ast,
+        sources: diag.Sources,
+        q: str,
+        at: i64,
+        inout out: Vec(Candidate)
+    ) {
+        let root = a.modules[a.root as i64]
+        var binding: Option(Span) = None
+        for b in locals(root.ast, at as u32) {
+            if b.name == q { binding = Some(narrow(sources, b.span, q)) }
+        }
+        match binding {
+            Some(sp) => {
+                // A value: its type's fields and methods taking `self`.
+                let (fns, types) = sema.lowered(a, self.tgt)
+                for t in lowered_local_types(fns, types, sp, q) {
+                    let ty = bare_type(t.as_str())
+                    for k, m in a.modules {
+                        for it in m.ast.items {
+                            type_candidates(
+                                sources,
+                                it,
+                                ty.as_str(),
+                                true,
+                                k == a.root as i64,
+                                &out
+                            )
+                        }
+                    }
+                }
+                return
+            }
+            None => {}
+        }
+        for imp in root.imports {
+            if imp.alias == q {
+                module_candidates(a.modules[imp.module as i64], sources, true, &out)
+                return
+            }
+        }
+        // A type: its variants and functions.
+        for k, m in a.modules {
+            for it in m.ast.items {
+                type_candidates(sources, it, q, false, k == a.root as i64, &out)
+            }
+        }
+    }
+}
+
+// The type name of a type as shown, without borrows, module or arguments:
+// `Vec` of `Vec(String)`, `Point` of `ref main.Point`.
+fn bare_type(t: str) -> String {
+    var s = t
+    for p in ["ref ", "inout ", "*"] {
+        if s.starts_with(p) { s = s[p.len..] }
+    }
+    var end = s.len
+    for i in 0..s.len {
+        if s[i] == '(' && end == s.len { end = i }
+    }
+    var start = 0
+    for i in 0..end {
+        if s[i] == '.' { start = i + 1 }
+    }
+    s[start..end].to_string()
+}
+
+// The types (as shown) of the locals named `name` declared at `sp`, in the
+// functions lowered.
+fn lowered_local_types(
+    fns: Vec(mir.Function),
+    types: types.Types,
+    sp: Span,
+    name: str
+) -> Vec(String) {
+    var out = Vec(String).new()
+    for f in fns {
+        match f.body {
+            Some(b) => {
+                for l in b.locals {
+                    let Some(n) = l.name else { continue }
+                    if n != name || l.span.file != sp.file { continue }
+                    if l.span.lo > sp.lo || sp.lo >= l.span.hi { continue }
+                    let t = types.show(l.ty)
+                    var seen = false
+                    for x in out {
+                        if x == t { seen = true }
+                    }
+                    if !seen { out.push(t) }
+                }
+            }
+            None => {}
+        }
+    }
+    out
+}
+
+// The members of type `ty` that `it` declares: with `value`, a value's
+// fields and methods (functions taking `self`); otherwise the type's
+// variants and its other functions. Outside the document's own module,
+// only public fields and functions.
+fn type_candidates(
+    sources: diag.Sources,
+    it: ast.Item,
+    ty: str,
+    value: bool,
+    own: bool,
+    inout out: Vec(Candidate)
+) {
+    match it.kind {
+        Enum(e) => if e.name == ty && !value {
+            for v in e.variants {
+                out.push(Candidate {
+                    name: v.name.clone(),
+                    kind: 20,
+                    detail: decl_line(sources, v.span)
+                })
+            }
+        }
+        Struct(s) => if s.name == ty && value {
+            for f in s.fields {
+                if !own && !f.public { continue }
+                out.push(Candidate {
+                    name: f.name.clone(),
+                    kind: 5,
+                    detail: decl_line(sources, f.span)
+                })
+            }
+        }
+        Impl(im) => match im.self_ty.kind {
+            Path(p, _) => if p.len() > 0 && p[p.len() - 1] == ty {
+                for x in im.items {
+                    match x.kind {
+                        Fn(f) => {
+                            let method = f.params.len() > 0 && f.params[0].name == "self"
+                            // A trait's methods are as public as the trait.
+                            let public = x.public || im.trait_.is_some()
+                            if method == value && (own || public) {
+                                out.push(Candidate {
+                                    name: f.name.clone(),
+                                    kind: if method { 2 } else { 3 },
+                                    detail: decl_line(sources, x.span)
+                                })
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        _ => {}
+    }
+}
+
+// The items of a module (its public ones with `public`).
+fn module_candidates(
+    m: load.ModuleAst,
+    sources: diag.Sources,
+    public: bool,
+    inout out: Vec(Candidate)
+) {
+    for it in m.ast.items {
+        if public && !it.public { continue }
+        let Some(n) = item_name(it) else { continue }
+        let kind = match it.kind {
+            Fn(_) => 3
+            Struct(_) => 22
+            Enum(_) => 13
+            Trait(_) => 8
+            Const(_) | Static(_) => 21
+            _ => 25
+        }
+        out.push(Candidate {
+            name: String.from(n),
+            kind: kind,
+            detail: decl_line(sources, it.span)
+        })
+    }
+}
+
+// The names in scope at byte `at` of the root: its locals, its items, the
+// modules it imports, and the public items of the prelude and of the
+// modules the prelude makes visible.
+fn scope_candidates(a: load.Ast, sources: diag.Sources, at: i64, inout out: Vec(Candidate)) {
+    let root = a.modules[a.root as i64]
+    var ls = locals(root.ast, at as u32)
+    var k = ls.len()
+    // The innermost first.
+    while k > 0 {
+        k -= 1
+        out.push(Candidate { name: ls[k].name.clone(), kind: 6, detail: String.new() })
+    }
+    module_candidates(root, sources, false, &out)
+    for imp in root.imports {
+        out.push(Candidate { name: imp.alias.clone(), kind: 9, detail: String.new() })
+    }
+    match a.prelude {
+        Some(p) => {
+            let pm = a.modules[p as i64]
+            module_candidates(pm, sources, true, &out)
+            for imp in pm.imports {
+                if imp.public {
+                    module_candidates(a.modules[imp.module as i64], sources, true, &out)
+                }
+            }
+        }
+        None => {}
+    }
+}
+
 fn line_col(text: str, offset: i64) -> (i64, i64) {
     var line = 0
     var start = 0
@@ -1295,6 +1614,30 @@ fn local_types(p: mir.Program, sp: Span, name: str) -> Vec(String) {
         }
     }
     out
+}
+
+// The code of the declaration at `sp`, on one line: up to a `{` or the
+// end of its line outside parentheses.
+fn decl_line(sources: diag.Sources, sp: Span) -> String {
+    let md = declaration(sources, sp)
+    let code = "```jihoo\n"
+    if !md.as_str().starts_with(code) { return String.new() }
+    let rest = md.as_str()[code.len..]
+    var end = 0
+    while end + 3 <= rest.len && rest[end..end + 3] != "\n``" { end += 1 }
+    var s = String.new()
+    var space = false
+    for j in 0..end {
+        let c = rest[j]
+        if c == '\n' || c == ' ' {
+            space = true
+        } else {
+            if space && s.len() > 0 { s.push(' ') }
+            space = false
+            s.push(c)
+        }
+    }
+    s
 }
 
 // The declaration at `sp`: its lines up to a `{` or the end of the line,

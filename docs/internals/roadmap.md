@@ -82,7 +82,8 @@ errors with their notes as related information, finds definitions in the
 loaded syntax trees (the member of `x.name`, with any receiver, as the
 compiler resolved it), shows locals' inferred types and items'
 declarations on hover, finds references and renames, checking that the
-renamed program still checks, outlines documents (their items, fields,
+renamed program still checks, completes names and members, outlines
+documents (their items, fields,
 variants and methods), and formats documents. Checks run in a child
 process, so replies do not wait for them, and an edit stops a check that
 has become stale. A client test drives it over
