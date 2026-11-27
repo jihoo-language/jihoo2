@@ -1,0 +1,52 @@
+// A `sink` parameter moved on only some paths is dropped on the others:
+// its drop flag starts set, as the parameter has its value on entry.
+struct Noisy {
+    name: str
+}
+
+impl Drop for Noisy {
+    fn drop(inout self) {
+        println("drop " + self.name)
+    }
+}
+
+fn keep(sink n: Noisy, yes: bool) -> Option(Noisy) {
+    if yes { Some(n) } else { None }
+}
+
+fn consume(sink n: Noisy) {}
+
+fn maybe(sink a: Noisy, sink b: Noisy, which: i64) {
+    if which == 0 {
+        consume(a)
+    } else if which == 1 {
+        consume(b)
+    }
+    println("end of maybe")
+}
+
+fn main() {
+    let k = keep(Noisy { name: "kept" }, true)
+    println(k.is_some())
+    let g = keep(Noisy { name: "gone" }, false)
+    println(g.is_none())
+    maybe(Noisy { name: "a0" }, Noisy { name: "b0" }, 0)
+    maybe(Noisy { name: "a1" }, Noisy { name: "b1" }, 1)
+    maybe(Noisy { name: "a2" }, Noisy { name: "b2" }, 2)
+    println("end")
+}
+
+//> true
+//> drop gone
+//> true
+//> drop a0
+//> end of maybe
+//> drop b0
+//> drop b1
+//> end of maybe
+//> drop a1
+//> end of maybe
+//> drop b2
+//> drop a2
+//> end
+//> drop kept

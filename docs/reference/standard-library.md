@@ -8,8 +8,8 @@ everywhere; the others are imported (`import std.fs`).
 
 | name | what |
 |------|------|
-| `Option(T)` | `Some(T)` or `None`: `is_some`, `is_none`, `unwrap`, `expect`, `unwrap_or`; `Eq` when `T` has it |
-| `Result(T, E)` | `Ok(T)` or `Err(E)`: `is_ok`, `is_err`, `unwrap`, `expect`, `ok`, `err`; `Eq` when `T` and `E` have it |
+| `Option(T)` | `Some(T)` or `None`: `is_some`, `is_none`, `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else(f)`, `map(f)`, `and_then(f)`, `filter(pred)`, `or(other)`, `ok_or(err)`, `as_ref` (an `Option` of a borrow), `take` and `replace(x)` (on a place, giving back the old value); `Clone` and `Eq` when `T` has them |
+| `Result(T, E)` | `Ok(T)` or `Err(E)`: `is_ok`, `is_err`, `unwrap`, `unwrap_err`, `expect`, `unwrap_or`, `unwrap_or_else(f)`, `ok`, `err`, `map(f)`, `map_err(f)`, `and_then(f)`; `Clone` and `Eq` when `T` and `E` have them |
 | `Ordering` | `Less`, `Equal`, `Greater` |
 | `Clone`, `Eq`, `Ord`, `Hash`, `Show`, `Default`, `Drop`, `Iterator` | the [standard traits](../language/generics.md#standard-traits) |
 | `Plain`, `Int`, `Signed`, `Unsigned`, `Float`, `Number` | marker traits the compiler implements |
@@ -28,7 +28,10 @@ A growable array. `Vec(T).new()`, `with_capacity(n)`, `Vec.filled(n, x)`;
 `truncate`, `clear`, `extend`, `reverse`, `reserve`, `resize`, `first`,
 `last`, `as_slice`, `iter`; `v[i]` (bounds-checked). A slice or array
 of `Clone` values gives a `Vec` of copies with `to_vec()`. `Clone` and `Eq` when
-`T` has them. `for x in v` borrows each element; `for x in v.into_iter()`
+`T` has them; with `Eq`, `contains(x)` (also on slices), and with `Ord`,
+`sort()` and `binary_search(x)` (also on slices: `Ok` with a position of
+`x`, or `Err` with where it would go); `sort_by(less)` for any `T`.
+`for x in v` borrows each element; `for x in v.into_iter()`
 owns each one (`into_iter` takes the `Vec`; the values a loop that stops
 early does not reach are dropped with it).
 
@@ -55,12 +58,17 @@ without copying.
 
 `String`: `new`, `with_capacity`, `from(s)`, `len`, `is_empty`, `as_str`,
 `push(byte)`, `push_str`, `clear`, `into_bytes`; `+` and `+=` with a `str`;
-`==` and `<` with other strings.
+`==` and `<` with other strings; and the `str` methods below that read the
+text, on its `as_str()`.
 
 `str` (and slices) have the fields `len` and `ptr`, not methods: `s.len`.
-`str`: `s[i]` (a byte), `s[a..b]` (a part), `to_string`,
-`starts_with`, `ends_with`, `find`, `contains`, `trim`, `split`, `lines`,
-`parse_int`, `+`; `for b in s` gives bytes.
+`str`: `s[i]` (a byte), `s[a..b]` (a part), `to_string`, `is_empty`,
+`starts_with`, `ends_with`, `strip_prefix`, `strip_suffix` (an `Option`
+of the rest), `find`, `rfind`, `contains`, `trim`, `trim_start`,
+`trim_end`, `split`, `split_whitespace`, `lines`, `replace(from, to)`,
+`to_upper`, `to_lower` (ASCII letters), `repeat(n)`, `parse_int` (`None`
+for text that is not a decimal `i64`, or does not fit one), `+`; `for b in
+s` gives bytes. A slice of `str` or of `String` has `join(sep)`.
 
 `import std.utf8` adds `s.chars()`, an iterator of `Result(u32, String)`
 Unicode scalar values. Invalid UTF-8 yields one error, then ends iteration.

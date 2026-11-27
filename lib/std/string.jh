@@ -90,6 +90,26 @@ impl String {
         self.as_str().eq(other)
     }
 
+    // `str`'s methods, on the text.
+    pub fn trim(self) -> str { self.as_str().trim() }
+    pub fn trim_start(self) -> str { self.as_str().trim_start() }
+    pub fn trim_end(self) -> str { self.as_str().trim_end() }
+    pub fn starts_with(self, p: str) -> bool { self.as_str().starts_with(p) }
+    pub fn ends_with(self, p: str) -> bool { self.as_str().ends_with(p) }
+    pub fn find(self, p: str) -> Option(i64) { self.as_str().find(p) }
+    pub fn rfind(self, p: str) -> Option(i64) { self.as_str().rfind(p) }
+    pub fn contains(self, p: str) -> bool { self.as_str().contains(p) }
+    pub fn strip_prefix(self, p: str) -> Option(str) { self.as_str().strip_prefix(p) }
+    pub fn strip_suffix(self, p: str) -> Option(str) { self.as_str().strip_suffix(p) }
+    pub fn split(self, sep: str) -> Vec(str) { self.as_str().split(sep) }
+    pub fn split_whitespace(self) -> Vec(str) { self.as_str().split_whitespace() }
+    pub fn lines(self) -> Vec(str) { self.as_str().lines() }
+    pub fn parse_int(self) -> Option(i64) { self.as_str().parse_int() }
+    pub fn replace(self, from: str, to: str) -> String { self.as_str().replace(from, to) }
+    pub fn to_upper(self) -> String { self.as_str().to_upper() }
+    pub fn to_lower(self) -> String { self.as_str().to_lower() }
+    pub fn repeat(self, n: i64) -> String { self.as_str().repeat(n) }
+
     pub fn into_bytes(sink self) -> Vec(u8) {
         var s = self
         s.bytes.reserve(0)
@@ -288,7 +308,8 @@ impl str {
         out
     }
 
-    // A decimal integer, with an optional sign.
+    // A decimal integer, with an optional sign; None if it does not fit
+    // an `i64`.
     pub fn parse_int(self) -> Option(i64) {
         if self.len == 0 {
             return None
@@ -302,16 +323,134 @@ impl str {
         if i == self.len {
             return None
         }
+        // Counted down from 0, as -2^63 has no positive twin.
+        let least = 0 - 9223372036854775807 - 1
         var n: i64 = 0
         while i < self.len {
             let c = self[i]
             if c < '0' || c > '9' {
                 return None
             }
-            n = n *% 10 +% (c - '0') as i64
+            let d = (c - '0') as i64
+            if n < (least + d) / 10 {
+                return None
+            }
+            n = n * 10 - d
             i += 1
         }
-        Some(if neg { 0 -% n } else { n })
+        if neg { return Some(n) }
+        if n == least { return None }
+        Some(0 - n)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    // Without spaces, tabs and newlines at the start, or at the end.
+    pub fn trim_start(self) -> str {
+        var a = 0
+        while a < self.len && is_space(self[a]) {
+            a += 1
+        }
+        self[a..]
+    }
+
+    pub fn trim_end(self) -> str {
+        var b = self.len
+        while b > 0 && is_space(self[b - 1]) {
+            b -= 1
+        }
+        self[..b]
+    }
+
+    // Where p last occurs.
+    pub fn rfind(self, p: str) -> Option(i64) {
+        if p.len > self.len {
+            return None
+        }
+        var i = self.len - p.len
+        while i >= 0 {
+            if self[i..i + p.len] == p {
+                return Some(i)
+            }
+            i -= 1
+        }
+        None
+    }
+
+    // Without the prefix (or suffix), if it starts (ends) with it.
+    pub fn strip_prefix(self, p: str) -> Option(str) {
+        if self.starts_with(p) { Some(self[p.len..]) } else { None }
+    }
+
+    pub fn strip_suffix(self, p: str) -> Option(str) {
+        if self.ends_with(p) { Some(self[..self.len - p.len]) } else { None }
+    }
+
+    // Every occurrence of `from`, left to right and not overlapping,
+    // replaced by `to`. An empty `from` replaces nothing.
+    pub fn replace(self, from: str, to: str) -> String {
+        var out = String.with_capacity(self.len)
+        var start = 0
+        var i = 0
+        while from.len > 0 && i + from.len <= self.len {
+            if self[i..i + from.len] == from {
+                out.push_str(self[start..i])
+                out.push_str(to)
+                i += from.len
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        out.push_str(self[start..])
+        out
+    }
+
+    // ASCII letters changed to upper (lower) case; other bytes kept.
+    pub fn to_upper(self) -> String {
+        var out = String.with_capacity(self.len)
+        for c in self {
+            out.push(if c >= 'a' && c <= 'z' { c - 32 } else { c })
+        }
+        out
+    }
+
+    pub fn to_lower(self) -> String {
+        var out = String.with_capacity(self.len)
+        for c in self {
+            out.push(if c >= 'A' && c <= 'Z' { c + 32 } else { c })
+        }
+        out
+    }
+
+    // `n` copies, one after another (none when `n` is not positive).
+    pub fn repeat(self, n: i64) -> String {
+        var out = String.with_capacity(if n > 0 { self.len * n } else { 0 })
+        for _ in 0..n {
+            out.push_str(self)
+        }
+        out
+    }
+
+    // The words: the parts between runs of spaces, tabs and newlines.
+    pub fn split_whitespace(self) -> Vec(str) {
+        var out = Vec(str).new()
+        var i = 0
+        while i < self.len {
+            while i < self.len && is_space(self[i]) {
+                i += 1
+            }
+            let start = i
+            while i < self.len && !is_space(self[i]) {
+                i += 1
+            }
+            if i > start {
+                out.push(self[start..i])
+            }
+        }
+        out
     }
 
     pub fn add(self, other: str) -> String {
@@ -319,6 +458,33 @@ impl str {
         r.push_str(self)
         r.push_str(other)
         r
+    }
+}
+
+impl [str] {
+    // The parts, with `sep` between each two.
+    pub fn join(self, sep: str) -> String {
+        var out = String.new()
+        for i, x in self {
+            if i > 0 {
+                out.push_str(sep)
+            }
+            out.push_str(x)
+        }
+        out
+    }
+}
+
+impl [String] {
+    pub fn join(self, sep: str) -> String {
+        var out = String.new()
+        for i, x in self {
+            if i > 0 {
+                out.push_str(sep)
+            }
+            out.push_str(x.as_str())
+        }
+        out
     }
 }
 
@@ -368,4 +534,54 @@ fn parses_ints() {
     assert("-7".parse_int() == Some(-7), "-7")
     assert("".parse_int().is_none(), "empty")
     assert("4x".parse_int().is_none(), "4x")
+    assert("+5".parse_int() == Some(5) && "-".parse_int().is_none(), "signs")
+    assert("9223372036854775807".parse_int() == Some(9223372036854775807), "max")
+    assert("-9223372036854775808".parse_int() == Some(0 - 9223372036854775807 - 1), "min")
+    assert("9223372036854775808".parse_int().is_none(), "max + 1")
+    assert("-9223372036854775809".parse_int().is_none(), "min - 1")
+    assert("99999999999999999999".parse_int().is_none(), "far too large")
+    assert("0000000000000000000000042".parse_int() == Some(42), "leading zeros")
+}
+
+#[test]
+fn trims_finds_and_strips() {
+    let s = " \t a b \n"
+    assert(s.trim_start() == "a b \n" && s.trim_end() == " \t a b", "trim one end")
+    assert("abcabc".rfind("bc") == Some(4) && "abc".rfind("x").is_none(), "rfind")
+    assert("abc".rfind("") == Some(3) && "".rfind("a").is_none(), "rfind edges")
+    assert("key=value".strip_prefix("key=") == Some("value"), "strip_prefix")
+    assert("a.jh".strip_suffix(".jh") == Some("a") && "a".strip_suffix("b").is_none(), "suffix")
+    assert("".is_empty() && !"a".is_empty(), "is_empty")
+}
+
+#[test]
+fn replaces_and_changes_case() {
+    assert("a-b-c".replace("-", "+") == "a+b+c", "replace")
+    assert("aaa".replace("aa", "b") == "ba", "no overlap")
+    assert("abc".replace("", "x") == "abc" && "abc".replace("bc", "") == "a", "empty parts")
+    assert("Hello, World 42".to_upper() == "HELLO, WORLD 42", "upper")
+    assert("Hello, World 42".to_lower() == "hello, world 42", "lower")
+    assert("ab".repeat(3) == "ababab" && "ab".repeat(0) == "" && "ab".repeat(-1) == "", "repeat")
+}
+
+#[test]
+fn words_and_joins() {
+    let w = "  one two\t three\n\n".split_whitespace()
+    assert(w.len() == 3 && w[0] == "one" && w[2] == "three", "words")
+    assert(" \n".split_whitespace().len() == 0, "no words")
+    assert(w.as_slice().join(", ") == "one, two, three", "join str")
+    var owned = Vec(String).new()
+    owned.push(String.from("x"))
+    owned.push(String.from("y"))
+    assert(owned.as_slice().join("") == "xy" && ["a"].join("-") == "a", "join String")
+    let empty = Vec(str).new()
+    assert(empty.as_slice().join(",") == "", "join none")
+}
+
+#[test]
+fn string_has_str_methods() {
+    let s = String.from("  Key: Value  ")
+    assert(s.trim() == "Key: Value" && s.contains("Val") && s.find(":") == Some(5), "trim find")
+    assert(s.to_lower().trim().starts_with("key") && s.split(":").len() == 2, "case split")
+    assert(String.from("12").parse_int() == Some(12), "parse")
 }

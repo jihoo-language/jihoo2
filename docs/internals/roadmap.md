@@ -121,7 +121,7 @@ both without a report.
 Next:
 
 - Unit tests for more of the standard library, next to its code: every
-  module with run-time code of its own has them except `std.prelude`,
+  module with run-time code of its own has them except
   `std.derive` and the profile layers (`std.sys`, `std.os_thread`,
   `std.uefi`), which the run and uefi suites exercise. `thread.scope` is tested by
   `tests/run/scoped_threads.jh`, as the compiler does not join scoped

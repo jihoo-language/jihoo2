@@ -324,11 +324,13 @@ fn insert_flags(inout body: Body, flags: Vec(Option(u32))) {
         }
         body.blocks[b].stmts = stmts
     }
-    // Every flag starts false.
+    // Every flag starts false, except a parameter's: it has its value on
+    // entry (a `sink` parameter moved on only some paths is dropped on the
+    // others).
     var pre = Vec(Stmt).new()
-    for f in flags {
+    for l, f in flags {
         match f {
-            Some(f) => pre.push(set_flag(f, false))
+            Some(f) => pre.push(set_flag(f, l >= 1 && l <= body.arg_count))
             None => {}
         }
     }
