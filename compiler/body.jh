@@ -12,6 +12,7 @@ import lex
 import mir
 import pat
 import sema
+import suggest
 import types
 
 type Diag = diag.Diag
@@ -3244,13 +3245,17 @@ impl sema.Sema {
                 }
                 Static(i) => self.static_place(&fb, i, span)
                 Fn(f) => self.fn_value(f, Vec(CVal).new(), span)
+                Module(_) => Err(err(span, ("`" + n + "` is a module, not a value").as_str()))
                 _ => Err(err(span, ("`" + n + "` is not a value").as_str()))
             }
             None => {
                 // A variant named alone: `None`, or one of the expected enum.
                 match self.variant_owner(exp, n)? {
                     Some(t) => self.variant_value(&fb, t, n, Vec(ast.Expr).new(), span)
-                    None => Err(err(span, ("unknown name `" + n + "`").as_str()))
+                    None => {
+                        let d = err(span, ("unknown name `" + n + "`").as_str())
+                        Err(suggest.with_note(d, n, self.names_in_scope(fb, module)))
+                    }
                 }
             }
         }
@@ -3528,8 +3533,9 @@ impl sema.Sema {
             }
             break
         }
-        Err(err(span, ("`" + self.types.show(bv.ty).as_str() + "` has no field `" + name +
-            "`").as_str()))
+        let d = err(span, ("`" + self.types.show(bv.ty).as_str() + "` has no field `" + name +
+            "`").as_str())
+        Err(suggest.with_note(d, name, self.types.field_names(bv.ty)))
     }
 
     // A dotted path that names something other than a variable's field.
@@ -3672,7 +3678,14 @@ impl sema.Sema {
             "` has no variant or function `" + name + "`").as_str())
         match self.unmet_bound(t, name)? {
             Some(m) => Err(d.note(None, m.as_str()))
-            None => Err(d)
+            None => {
+                var names = self.method_names(t)?
+                match self.types.variants(t) {
+                    Some(vs) => for v in vs { names.push(v.name.clone()) }
+                    None => {}
+                }
+                Err(suggest.with_note(d, name, names))
+            }
         }
     }
 
@@ -3725,8 +3738,17 @@ impl sema.Sema {
             }
             return self.call_decl(&fb, fid, Vec(CVal).new(), None, args, span, exp)
         }
-        Err(err(span, ("`" + self.adts[d as i64].name.as_str() + "` has no function `" + name +
-            "`").as_str()))
+        var names = Vec(String).new()
+        match en {
+            Some(en) => for v in sema.at(en).variants { names.push(v.name.clone()) }
+            None => {}
+        }
+        for imp in self.adts[d as i64].impls {
+            for k in self.impls[imp as i64].fns.keys() { names.push(k.clone()) }
+        }
+        let d = err(span, ("`" + self.adts[d as i64].name.as_str() + "` has no function `" + name +
+            "`").as_str())
+        Err(suggest.with_note(d, name, names))
     }
 
     pub fn variant_value(
@@ -3839,8 +3861,11 @@ impl sema.Sema {
             }
             let i = match idx {
                 Some(i) => i
-                None => return Err(err(f.span, ("`" + self.types.show(t).as_str() +
-                    "` has no field `" + f.name.as_str() + "`").as_str()))
+                None => {
+                    let d = err(f.span, ("`" + self.types.show(t).as_str() + "` has no field `" +
+                        f.name.as_str() + "`").as_str())
+                    return Err(suggest.with_note(d, f.name.as_str(), self.types.field_names(t)))
+                }
             }
             if !fs[i].public && !self.same_package(decl_mod, fb.env.module) {
                 return Err(err(f.span, ("the field `" + f.name.as_str() + "` is private").as_str()))
@@ -5738,7 +5763,8 @@ impl sema.Sema {
                     Some(v) => return Ok(v)
                     None => {}
                 }
-                Err(err(callee.span, ("unknown function `" + n.as_str() + "`").as_str()))
+                let d = err(callee.span, ("unknown function `" + n.as_str() + "`").as_str())
+                Err(suggest.with_note(d, n.as_str(), self.names_in_scope(fb, env.module)))
             }
             Field(base, name) => {
                 // `module.f(...)`, `Type.f(...)`, `Enum.Variant(...)`
@@ -5818,6 +5844,14 @@ impl sema.Sema {
                                         span,
                                         true
                                     )
+                                }
+                                // `fs.read_to_string(p)` with no such function:
+                                // not a method call on a module.
+                                Some((Module(m), _)) => if self.lookup_path(env.module, p).is_none() {
+                                    let d = err(span, ("module `" + sema.join_path(head).as_str() +
+                                        "` has no function `" + name.as_str() + "`").as_str())
+                                    let names = self.module_names(m, true)
+                                    return Err(suggest.with_note(d, name.as_str(), names))
                                 }
                                 _ => {}
                             }
@@ -6230,8 +6264,44 @@ impl sema.Sema {
             name + "`").as_str())
         match self.unmet_bound(recv.ty, name)? {
             Some(m) => Err(d.note(None, m.as_str()))
-            None => Err(d)
+            None => {
+                let names = self.method_names(recv.ty)?
+                Err(suggest.with_note(d, name, names))
+            }
         }
+    }
+
+    // The names a function body sees: its locals, its module's items and
+    // the prelude's.
+    fn names_in_scope(self, fb: Fb, module: u32) -> Vec(String) {
+        var names = Vec(String).new()
+        for sc in fb.scopes {
+            for v in sc.vars { names.push(v.name.clone()) }
+        }
+        for x in self.module_names(module, false) { names.push(x.clone()) }
+        for g in self.mods[module as i64].globs {
+            for x in self.module_names(g, true) { names.push(x.clone()) }
+        }
+        names
+    }
+
+    // The names a module has: those seen from outside it, or all of them.
+    fn module_names(self, m: u32, outside: bool) -> Vec(String) {
+        var out = Vec(String).new()
+        for k in self.mods[m as i64].names.keys() {
+            if self.lookup_in_module(m, k.as_str(), outside).is_some() { out.push(k.clone()) }
+        }
+        out
+    }
+
+    // The methods of the impls of `t`'s type that apply to it.
+    fn method_names(inout self, t: u32) -> Result(Vec(String), Diag) {
+        var out = Vec(String).new()
+        for imp in self.impl_candidates(t) {
+            if self.match_impl(imp, t)?.is_none() { continue }
+            for k in self.impls[imp as i64].fns.keys() { out.push(k.clone()) }
+        }
+        Ok(out)
     }
 
     // A method call whose arguments are already values.

@@ -165,7 +165,10 @@ By default the root module must have a `main`; `--lib` removes that requirement.
 `check --verify` does, and reports unproved contracts as errors.
 
 A successful check exits with status 0 and writes nothing by default. Source errors
-exit with status 1 and use the same diagnostics as compilation. Invalid
+exit with status 1 and use the same diagnostics as compilation. A name,
+type, field, function, method, variant or module member that does not exist gets a note
+naming the closest one that does, when one is within a third of its length
+in edits (``note: did you mean `count`?``). Invalid
 command options exit with status 2. `check` rejects `-o`, `--keep-ll`, link
 inputs and program arguments because it produces no output file and does
 not run the program.

@@ -1,0 +1,9 @@
+// A call of a function a module does not have names the module, rather
+// than treating it as a method call on a value.
+// error: module `fs` has no function `read_to_string`
+// no-error: is not a value
+import std.fs
+
+fn main() {
+    let t = fs.read_to_string("x")
+}

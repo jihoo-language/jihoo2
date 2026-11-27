@@ -1,0 +1,7 @@
+// A misspelled method, among those of the receiver's impls.
+// error: `Vec(i64)` has no method `psuh`
+// error: did you mean `push`?
+fn main() {
+    var v = Vec(i64).new()
+    v.psuh(1)
+}

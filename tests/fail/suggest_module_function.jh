@@ -1,0 +1,8 @@
+// A misspelled function of an imported module.
+// error: module `fs` has no function `read_fil`
+// error: did you mean `read_file`?
+import std.fs
+
+fn main() {
+    let t = fs.read_fil("x")
+}

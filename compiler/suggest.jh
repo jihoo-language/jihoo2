@@ -1,0 +1,99 @@
+// Names close to a misspelled one, for the "did you mean" notes of
+// diagnostics.
+
+import std.mem
+import diag
+
+// The edit distance between two names: insertions, deletions,
+// substitutions and swaps of neighbouring bytes, each one edit.
+pub fn distance(a: str, b: str) -> i64 {
+    let n = b.len
+    // Rows of the table for a[..i - 2], a[..i - 1] and a[..i].
+    var before = Vec(i64).filled(n + 1, 0)
+    var prev = Vec(i64).new()
+    for j in 0..n + 1 {
+        prev.push(j)
+    }
+    var cur = Vec(i64).filled(n + 1, 0)
+    for i in 1..a.len + 1 {
+        cur[0] = i
+        for j in 1..n + 1 {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 }
+            var best = prev[j - 1] + cost
+            if prev[j] + 1 < best {
+                best = prev[j] + 1
+            }
+            if cur[j - 1] + 1 < best {
+                best = cur[j - 1] + 1
+            }
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] &&
+                before[j - 2] + 1 < best {
+                best = before[j - 2] + 1
+            }
+            cur[j] = best
+        }
+        // before, prev, cur = prev, cur, before
+        mem.swap(&before, &prev)
+        mem.swap(&prev, &cur)
+    }
+    prev[n]
+}
+
+// The index of the candidate closest to `name`, if one is close enough:
+// at most a third of its length away (one edit for short names), and not
+// `name` itself. The first of equally close ones.
+pub fn closest(name: str, candidates: [str]) -> Option(i64) {
+    var limit = name.len / 3
+    if limit < 1 {
+        limit = 1
+    }
+    var best: Option(i64) = None
+    var best_d = limit + 1
+    for i, c in candidates {
+        if c == name || c.len == 0 {
+            continue
+        }
+        let d = distance(name, c)
+        if d < best_d {
+            best_d = d
+            best = Some(i)
+        }
+    }
+    best
+}
+
+// A note naming the closest candidate, or "".
+pub fn note(name: str, candidates: [str]) -> String {
+    match closest(name, candidates) {
+        Some(i) => "did you mean `" + candidates[i] + "`?"
+        None => String.new()
+    }
+}
+
+// The diagnostic with a note naming the closest of `names` to `name`, if
+// one is close.
+pub fn with_note(sink d: diag.Diag, name: str, names: Vec(String)) -> diag.Diag {
+    var views = Vec(str).new()
+    for x in names { views.push(x.as_str()) }
+    let n = note(name, views.as_slice())
+    if n.is_empty() { d } else { d.note(None, n.as_str()) }
+}
+
+#[test]
+fn distances() {
+    assert(distance("", "") == 0 && distance("abc", "abc") == 0, "same")
+    assert(distance("abc", "") == 3 && distance("", "ab") == 2, "empty")
+    assert(distance("kitten", "sitting") == 3, "kitten")
+    assert(distance("lenght", "length") == 1, "a swap is one edit")
+    assert(distance("push", "psh") == 1 && distance("psh", "push") == 1, "symmetric")
+}
+
+#[test]
+fn closest_names() {
+    let names = ["read_file", "read_bytes", "write_file"]
+    assert(closest("read_fil", names) == Some(0), "one short")
+    assert(closest("raed_bytes", names) == Some(1), "swapped")
+    assert(closest("open", names).is_none(), "nothing close")
+    assert(closest("read_file", names).is_none(), "not itself")
+    assert(closest("x", ["y", "xy"]) == Some(0), "short names: one edit")
+}

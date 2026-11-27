@@ -17,6 +17,7 @@ import history
 import lex
 import load
 import mir
+import suggest
 import target
 import types
 import type_family
@@ -1089,6 +1090,25 @@ impl Sema {
         None
     }
 
+    // The types a module sees by name: its own, its imports' and the
+    // prelude's.
+    pub fn type_names(self, module: u32) -> Vec(String) {
+        var out = Vec(String).new()
+        var mods = Vec(u32).new()
+        mods.push(module)
+        for g in self.mods[module as i64].globs { mods.push(g) }
+        for m in mods {
+            for k in self.mods[m as i64].names.keys() {
+                let Some(e) = self.lookup_in_module(m, k.as_str(), m != module) else { continue }
+                match e.sym {
+                    Adt(_) | Alias(_) | Family(_) | Trait(_) => out.push(k.clone())
+                    _ => {}
+                }
+            }
+        }
+        out
+    }
+
     pub fn lookup_path(self, module: u32, path: Vec(String)) -> Option((Sym, u32)) {
         var s = match self.lookup(module, path[0].as_str()) {
             Some(s) => s
@@ -1438,8 +1458,11 @@ impl Sema {
         }
         let sym = match self.lookup_path(env.module, p) {
             Some((s, _)) => s
-            None => return Err(ty_err(span, ("unknown type `" + join_path(p).as_str() +
-                "`").as_str()))
+            None => {
+                let d = ty_err(span, ("unknown type `" + join_path(p).as_str() + "`").as_str())
+                if p.len() != 1 { return Err(d) }
+                return Err(suggest.with_note(d, p[0].as_str(), self.type_names(env.module)))
+            }
         }
         match sym {
             Adt(a) => {
@@ -2428,7 +2451,7 @@ impl Sema {
     // A method by name: inherent impls first, then traits the type
     // implements. Returns the function declaration and its impl arguments
     // (for a trait's default body: `Self`).
-    fn impl_candidates(self, t: u32) -> Vec(u32) {
+    pub fn impl_candidates(self, t: u32) -> Vec(u32) {
         var candidates = match self.types.adt_index(t) {
             Some(a) => {
                 let decl = self.types.adts[a as i64].decl

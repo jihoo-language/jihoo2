@@ -1,0 +1,6 @@
+// A misspelled variant of a generic enum named without its arguments.
+// error: `Option` has no function `Smoe`
+// error: did you mean `Some`?
+fn main() {
+    let o = Option.Smoe(1)
+}
