@@ -42,6 +42,7 @@ pub fn source(file: u32, text: str, width: i64) -> Result(String, Diag) {
     let tokens = lex.lex(file, text)?
     let parsed = parse.format_module(file, tokens.clone())?
     let groups = list_groups(tokens, parsed.lists, parsed.separators)
+    let (next, prev) = else_links(tokens, groups)
     var breaks = Vec(bool).filled(tokens.len(), false)
     var clauses = Vec(bool).filled(tokens.len(), false)
     for i, t in tokens {
@@ -65,7 +66,20 @@ pub fn source(file: u32, text: str, width: i64) -> Result(String, Diag) {
             formatted = layout(file, text, tokens, breaks, clauses)
             continue
         }
-        for index in selected {
+        // The blocks of an `if ... else` chain expand together.
+        var chosen = selected.clone()
+        var k = 0
+        while k < chosen.len() {
+            for other in [next[chosen[k]], prev[chosen[k]]] {
+                var seen = other < 0
+                for c in chosen {
+                    if c == other { seen = true }
+                }
+                if !seen { chosen.push(other) }
+            }
+            k += 1
+        }
+        for index in chosen {
             let g = groups[index]
             breaks[g.open + 1] = true
             for separator in g.separators { breaks[separator + 1] = true }
@@ -208,8 +222,10 @@ fn same_tokens(before: str, tokens: Vec(Token), after: str, checked: Vec(Token))
     true
 }
 
-// Pair all delimiters, but only expand lists identified by the parser.
-// A for-loop index comma and a match-arm separator are not list boundaries.
+// Pair all delimiters, but only expand lists identified by the parser:
+// argument, parameter and other comma lists, blocks (statements separated
+// by `;`) and matches (arms by `,`). A for-loop index comma is not a list
+// boundary.
 fn list_groups(tokens: Vec(Token), starts: Vec(u32), separators: Vec(u32)) -> Vec(Group) {
     var known = Map(u32, bool).new()
     var seps = Map(u32, bool).new()
@@ -243,12 +259,44 @@ fn list_groups(tokens: Vec(Token), starts: Vec(u32), separators: Vec(u32)) -> Ve
     groups
 }
 
+// For each block followed by `else`, the block after it (of `else { ... }`
+// or `else if c { ... }`, the first brace outside parentheses), and back.
+fn else_links(tokens: Vec(Token), groups: Vec(Group)) -> (Vec(i64), Vec(i64)) {
+    var opening = Vec(i64).filled(tokens.len(), -1)
+    for i, g in groups { opening[g.open] = i }
+    var next = Vec(i64).filled(groups.len(), -1)
+    var prev = Vec(i64).filled(groups.len(), -1)
+    for i, g in groups {
+        if tokens[g.open].tok != Tok.LBrace || g.close + 1 >= tokens.len() ||
+            tokens[g.close + 1].tok != Tok.Else { continue }
+        var depth = 0
+        var j = g.close + 2
+        while j < tokens.len() {
+            let t = tokens[j].tok
+            if t == Tok.LBrace && depth == 0 {
+                if opening[j] >= 0 {
+                    next[i] = opening[j]
+                    prev[opening[j]] = i
+                }
+                break
+            }
+            if is_open(t) { depth += 1 }
+            if is_close(t) {
+                depth -= 1
+                if depth < 0 { break }
+            }
+            j += 1
+        }
+    }
+    (next, prev)
+}
+
 // A list whose only element is a named list, as in `Err(err(...))`,
 // `Ok(S { ... })` or `line(fmt.f(...).as_str())`, lets that one expand
 // instead: `Err(err(` ... `))`. After it may come `?` and calls without
-// arguments.
+// arguments. A block's call goes on a line of its own instead.
 fn overflows(tokens: Vec(Token), groups: Vec(Group), opening: Vec(i64), g: Group) -> bool {
-    if !g.separators.is_empty() { return false }
+    if !g.separators.is_empty() || tokens[g.open].tok == Tok.LBrace { return false }
     var j = g.open + 1
     while j < g.close && (tokens[j].tok == Tok.Ident || tokens[j].tok == Tok.Dot) { j += 1 }
     if j == g.open + 1 || opening[j] < 0 { return false }
@@ -311,10 +359,13 @@ fn overflowing(
         if overflows(tokens, groups, opening, g) { continue }
         // One element that would not fit on a line of its own either stays
         // where it is: expanding `("..." + name).as_str()` gains nothing.
+        // A block's statement (or a struct's one field) still goes on a
+        // line of its own, where its own lists can expand.
         let last = tokens[g.close - 1]
         let element = columns[g.close - 1] +
             (last.span.hi - last.span.lo) as i64 - columns[g.open + 1]
         if g.separators.is_empty() && lines[g.open + 1] == lines[g.close - 1] &&
+            tokens[g.open].tok != Tok.LBrace &&
             starts[lines[g.open]] + 4 + element > width {
             continue
         }

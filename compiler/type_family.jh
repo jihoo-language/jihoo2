@@ -78,7 +78,9 @@ impl sema.Sema {
             }
             _ => {}
         }
-        if slot != Slot.Type { return Err(Diag.new(p.span, "expected a compile-time value pattern")) }
+        if slot != Slot.Type {
+            return Err(Diag.new(p.span, "expected a compile-time value pattern"))
+        }
         match p.head {
             Path(path) => {
                 let name = sema.join_path(path)

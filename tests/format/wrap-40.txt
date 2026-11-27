@@ -55,10 +55,12 @@ fn describe(
 fn report(
     code: i64
 ) -> Result(i64, String) {
-    if code > 1 { return Err(describe(
-        "not accepted",
-        code
-    )) }
+    if code > 1 {
+        return Err(describe(
+            "not accepted",
+            code
+        ))
+    }
     let shown = Some(describe(
         "accepted",
         code
@@ -72,7 +74,10 @@ fn limits(
     first_value: i64,
     second_value: i64
 ) -> bool {
-    if first_value < 2 && second_value > 3 { return false }
+    if first_value < 2 &&
+        second_value > 3 {
+        return false
+    }
     if first_value > 100 ||
         second_value > 200 ||
         first_value == second_value {
@@ -80,4 +85,20 @@ fn limits(
     }
     first_value * 2 + second_value * 3 >
         10
+}
+
+// A long one-line block or match opens onto lines of its own, and the
+// blocks of an `if ... else` chain open together.
+fn choose(value: Option(i64)) -> i64 {
+    let picked = match value {
+        Some(v) => v * 2,
+        None => 0
+    }
+    if picked > 10 {
+        picked - 10
+    } else if picked > 5 {
+        picked - 5
+    } else {
+        0
+    }
 }

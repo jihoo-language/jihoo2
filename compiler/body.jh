@@ -3816,7 +3816,9 @@ impl sema.Sema {
             }
         }
         let not_struct = "`" + self.types.show(t).as_str() + "` is not a struct"
-        let Some(a) = self.types.adt_index(t) else { return Err(err(path.span, not_struct.as_str())) }
+        let Some(a) = self.types.adt_index(t) else {
+            return Err(err(path.span, not_struct.as_str()))
+        }
         let fs = match self.types.adts[a as i64].body {
             Struct(fs) => fs.clone()
             _ => return Err(err(path.span, not_struct.as_str()))

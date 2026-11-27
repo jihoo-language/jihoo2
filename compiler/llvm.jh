@@ -969,7 +969,11 @@ impl Gen {
             if ty < 0 { continue }
             let (line, col) = self.dbg.line_col(l.span.file, l.span.lo)
             let file = self.dfile(l.span.file)
-            let argno = if l.kind == mir.LocalKind.Arg { ", arg: " + fmt.n(arg as i128).as_str() } else { String.new() }
+            let argno = if l.kind == mir.LocalKind.Arg {
+                ", arg: " + fmt.n(arg as i128).as_str()
+            } else {
+                String.new()
+            }
             let scope = if l.kind == mir.LocalKind.Var && l.span.file == cx.scope_file {
                 innermost(cx.blocks.as_slice(), l.span.lo, cx.scope)
             } else {

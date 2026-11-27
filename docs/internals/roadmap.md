@@ -65,8 +65,9 @@ Implemented: [`jihoo fmt`](../reference/command-line.md#source-formatting)
 normalizes indentation and token spacing while preserving comments, literal
 spellings and meaningful line breaks. `--check` detects files whose layout
 differs. Parser-selected lists wrap at a soft width of 100 byte columns,
-configurable with `--width`, and lines still too long break after their
-loosest operators. It re-lexes and reparses its output and requires
+configurable with `--width`, as do one-line blocks and `match`es (the
+blocks of an `if ... else` chain together), and lines still too long
+break after their loosest operators. It re-lexes and reparses its output and requires
 the same syntax tree apart from positions. Corpus tests compare comment
 bytes, syntax trees, idempotence and generated LLVM IR, including the compiler
 and standard library on both supported targets. Narrow-width cases exercise
@@ -117,7 +118,11 @@ Next:
   `std.rt`, the 128-bit runtime of freestanding and UEFI programs, is
   checked against the C runtime by `tests/run/int128_runtime.jh` and its
   freestanding twin, which print the same checksum.
-- Additional formatter layout rules, retaining syntax preservation checks.
+- Additional formatter layout rules, retaining syntax preservation checks:
+  the formatter only adds breaks, so a list it once expanded stays
+  expanded after the code around it shrinks (`Field(` then `1` then
+  `)))`); joining lines that it broke itself needs to tell them from
+  breaks written by hand.
 
 Completion: valid checks are silent and create no output files; invalid
 programs retain type, move and borrow diagnostics. Editor diagnostics use the
