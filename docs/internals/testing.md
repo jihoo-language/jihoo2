@@ -155,6 +155,24 @@ jihoo build -O0 tests/run/maps.jh -o /tmp/maps
 nix-shell -p valgrind --run 'valgrind --leak-check=full --error-exitcode=9 /tmp/maps'
 ```
 
+## Banana
+
+[`scripts/banana_regression.py`](../../scripts/banana_regression.py)
+checks and tests a checkout of Banana, the sibling terminal, with the
+compiler under development: the `jihoo` commands of Banana's own
+`tools/test.sh` (checking `src/main.jh` and its plugin, and running its
+terminal parser, selection, style and PTY tests) with `--compiler` in
+place of Banana's pinned compiler, so the commands follow Banana's tests
+as they change. None needs a display. The ordinary suite does not depend
+on it.
+
+```sh
+scripts/banana_regression.py --banana ../banana --compiler out/jihoo
+```
+
+`tests/format.py --external ../banana` and `scripts/benchmark_compile.py
+--external` cover Banana's formatting and compilation time.
+
 ## Other machines
 
 `jihoo build --target aarch64` cross-compiles; freestanding programs run
