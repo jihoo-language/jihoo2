@@ -44,7 +44,10 @@ already has its type, so a literal too large for `i64` needs a context:
 
 ## Floats
 
-`+ - * /` and `%` (C's `fmod`) follow IEEE 754. Converting a float to an
+`+ - * /` and `%` (C's `fmod`) follow IEEE 754. A freestanding program
+gets `fmod`, and `floor`, `ceil`, `trunc` and `round` where the machine has
+no instruction for them, from the standard library (`std/rt.jh`), a native
+one from libm. Converting a float to an
 integer with `as` saturates: NaN becomes 0, and values out of range become
 the nearest end.
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run random integer programs three ways and compare: in Python, in the
 compiler's MIR interpreter (a `const` table) and compiled (at several
-optimization levels, with `--release` and with `--audit-proved`).
+optimization levels, with `--release`, with `--audit-proved`, and as a
+freestanding program).
 
 Each program is a few functions `fK(a: i64, b: i64) -> i64` built from
 wrapping arithmetic, bit operations, division by values that are never
@@ -913,16 +914,24 @@ def program(seed, functions):
     return "\n".join(out), lines
 
 
-BUILDS = [["-O0"], ["-O2"], ["-O2", "--release"], ["-O1", "--audit-proved"]]
+# `freestanding` is the same program as `#![freestanding]`: its allocator,
+# system calls and std.rt (128-bit division, `fmod`, `floor`...) in place of
+# libc's.
+BUILDS = [["-O0"], ["-O2"], ["-O2", "--release"], ["-O1", "--audit-proved"],
+          ["-O2", "freestanding"]]
 
 
 def check(compiler, seed, functions, directory, keep):
     source, expected = program(seed, functions)
     path = Path(directory) / f"diff{seed}.jh"
     path.write_text(source)
+    bare = Path(directory) / f"diff{seed}_freestanding.jh"
+    bare.write_text("#![freestanding]\n" + source)
     problems = []
     for flags in BUILDS:
-        r = subprocess.run([str(compiler), "run", *flags, str(path)], capture_output=True,
+        options = [f for f in flags if f != "freestanding"]
+        file = bare if "freestanding" in flags else path
+        r = subprocess.run([str(compiler), "run", *options, str(file)], capture_output=True,
                            text=True, timeout=600)
         what = f"seed {seed} {' '.join(flags)}"
         if r.returncode != 0:
