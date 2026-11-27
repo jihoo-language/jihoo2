@@ -1,7 +1,10 @@
 # Closures
 
-`fn(x) { ... }` makes a closure. It borrows the variables it uses, mutably
-if they can change, so making one allocates nothing.
+`fn(x) { ... }` makes a closure. It borrows the variables it uses, so
+making one allocates nothing: mutably those it may change (it assigns to
+them, passes them with `&`, or calls a method declared with `inout self`
+on them) and those that hold borrows themselves, such as other closures;
+shared the others, which can still be read while it is alive.
 
 ```jihoo
 fn each(xs: [i64], f: fn(i64)) {
@@ -21,7 +24,7 @@ borrows its surroundings, it is a [view](borrowing.md#views): it can be
 called, passed on, kept in local variables, or stored in a struct that is
 itself a view. It cannot outlive what it uses. The borrow rules apply to what it
 captures: while a closure that changes `n` is alive, nothing else may use
-`n`.
+`n`; while one that only reads `n` is alive, nothing may change it.
 
 Parameter types follow parameter conventions: `fn(T)` lends its argument
 (by value if plain), `fn(inout T)` lends it mutably, `fn(sink T)` gives it.

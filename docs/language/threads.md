@@ -130,15 +130,15 @@ changes it. Two rules prevent it:
 - **A closure that `each`, `map`, `each_mut` or their `_uneven` forms call
   on several threads at once cannot change what it captures.** These
   functions take it as a `comptime` parameter and check it with
-  `captures_mut(f)` (see below). A closure borrows every `var` it uses
-  mutably, even one it only reads, so borrow with `let` first:
+  `captures_mut(f)` (see below). A closure that only reads a `var`
+  borrows it shared, so reading is fine:
 
   ```jihoo
   var grid = make_grid()
-  thread.each(0, n, fn(i) { use(grid, i) })
-  // error: the closure cannot capture a `var` or a closure; borrow with `let` first
-  let g = grid                    // a borrow of `grid`, for the rest of the block
-  thread.each(0, n, fn(i) { use(g, i) })
+  thread.each(0, n, fn(i) { use(grid, i) })       // fine
+  var total = 0
+  thread.each(0, n, fn(i) { total += i })
+  // error: the closure cannot change what it captures or capture a closure
   ```
 
   It also may not capture another closure, which might change what that
@@ -259,7 +259,7 @@ compile-time arguments, as `std.thread` does:
 ```jihoo
 pub fn each(lo: i64, hi: i64, comptime f: fn(i64)) {
     inline if captures_mut(f) {
-        compile_error("the closure cannot capture a `var` or a closure")
+        compile_error("the closure cannot change what it captures or capture a closure")
     }
     ...
 }

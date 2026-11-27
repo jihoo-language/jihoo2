@@ -5255,6 +5255,9 @@ impl sema.Sema {
         // Captures: names used inside that are variables outside.
         var used = Vec(String).new()
         collect_names_block(body, &used)
+        // Those it may change, which it borrows mutably; the rest shared.
+        var written = Vec(String).new()
+        self.written_names_block(body, &written)
         var caps = Vec(Capture).new()
         for n in used {
             var skip = false
@@ -5275,7 +5278,10 @@ impl sema.Sema {
                 Some(v) => {
                     let p = self.var_place(fb, v)
                     let t = self.place_ty(fb, p)
-                    let m = self.place_mutable(fb, p)
+                    // A view (a closure among them) may change what it
+                    // borrows when used, so it stays mutable if it can.
+                    let m = self.place_mutable(fb, p) &&
+                        (self.types.is_view(t) || contains_name(written, n.as_str()))
                     let known = self.known_closure(fb, p)
                     caps.push(Capture {
                         name: n.clone(),
@@ -7531,6 +7537,116 @@ pub fn collect_names(e: ast.Expr, inout out: Vec(String)) {
             }
         }
         _ => {}
+    }
+}
+
+fn contains_name(names: Vec(String), n: str) -> bool {
+    for x in names {
+        if x == n { return true }
+    }
+    false
+}
+
+// The names a closure's body may change, for its captures: every name in
+// an assignment's target, in `&x`, and in the receiver of a method that
+// some impl declares with `inout self`. More than it changes (a target's
+// index, a local that shadows a capture) only keeps a capture mutable.
+impl sema.Sema {
+    fn written_names_block(self, b: ast.Block, inout out: Vec(String)) {
+        for s in b.stmts {
+            match s.kind {
+                Let(l) => {
+                    self.written_names(l.value, &out)
+                    match l.els {
+                        Some(b) => self.written_names_block(b, &out)
+                        None => {}
+                    }
+                }
+                Assign(a, v) | OpAssign(_, a, v) => {
+                    collect_names(a, &out)
+                    self.written_names(a, &out)
+                    self.written_names(v, &out)
+                }
+                Expr(e) | Prove(e) => self.written_names(e, &out)
+            }
+        }
+        match b.tail {
+            Some(t) => self.written_names(t.deref(), &out)
+            None => {}
+        }
+    }
+
+    fn written_names_opt(self, e: Option(Box(ast.Expr)), inout out: Vec(String)) {
+        match e {
+            Some(e) => self.written_names(e.deref(), &out)
+            None => {}
+        }
+    }
+
+    fn written_names(self, e: ast.Expr, inout out: Vec(String)) {
+        match e.kind {
+            Unary(op, b) => {
+                match op {
+                    Addr => collect_names(b.deref(), &out)
+                    _ => {}
+                }
+                self.written_names(b.deref(), &out)
+            }
+            Call(c, args) => {
+                match c.kind {
+                    Field(recv, name) => if self.method_name_inout(name.as_str()) {
+                        collect_names(recv.deref(), &out)
+                    }
+                    _ => {}
+                }
+                self.written_names(c.deref(), &out)
+                for a in args {
+                    self.written_names(a, &out)
+                }
+            }
+            Field(b, _) | TupleField(b, _) | Cast(b, _) | Try(b) | Move(b) | Comptime(b) =>
+                self.written_names(b.deref(), &out)
+            Index(a, b) | Binary(_, a, b) | ArrayRepeat(a, b) => {
+                self.written_names(a.deref(), &out)
+                self.written_names(b.deref(), &out)
+            }
+            StructLit(_, fs) => {
+                for f in fs {
+                    self.written_names(f.value, &out)
+                }
+            }
+            Tuple(xs) | Array(xs) => {
+                for x in xs {
+                    self.written_names(x, &out)
+                }
+            }
+            Block(b) | Unsafe(b) | Loop(_, b) | Lambda(_, _, b) => self.written_names_block(b, &out)
+            If(c, t, e2) | InlineIf(c, t, e2) => {
+                self.written_names(c.deref(), &out)
+                self.written_names_block(t, &out)
+                self.written_names_opt(e2, &out)
+            }
+            Match(sc, arms) => {
+                self.written_names(sc.deref(), &out)
+                for a in arms {
+                    match a.guard {
+                        Some(g) => self.written_names(g, &out)
+                        None => {}
+                    }
+                    self.written_names(a.body, &out)
+                }
+            }
+            While(c, _, _, b) | InlineFor(_, c, b) | For(_, _, c, _, b) => {
+                self.written_names(c.deref(), &out)
+                self.written_names_block(b, &out)
+            }
+            Return(v) => self.written_names_opt(v, &out)
+            Range(a, b) => {
+                self.written_names_opt(a, &out)
+                self.written_names_opt(b, &out)
+            }
+            _ => {}
+        }
     }
 }
 

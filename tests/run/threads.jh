@@ -82,6 +82,13 @@ fn main() {
     thread.each_uneven(3, 3, fn(i) { sum.add(1000000) })
     println(sum.load())
     //> 499500
+    // A closure that only reads a `var` borrows it shared, so it can run
+    // on several threads at once.
+    var scale = 3
+    scale += 1
+    let scaled = thread.map(depths.as_slice(), fn(d) { d * scale })
+    println(scaled[0])
+    //> 192
     println(thread.cpu_count() >= 1)
     //> true
 }
