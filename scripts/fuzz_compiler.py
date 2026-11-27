@@ -12,7 +12,8 @@ case is kept.
 
 With --valgrind it tests the language's safety instead: the programs of
 tests/run without `unsafe`, `extern`, threads, processes or input get only
-edits that keep them well formed (numbers and operators), and each one the
+edits that keep them well formed (numbers and operators replaced, or a
+statement swapped with the next, doubled or deleted), and each one the
 compiler accepts is built at -O0 and run under valgrind (which must be on
 PATH: `nix-shell -p valgrind`). A program that compiles without `unsafe`
 must not touch memory it does not own; one that does is kept. Panics,
@@ -75,8 +76,38 @@ def mutate(rng, text):
     return "".join(toks)
 
 
+def line_edits(rng, text):
+    """One or two statements swapped with the next at their level, doubled
+    or deleted: what makes a use follow a move, or a borrow overlap a
+    change."""
+    lines = text.split("\n")
+
+    def indent(line):
+        return len(line) - len(line.lstrip())
+    for _ in range(rng.randint(1, 2)):
+        cand = [i for i in range(len(lines) - 1)
+                if lines[i].strip() and lines[i + 1].strip()
+                and not lines[i].strip().startswith("//")
+                and indent(lines[i]) == indent(lines[i + 1])
+                and not lines[i].rstrip().endswith("{") and not lines[i + 1].rstrip().endswith("{")
+                and lines[i].strip() != "}" and lines[i + 1].strip() != "}"]
+        if not cand:
+            break
+        i = rng.choice(cand)
+        r = rng.random()
+        if r < 0.6:
+            lines[i], lines[i + 1] = lines[i + 1], lines[i]
+        elif r < 0.8:
+            lines.insert(i + 1, lines[i])
+        else:
+            del lines[i]
+    return "\n".join(lines)
+
+
 def well_formed_edits(rng, text):
-    """One to three numbers or operators replaced."""
+    """One to three numbers or operators replaced, or statements moved."""
+    if rng.random() < 0.5:
+        return line_edits(rng, text)
     toks = TOKEN.findall(text)
     for _ in range(rng.randint(1, 3)):
         nums = [j for j, t in enumerate(toks) if t.isdigit()]
