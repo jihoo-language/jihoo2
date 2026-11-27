@@ -313,9 +313,21 @@ pub fn prove(g: linear.Goal) -> Result(linear.Certificate, str) {
         Some(c) => return Ok(c)
         None => {}
     }
+    // The variables the goal names, sorted, so rows use small numbers; the
+    // tries below share them.
+    var ids = Vec(i64).new()
+    for t in g.claim.terms { ids.push(t.0) }
+    for f in g.facts {
+        for t in f.terms { ids.push(t.0) }
+    }
+    sort_unique(&ids)
+    var facts = Vec(Lin).with_capacity(g.facts.len())
+    for f in g.facts { facts.push(renumber(f, ids.as_slice())) }
+    let claim = renumber(g.claim, ids.as_slice())
+    let n = ids.len()
     var last = -1
     for cap in [8, 24, 64, -1] {
-        match prove_with(g, false, cap, &last) {
+        match prove_with(facts.as_slice(), claim, n, false, cap, &last) {
             Ok(c) => return Ok(c)
             Err(_) => {}
         }
@@ -323,31 +335,26 @@ pub fn prove(g: linear.Goal) -> Result(linear.Certificate, str) {
     // The latest facts may contradict the others without the claim.
     if g.claim.is_constant() { return Err("no linear proof") }
     var none = -1
-    prove_with(g, true, -1, &none)
+    match prove_with(facts.as_slice(), claim, n, true, -1, &none) {
+        Ok(c) => Ok(c)
+        Err(_) => Err("no linear proof")
+    }
 }
 
 // `last` is how many facts the previous try used: a try that would use no
 // more fails at once.
+// `facts` and `claim` are the goal's over its `n` variables' positions.
 fn prove_with(
-    g: linear.Goal,
+    facts: [Lin],
+    claim: Lin,
+    n: i64,
     latest: bool,
     cap: i64,
     inout last: i64
 ) -> Result(linear.Certificate, str) {
-    let m = g.facts.len() + 1
-    // The variables the goal names, sorted, so rows use small numbers.
-    var ids = Vec(i64).new()
-    for t in g.claim.terms { ids.push(t.0) }
-    for f in g.facts {
-        for t in f.terms { ids.push(t.0) }
-    }
-    sort_unique(&ids)
-    let n = ids.len()
-    var facts = Vec(Lin).with_capacity(g.facts.len())
-    for f in g.facts { facts.push(renumber(f, ids.as_slice())) }
-    let claim = renumber(g.claim, ids.as_slice())
-    let level = relevant(facts.as_slice(), claim, n, latest)
-    let used = nearest(facts.as_slice(), level.as_slice(), cap)
+    let m = facts.len + 1
+    let level = relevant(facts, claim, n, latest)
+    let used = nearest(facts, level.as_slice(), cap)
     var count = 0
     for u in used {
         if u { count += 1 }
@@ -357,18 +364,18 @@ fn prove_with(
     // With `latest`, the claim is left out; facts that reach it were in
     // the first try.
     if latest {
-        let first = relevant(facts.as_slice(), claim, n, false)
-        for i in 0..facts.len() {
+        let first = relevant(facts, claim, n, false)
+        for i in 0..facts.len {
             if used[i] && first[i] >= 0 { return Err("no linear proof") }
         }
     }
     var rows = Vec(Row).new()
     var cuts = Vec(Pending).new()
     for i in 0..m {
-        if (i == g.facts.len() && !latest) || (i < g.facts.len() && used[i]) {
+        if (i == facts.len && !latest) || (i < facts.len && used[i]) {
             var weights = Vec((i64, i128)).new()
             weights.push((i, 1))
-            let lin = if i < g.facts.len() { facts[i].clone() } else { claim.scale(-1).shift(-1) }
+            let lin = if i < facts.len { facts[i].clone() } else { claim.scale(-1).shift(-1) }
             rows.push(tighten(Row { lin, weights }, &cuts, m))
         }
     }
@@ -382,14 +389,14 @@ fn prove_with(
         }
         let v = pick(rows.as_slice(), n)
         if v < 0 { return Err("no linear proof") }
-        var next = Vec(Row).new()
-        var entries = 0
+        // The rows without `v` go on as they are, first (moved below); a row
+        // with no variables left and a non-negative constant says nothing.
+        var kept = 0
         for r in rows {
-            // A row with no variables left and a non-negative constant says nothing.
-            if r.lin.coef(v) == 0 && !r.lin.is_constant() {
-                next.push(Row { lin: r.lin.clone(), weights: r.weights.clone() })
-            }
+            if r.lin.coef(v) == 0 && !r.lin.is_constant() { kept += 1 }
         }
+        var derived = Vec(Row).new()
+        var entries = 0
         for p in rows {
             let a = p.lin.coef(v)
             if a > 0 {
@@ -399,17 +406,22 @@ fn prove_with(
                         match combine(p, 0 - b, q, a) {
                             Some(r) => {
                                 entries += r.lin.terms.len() + r.weights.len()
-                                next.push(tighten(r, &cuts, m))
+                                derived.push(tighten(r, &cuts, m))
                             }
                             None => {}
                         }
-                        if next.len() > MAX_ROWS || entries > MAX_ENTRIES {
+                        if kept + derived.len() > MAX_ROWS || entries > MAX_ENTRIES {
                             return Err("too many derived facts")
                         }
                     }
                 }
             }
         }
+        var next = Vec(Row).with_capacity(kept + derived.len())
+        for r in rows.into_iter() {
+            if r.lin.coef(v) == 0 && !r.lin.is_constant() { next.push(r) }
+        }
+        for r in derived.into_iter() { next.push(r) }
         rows = next
     }
 }
@@ -431,23 +443,10 @@ fn differences(g: linear.Goal) -> Option(linear.Certificate) {
     let zero = ids.len()
     // (from, to, weight, fact), the negated claim being fact `m - 1`.
     var edges = Vec((i64, i64, i128, i64)).new()
-    for i in 0..m {
-        let x = if i < g.facts.len() { g.facts[i].clone() } else { g.claim.scale(-1).shift(-1) }
-        let t = x.terms.as_slice()
-        if t.len == 1 && t[0].1 == 1 {
-            edges.push((position(ids.as_slice(), t[0].0), zero, x.constant, i))
-        } else if t.len == 1 && t[0].1 == -1 {
-            edges.push((zero, position(ids.as_slice(), t[0].0), x.constant, i))
-        } else if t.len == 2 && t[0].1 == 1 && t[1].1 == -1 {
-            edges.push(
-                (position(ids.as_slice(), t[0].0), position(ids.as_slice(), t[1].0), x.constant, i)
-            )
-        } else if t.len == 2 && t[0].1 == -1 && t[1].1 == 1 {
-            edges.push(
-                (position(ids.as_slice(), t[1].0), position(ids.as_slice(), t[0].0), x.constant, i)
-            )
-        }
+    for i, f in g.facts {
+        add_edge(f, ids.as_slice(), zero, i, &edges)
     }
+    add_edge(g.claim.scale(-1).shift(-1), ids.as_slice(), zero, m - 1, &edges)
     let n = zero + 1
     // Distances from a source joined to every node with weight 0; each is
     // a sum of at most `n` weights below 2^66, far inside an i128.
@@ -478,6 +477,20 @@ fn differences(g: linear.Goal) -> Option(linear.Certificate) {
         if y == x { break }
     }
     Some(linear.Certificate.of(weights))
+}
+
+// The edge of fact `i`, `x`, if it is a difference or a bound.
+fn add_edge(x: Lin, ids: [i64], zero: i64, i: i64, inout edges: Vec((i64, i64, i128, i64))) {
+    let t = x.terms.as_slice()
+    if t.len == 1 && t[0].1 == 1 {
+        edges.push((position(ids, t[0].0), zero, x.constant, i))
+    } else if t.len == 1 && t[0].1 == -1 {
+        edges.push((zero, position(ids, t[0].0), x.constant, i))
+    } else if t.len == 2 && t[0].1 == 1 && t[1].1 == -1 {
+        edges.push((position(ids, t[0].0), position(ids, t[1].0), x.constant, i))
+    } else if t.len == 2 && t[0].1 == -1 && t[1].1 == 1 {
+        edges.push((position(ids, t[1].0), position(ids, t[0].0), x.constant, i))
+    }
 }
 
 // For a report on a goal that was not proved: the least and greatest
