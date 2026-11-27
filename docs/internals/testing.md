@@ -162,6 +162,16 @@ scripts/fuzz_compiler.py --compiler out/jihoo                      # 2000 cases
 scripts/fuzz_compiler.py --seed 7 --count 20000 --keep crashes
 ```
 
+`--valgrind` tests safety rather than robustness: programs of `tests/run`
+without `unsafe`, `extern`, threads, processes or input get one to three
+numbers or operators replaced, and each the compiler accepts runs under
+valgrind at `-O0`. A program that compiles without `unsafe` must not
+touch memory it does not own; panics and traps are fine.
+
+```sh
+nix-shell -p valgrind --run 'scripts/fuzz_compiler.py --valgrind --count 500'
+```
+
 ## Memory
 
 Programs should neither leak nor touch memory they do not own. Build with
