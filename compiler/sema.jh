@@ -3823,6 +3823,19 @@ pub fn member_uses(a: load.Ast, tgt: target.Target) -> Vec((Span, Span)) {
     mem.replace(&s.uses, Vec((Span, Span)).new())
 }
 
+// The functions lowered from the program, and their types, as far as it
+// could be lowered (a function with an error has no body): for editors.
+pub fn lowered(a: load.Ast, tgt: target.Target) -> (Vec(mir.Function), Types) {
+    var s = Sema.new(a, tgt, true)
+    match compile_inner(&s, a, tgt, true, true, target.Codegen.default()) {
+        // The program took them.
+        Ok(p) => match p {
+            mir.Program { fns, types, .. } => (fns, types)
+        }
+        Err(_) => (mem.replace(&s.out, Vec(mir.Function).new()), mem.replace(&s.types, Types.new()))
+    }
+}
+
 fn compile_inner(
     inout s: Sema,
     a: load.Ast,
