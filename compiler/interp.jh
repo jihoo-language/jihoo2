@@ -586,6 +586,7 @@ impl Interpreter {
                 Sub => float_bytes(x - y, ty)
                 Mul => float_bytes(x * y, ty)
                 Div => float_bytes(x / y, ty)
+                Rem => float_bytes(x % y, ty)
                 Eq => integer(if x == y { 1 } else { 0 }, 1)
                 Ne => integer(if x != y { 1 } else { 0 }, 1)
                 Lt => integer(if x < y { 1 } else { 0 }, 1)
@@ -910,6 +911,26 @@ impl Interpreter {
                 put(&out, offs[1], integer(if over { 1 } else { 0 }, 1))
                 Ok(out)
             }
+            // Exact in `f64` for an `f32` too (and `sqrt` correctly
+            // rounded once more), so computed in `f64`.
+            Sqrt(ty) => Ok(float_bytes(sqrt(float_value(args[0], ty, span)?), ty))
+            Floor(ty) => Ok(float_bytes(floor(float_value(args[0], ty, span)?), ty))
+            Ceil(ty) => Ok(float_bytes(ceil(float_value(args[0], ty, span)?), ty))
+            Trunc(ty) => Ok(float_bytes(trunc(float_value(args[0], ty, span)?), ty))
+            Round(ty) => Ok(float_bytes(round(float_value(args[0], ty, span)?), ty))
+            Abs(ty) => {
+                if t.is_float(ty) {
+                    return Ok(float_bytes(abs(float_value(args[0], ty, span)?), ty))
+                }
+                let x = signed(t, bits(args[0], span)?, ty)
+                // `abs` of the most negative value wraps to itself.
+                let size = t.layout(ty).size
+                Ok(integer((if x < 0 { 0 -% x } else { x }) as u128, size))
+            }
+            Copysign(ty) => Ok(float_bytes(
+                copysign(float_value(args[0], ty, span)?, float_value(args[1], ty, span)?),
+                ty
+            ))
             Trap => Err(error(span, "compile-time evaluation reached a trap"))
             _ => Err(error(span, "this intrinsic is not available during compile-time evaluation"))
         }

@@ -1,0 +1,32 @@
+// The compile-time interpreter computes float `%` and the math builtins
+// as compiled code does: each line is a compiled result, then the same
+// value from a `const`.
+
+fn f() -> [f64; 12] {
+    [sqrt(2.0), floor(-0.5), ceil(-0.5), trunc(-2.7), round(2.5), round(-0.4), abs(-3.0),
+        copysign(1.0, -0.0), 7.5 % 2.0, -7.5 % 2.0, (sqrt(2.0 as f32) as f64), 1.0 % 0.0]
+}
+fn g() -> [i64; 3] { [abs(-5), abs(-9223372036854775807 - 1), abs(7 as i64)] }
+const F = f()
+const G = g()
+fn main() {
+    let a = f()
+    let b = g()
+    for i in 0..12 { println(a[i].to_string() + " " + F[i].to_string()) }
+    for i in 0..3 { println(b[i].to_string() + " " + G[i].to_string()) }
+}
+//> 1.4142135623730951 1.4142135623730951
+//> -1.0 -1.0
+//> -0.0 -0.0
+//> -2.0 -2.0
+//> 3.0 3.0
+//> -0.0 -0.0
+//> 3.0 3.0
+//> -1.0 -1.0
+//> 1.5 1.5
+//> -1.5 -1.5
+//> 1.4142135381698608 1.4142135381698608
+//> NaN NaN
+//> 5 5
+//> -9223372036854775808 -9223372036854775808
+//> 7 7
