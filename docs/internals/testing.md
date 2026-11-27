@@ -166,7 +166,9 @@ scripts/fuzz_compiler.py --seed 7 --count 20000 --keep crashes
 
 `--valgrind` tests safety rather than robustness: programs of `tests/run`
 without `unsafe`, `extern`, threads, processes or input get one to three
-numbers or operators replaced, and each the compiler accepts runs under
+numbers or operators replaced, or a statement swapped with the next,
+doubled or deleted (which makes a use follow a move, or a borrow overlap a
+change), and each the compiler accepts runs under
 valgrind at `-O0`. A program that compiles without `unsafe` must not
 touch memory it does not own; panics and traps are fine.
 
