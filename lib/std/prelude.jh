@@ -243,6 +243,69 @@ impl(T: type) Option(T) {
             None => other
         }
     }
+
+    pub fn unwrap_or_else(sink self, f: fn() -> T) -> T {
+        match self {
+            Some(x) => x
+            None => f()
+        }
+    }
+
+    // The value given to `f`; U is inferred from its result.
+    pub fn map(sink self, comptime U: type, f: fn(T) -> U) -> Option(U) {
+        match self {
+            Some(x) => Some(f(x))
+            None => None
+        }
+    }
+
+    pub fn and_then(sink self, comptime U: type, f: fn(T) -> Option(U)) -> Option(U) {
+        match self {
+            Some(x) => f(x)
+            None => None
+        }
+    }
+
+    // The value if `pred` holds of it.
+    pub fn filter(sink self, pred: fn(T) -> bool) -> Option(T) {
+        match self {
+            Some(x) => if pred(x) { Some(x) } else { None }
+            None => None
+        }
+    }
+
+    // This one if it has a value, or else `other`.
+    pub fn or(sink self, sink other: Option(T)) -> Option(T) {
+        match self {
+            Some(x) => Some(x)
+            None => other
+        }
+    }
+
+    pub fn ok_or(sink self, comptime E: type, sink err: E) -> Result(T, E) {
+        match self {
+            Some(x) => Ok(x)
+            None => Err(err)
+        }
+    }
+
+    // A borrow of the value, leaving it in place.
+    pub fn as_ref(self) -> Option(ref T) {
+        match self {
+            Some(x) => Some(x)
+            None => None
+        }
+    }
+
+    // Takes the value out, leaving None.
+    pub fn take(inout self) -> Option(T) {
+        mem.replace(&self, None)
+    }
+
+    // Puts a value in, giving back the one there was.
+    pub fn replace(inout self, sink x: T) -> Option(T) {
+        mem.replace(&self, Some(x))
+    }
 }
 
 impl(T: type, E: type) Result(T, E) {
@@ -284,6 +347,48 @@ impl(T: type, E: type) Result(T, E) {
             Err(e) => Some(e)
         }
     }
+
+    pub fn unwrap_err(sink self) -> E {
+        match self {
+            Ok(_) => panic("unwrap_err of Ok")
+            Err(e) => e
+        }
+    }
+
+    pub fn unwrap_or(sink self, sink other: T) -> T {
+        match self {
+            Ok(x) => x
+            Err(_) => other
+        }
+    }
+
+    pub fn unwrap_or_else(sink self, f: fn(E) -> T) -> T {
+        match self {
+            Ok(x) => x
+            Err(e) => f(e)
+        }
+    }
+
+    pub fn map(sink self, comptime U: type, f: fn(T) -> U) -> Result(U, E) {
+        match self {
+            Ok(x) => Ok(f(x))
+            Err(e) => Err(e)
+        }
+    }
+
+    pub fn map_err(sink self, comptime F: type, f: fn(E) -> F) -> Result(T, F) {
+        match self {
+            Ok(x) => Ok(x)
+            Err(e) => Err(f(e))
+        }
+    }
+
+    pub fn and_then(sink self, comptime U: type, f: fn(T) -> Result(U, E)) -> Result(U, E) {
+        match self {
+            Ok(x) => f(x)
+            Err(e) => Err(e)
+        }
+    }
 }
 
 impl(T: Clone) Clone for Option(T) {
@@ -291,6 +396,15 @@ impl(T: Clone) Clone for Option(T) {
         match self {
             Some(x) => Some(x.clone())
             None => None
+        }
+    }
+}
+
+impl(T: Clone, E: Clone) Clone for Result(T, E) {
+    fn clone(self) -> Result(T, E) {
+        match self {
+            Ok(x) => Ok(x.clone())
+            Err(e) => Err(e.clone())
         }
     }
 }
@@ -381,3 +495,41 @@ pub fn max(comptime T: Ord, a: T, b: T) -> T {
 }
 
 import std.sys
+
+#[test]
+fn option_combinators() {
+    let five: Option(i64) = Some(5)
+    let none: Option(i64) = None
+    assert(five.map(fn(x) { x * 2 }) == Some(10) && none.map(fn(x) { x * 2 }).is_none(), "map")
+    assert(five.map(fn(x) { x > 3 }) == Some(true), "map changes the type")
+    assert(five.and_then(fn(x) { if x > 3 { Some(x - 3) } else { None } }) == Some(2), "and_then")
+    assert(
+        five.filter(fn(x) { x > 9 }).is_none() && five.filter(fn(x) { x > 1 }) == Some(5),
+        "filter"
+    )
+    assert(none.or(Some(1)) == Some(1) && five.or(Some(1)) == Some(5), "or")
+    assert(none.unwrap_or_else(fn() { 9 }) == 9 && five.unwrap_or_else(fn() { 9 }) == 5, "or_else")
+    assert(five.ok_or("none") == Ok(5) && none.ok_or("none") == Err("none"), "ok_or")
+    var slot = Some(String.from("a"))
+    assert(slot.as_ref().is_some() && slot.is_some(), "as_ref leaves the value")
+    assert(slot.replace(String.from("b")) == Some(String.from("a")), "replace")
+    assert(slot.take() == Some(String.from("b")) && slot.is_none(), "take")
+    assert(slot.take().is_none(), "take of None")
+}
+
+#[test]
+fn result_combinators() {
+    let ok: Result(i64, String) = Ok(4)
+    let bad: Result(i64, String) = Err(String.from("no"))
+    assert(ok.clone().map(fn(x) { x + 1 }) == Ok(5), "map")
+    assert(bad.clone().map_err(fn(e) { e.len() }) == Err(2), "map_err")
+    let halve = fn(x: i64) -> Result(i64, String) {
+        if x % 2 == 0 { Ok(x / 2) } else { Err(String.from("odd")) }
+    }
+    assert(ok.clone().and_then(halve) == Ok(2), "and_then")
+    let three: Result(i64, String) = Ok(3)
+    assert(three.and_then(halve) == Err(String.from("odd")), "and_then fails")
+    assert(bad.clone().unwrap_or(0) == 0 && ok.clone().unwrap_or(0) == 4, "unwrap_or")
+    assert(bad.clone().unwrap_or_else(fn(e) { e.len() }) == 2, "unwrap_or_else")
+    assert(bad.unwrap_err() == "no", "unwrap_err")
+}

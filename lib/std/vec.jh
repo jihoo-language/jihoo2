@@ -270,6 +270,23 @@ impl(T: type) Drop for IntoIter(T) {
     }
 }
 
+impl(T: Eq) [T] {
+    pub fn contains(self, x: T) -> bool {
+        for y in self {
+            if y == x {
+                return true
+            }
+        }
+        false
+    }
+}
+
+impl(T: Eq) Vec(T) {
+    pub fn contains(self, x: T) -> bool {
+        self.as_slice().contains(x)
+    }
+}
+
 impl(T: Clone) [T] {
     // A `Vec` of copies of the values.
     pub fn to_vec(self) -> Vec(T) {
@@ -441,4 +458,15 @@ fn filled_and_slices() {
         n += x as i64
     }
     assert(n == 12, "iter")
+}
+
+#[test]
+fn contains_and_to_vec() {
+    let v = [3, 1, 2].to_vec()
+    assert(v.contains(2) && !v.contains(7) && v.as_slice()[1..].contains(1), "contains")
+    var names = Vec(String).new()
+    names.push(String.from("x"))
+    assert(names.contains(String.from("x")) && !names.contains(String.from("y")), "strings")
+    let copy = names.as_slice().to_vec()
+    assert(copy == names && Vec(i64).new().as_slice().to_vec().is_empty(), "to_vec")
 }
