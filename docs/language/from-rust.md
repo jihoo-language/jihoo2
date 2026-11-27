@@ -175,7 +175,9 @@ Rust struct with a lifetime parameter, without the annotation
   value), and the `match` cannot be moved out of: `.clone()` in the arms
   makes it owned.
 - Patterns see through `ref` and `inout` values, as Rust's default binding
-  modes do: `Some(Circle(r))` matches an `Option(ref Shape)`.
+  modes do: `Some(Circle(r))` matches an `Option(ref Shape)`. So do
+  operators on a borrow of a number, bool or pointer, where Rust writes
+  `*k`: `for k in m.keys() { total += k }`.
 - `let Some(v) = m.get(k) else { ... }` keeps `v` a `ref V`, which borrows
   what the call borrowed, the map and the key. A `str` key lent where a
   `String` is borrowed becomes a `String` over the same bytes that lives

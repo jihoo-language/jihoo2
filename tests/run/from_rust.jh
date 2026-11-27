@@ -205,6 +205,17 @@ fn main() {
     let big: u64 = 18446744073709551615
     println(big == 0 -% (1 as u64))
     //> true
+    // Rust's `for (k, v) in &map` and `*k + 1`: a map gives `(key, value)`
+    // borrows, and operators read through a borrow of a number.
+    var total = 0
+    for (k, v) in counts { total += v + k.len() }
+    println(total)
+    //> 5
+    let keys = counts.keys()
+    var lens = 0
+    for k in counts.values() { lens = lens + k * 10 }
+    println(lens > keys.len())
+    //> true
 }
 
 enum Named {

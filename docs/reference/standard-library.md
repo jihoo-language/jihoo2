@@ -209,8 +209,10 @@ big integers rather than float arithmetic. It also gives every program
 
 A hash map with open addressing, for keys with `Hash` and `Eq`. `new`,
 `len`, `is_empty`, `insert(k, v)` (returns the old value), `get(k)` and
-`get_mut(k)` (an `Option` of a borrow), `contains`, `remove`, `keys`;
-`m[k]` panics if the key is missing.
+`get_mut(k)` (an `Option` of a borrow), `contains`, `remove`, `clear`,
+`keys` and `values` (`Vec`s of borrows, in the same order), and `iter`,
+which borrows each entry as `(key, value)`: `for (k, v) in m`. `m[k]`
+panics if the key is missing.
 
 ## `Box(T)`
 

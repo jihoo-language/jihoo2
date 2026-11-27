@@ -177,6 +177,62 @@ impl(K: Hash + Eq, V: type) Map(K, V) {
         }
         out
     }
+
+    // The values, in the order of `keys`.
+    pub fn values(self) -> Vec(ref V) {
+        var out = Vec(ref V).with_capacity(self.len)
+        for i in 0..self.cap {
+            if self.state[i] == 1 {
+                unsafe { out.push(*(self.vals + i)) }
+            }
+        }
+        out
+    }
+
+    // Borrows the entries one by one, as `(key, value)`, in the order of
+    // `keys`: `for e in m` and `for e in m.iter()`.
+    pub fn iter(self) -> Iter(K, V) {
+        Iter(K, V) { state: self.state.as_slice(), keys: self.keys, vals: self.vals, next: 0 }
+    }
+
+    // Removes every entry, keeping the allocation.
+    pub fn clear(inout self) {
+        for i in 0..self.cap {
+            if self.state[i] == 1 {
+                unsafe {
+                    mem.drop_at(K, self.keys + i)
+                    mem.drop_at(V, self.vals + i)
+                }
+            }
+            self.state[i] = 0
+        }
+        self.len = 0
+        self.used = 0
+    }
+}
+
+// Borrows the entries of a `Map` one by one.
+#[view]
+pub struct Iter(K: type, V: type) {
+    state: [u8]
+    keys: *K
+    vals: *V
+    next: i64
+}
+
+impl(K: type, V: type) Iterator for Iter(K, V) {
+    type Item = (ref K, ref V)
+
+    fn next(inout self) -> Option((ref K, ref V)) {
+        while self.next < self.state.len {
+            let i = self.next
+            self.next += 1
+            if self.state[i] == 1 {
+                return unsafe { Some((*(self.keys + i), *(self.vals + i))) }
+            }
+        }
+        None
+    }
 }
 
 impl(K: type, V: type) Drop for Map(K, V) {
@@ -235,4 +291,31 @@ fn remove_keeps_the_rest() {
         assert(m.contains(i.to_string()) == (i % 3 != 0), "the others remain")
     }
     assert(m.keys().len() == 33, "keys")
+}
+
+#[test]
+fn iterate_and_clear() {
+    var m = Map(String, i64).new()
+    for i in 0..40 {
+        m.insert(i.to_string(), i)
+    }
+    m.remove(String.from("7"))
+    var sum = 0
+    var count = 0
+    for (k, v) in m {
+        assert(k.as_str() == v.to_string().as_str(), "the key's value")
+        sum += v
+        count += 1
+    }
+    assert(count == 39 && sum == 780 - 7, "every entry once")
+    var values = 0
+    for v in m.values() { values += v }
+    assert(values == sum && m.values().len() == m.keys().len(), "values")
+    m.clear()
+    assert(m.is_empty() && m.get(String.from("1")).is_none(), "cleared")
+    var again = 0
+    for _ in m.iter() { again += 1 }
+    assert(again == 0, "nothing left")
+    m.insert(String.from("x"), 5)
+    assert(m.len() == 1 && m["x"] == 5, "usable after clear")
 }
