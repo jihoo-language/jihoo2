@@ -277,6 +277,9 @@ the directories given. The output is reparsed and must retain the same syntax tr
 tables, so gdb, lldb, perf and valgrind name the source line of each
 frame and instruction, and every variable with its type and scope; gdb
 shows `str`, `String`, `Vec`, slices and `Map` by their contents.
+[`--sanitize=address|thread`](docs/reference/command-line.md#sanitizers)
+builds a native program with LLVM's AddressSanitizer or ThreadSanitizer, for
+the memory errors and data races only `unsafe` code and C can make.
 
 [`jihoo lsp`](docs/reference/command-line.md#language-server) is a language
 server built on the same checking and diagnostics: errors in unsaved

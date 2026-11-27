@@ -180,9 +180,10 @@ pub fn object(
     opt: str,
     tgt: target.Target,
     profile: target.Profile,
+    sanitize: target.Sanitizer,
     inout timer: timing.Timer
 ) -> Result((), String) {
-    unsafe { emit_objects(ir, path, false, opt, tgt, profile, &timer)? }
+    unsafe { emit_objects(ir, path, false, opt, tgt, profile, sanitize, &timer)? }
     Ok(())
 }
 
@@ -195,9 +196,10 @@ pub fn objects(
     opt: str,
     tgt: target.Target,
     profile: target.Profile,
+    sanitize: target.Sanitizer,
     inout timer: timing.Timer
 ) -> Result(Vec(String), String) {
-    unsafe { emit_objects(ir, stem, true, opt, tgt, profile, &timer) }
+    unsafe { emit_objects(ir, stem, true, opt, tgt, profile, sanitize, &timer) }
 }
 
 // Instructions per code generation unit, and at most this many units. The
@@ -219,6 +221,7 @@ unsafe fn emit_objects(
     opt: str,
     tgt: target.Target,
     profile: target.Profile,
+    sanitize: target.Sanitizer,
     inout timer: timing.Timer
 ) -> Result(Vec(String), String) {
     let lib = open_llvm()?
@@ -265,7 +268,13 @@ unsafe fn emit_objects(
     let data = api.LLVMCreateTargetDataLayout(r.machine)
     api.LLVMSetModuleDataLayout(r.module, data)
     api.LLVMDisposeTargetData(data)
-    let pipeline = "default<" + opt[1..opt.len] + ">"
+    // The sanitizers' instrumentation runs after the optimizations, as
+    // clang runs it, on the functions marked for it.
+    let pipeline = "default<" + opt[1..opt.len] + ">" + match sanitize {
+        Off => ""
+        Address => ",asan"
+        Thread => ",tsan-module,function(tsan)"
+    }
     run_passes(api, r.module, pipeline.as_str(), r.machine, level >= 2)?
     timer.lap("LLVM optimize")
     let sections = match profile { Freestanding => true, _ => false }

@@ -111,6 +111,13 @@ embedded in the executable. The `backend` suite checks the IR, both
 optimization levels, the tables and variables in the executable
 (llvm-dwarfdump), and the printers in gdb.
 
+Implemented: [`--sanitize=address|thread`](../reference/command-line.md#sanitizers)
+builds a native program with LLVM's AddressSanitizer or ThreadSanitizer,
+for the memory errors and races that only `unsafe` code and C can make.
+The `backend` suite checks that each reports its error and that programs
+without one run unchanged; every native program of `tests/run` runs under
+both without a report.
+
 Next:
 
 - Unit tests for more of the standard library, next to its code: every
