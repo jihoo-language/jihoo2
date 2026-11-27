@@ -351,6 +351,15 @@ pub struct Function {
     // A loop head's `decreases` measure over the variables (None when the
     // model cannot state it), and its span.
     pub decreases: Vec((i64, Option(Lin), (i64, i64)))
+    // (part, variable): the value the `decreases` part `decreases[part]`
+    // had when the iteration began, for loops whose iterations pass
+    // another cut point (`snapshot`). Nothing assigns the variable; a path
+    // from the loop's head starts with it equal to the measure.
+    pub snapshots: Vec((i64, i64))
+    // The other functions in a cycle of direct calls with this one: a call
+    // to one that states `decreases`, when this one does too, makes the
+    // measure smaller, as a call to itself does.
+    pub cycle: Vec(i64)
     pub callee: Callee
     // Small, with a call that never returns: record the paths to it.
     pub liftable: bool
@@ -389,7 +398,7 @@ pub enum Source {
     // The `k`th `decreases` measure.
     Decreases(i64)
     // The function's own `decreases`, at a call to itself in the block.
-    Recursion(i64)
+    Recursion(i64, i64)
 }
 
 // What a fact on a path rests on, besides the path itself: an assumption
@@ -609,7 +618,7 @@ fn copy_source(s: Source) -> Source {
         TypeInvariant(t) => Source.TypeInvariant(t)
         Proof(k) => Source.Proof(k)
         Decreases(k) => Source.Decreases(k)
-        Recursion(b) => Source.Recursion(b)
+        Recursion(b, c) => Source.Recursion(b, c)
     }
 }
 
@@ -1308,6 +1317,17 @@ fn start(inout g: Gen, f: Function, fixed: [bool], block: i64, facts: [Fact], ta
             p.state[e.1] = Sym.Var(e.0)
         }
     }
+    // At a loop head, the measure's value as the iteration begins.
+    for sn in f.snapshots {
+        let d = f.decreases[sn.0]
+        if d.0 != block || sn.1 >= p.state.len() { continue }
+        let Some(m) = d.1 else { continue }
+        let start_map = state_map(p)
+        match substitute(m, start_map.as_slice()) {
+            Some(x) => p.state[sn.1] = Sym.Num(x)
+            None => {}
+        }
+    }
     let map = state_map(p)
     if block != 0 {
         // A parameter the function assigns has its value on entry in its
@@ -1873,20 +1893,29 @@ fn call(
         let what = "requires of " + c.symbol.as_str()
         g.source = Source.Requires(q.block, site.callee)
         for x in c.requires { g.require_fact(q, what.as_str(), x, pre.as_slice()) }
-        // A call to itself: the measure of the arguments is smaller than
-        // that of the parameters on entry, which is not negative.
-        if c.symbol == f.callee.symbol && c.measure.len() > 0 {
+        // A call to itself or to another function in a cycle of calls with
+        // it: the callee's measure of the arguments is smaller than this
+        // one's of the parameters on entry, which is not negative, compared
+        // over the parts both have.
+        var again = c.symbol == f.callee.symbol
+        for x in f.cycle {
+            if x == site.callee { again = true }
+        }
+        if again && c.measure.len() > 0 && f.callee.measure.len() > 0 {
             g.at = c.measure[0].1
-            g.source = Source.Recursion(q.block)
+            g.source = Source.Recursion(q.block, site.callee)
             var old = Vec(Lin).new()
             var now = Vec(Lin).new()
             var known = true
-            for mz in c.measure {
-                let entry = match &mz.0 {
+            let parts = if c.measure.len() < f.callee.measure.len() { c.measure.len() } else {
+                f.callee.measure.len()
+            }
+            for k in 0..parts {
+                let entry = match &f.callee.measure[k].0 {
                     Some(m) => at_entry(f, q, m)
                     None => None
                 }
-                let args = match &mz.0 {
+                let args = match &c.measure[k].0 {
                     Some(m) => substitute(m, pre.as_slice())
                     None => None
                 }
@@ -2113,15 +2142,17 @@ fn moved(sink p: Path, block: i64) -> Path {
 
 // A path back to a loop head with a `decreases` measure: the measure was
 // not negative when the path left the head, and is smaller now. The
-// measure at the start is over the variables themselves (a path from a
-// cut point starts with every variable as itself); a path from another
-// cut point, an inner loop's head, does not know it, and fails.
+// measure at the start is its snapshot variable, or without one, the
+// measure over the variables themselves (a path from a cut point starts
+// with every variable as itself); a path from another cut point, an inner
+// loop's head, knows the snapshot only through that cut point's facts.
 fn decreasing(inout g: Gen, f: Function, p: Path) {
     // The measure's parts at this head, compared in order.
     var old = Vec(Lin).new()
     var now = Vec(Lin).new()
     var known = true
     var first = -1
+    let map = state_map(p)
     for k, d in f.decreases {
         if d.0 != p.block { continue }
         if first < 0 {
@@ -2132,13 +2163,16 @@ fn decreasing(inout g: Gen, f: Function, p: Path) {
             known = false
             continue
         }
-        let x = if p.head == p.block { substitute(m, state_map(p).as_slice()) } else { None }
-        match x {
-            Some(x) => {
-                old.push(m.clone())
+        var start: Option(Lin) = if p.head == p.block { Some(m.clone()) } else { None }
+        for sn in f.snapshots {
+            if sn.0 == k { start = substitute(Lin.of(sn.1), map.as_slice()) }
+        }
+        match (start, substitute(m, map.as_slice())) {
+            (Some(s), Some(x)) => {
+                old.push(s)
                 now.push(x)
             }
-            None => known = false
+            _ => known = false
         }
     }
     if first < 0 { return }
@@ -2151,6 +2185,78 @@ fn decreasing(inout g: Gen, f: Function, p: Path) {
     g.source = Source.Decreases(first)
     if known { smaller(&g, p, old.as_slice(), now.as_slice()) } else { g.unknown(p, "decreases") }
     g.at = nowhere()
+}
+
+// Gives a snapshot variable to each part of the `decreases` measures of
+// loops whose iterations pass another of the cut points (an inner loop's
+// head): what that cut point's facts say of it carries the measure's
+// value at the iteration's start across it. Called once the cut points
+// are placed.
+pub fn snapshot(inout f: Function) {
+    for k in 0..f.decreases.len() {
+        let h = f.decreases[k].0
+        if f.decreases[k].1.is_none() { continue }
+        var inner = false
+        for inv in f.invariants {
+            if inv.0 != h && in_loop(f, h, inv.0) { inner = true }
+        }
+        if !inner { continue }
+        let v = f.kinds.len()
+        f.kinds.push(Kind.Int(0 - (1 << 64), 1 << 64))
+        f.snapshots.push((k, v))
+    }
+}
+
+// What may hold of the snapshots at the cut points inside their loops,
+// for inference to keep while proved: (cut point, fact).
+pub fn snapshot_candidates(f: Function) -> Vec((i64, Fact)) {
+    var out = Vec((i64, Fact)).new()
+    for sn in f.snapshots {
+        let d = f.decreases[sn.0]
+        let Some(m) = d.1 else { continue }
+        let s = Lin.of(sn.1)
+        for inv in f.invariants {
+            if inv.0 == d.0 || !in_loop(f, d.0, inv.0) { continue }
+            out.push((inv.0, Fact.compare(Cmp.Le, Lin.num(0), s.clone())))
+            out.push((inv.0, Fact.compare(Cmp.Eq, m.clone(), s.clone())))
+            out.push((inv.0, Fact.compare(Cmp.Le, m.clone(), s.clone())))
+            out.push((inv.0, Fact.compare(Cmp.Le, m.shift(1), s.clone())))
+        }
+    }
+    // A measure that is a tuple is smaller in order, or no larger, than
+    // its snapshots: a disjunction, as no part alone need be.
+    for k, d in f.decreases {
+        // Its first part.
+        if k > 0 && f.decreases[k - 1].0 == d.0 { continue }
+        var parts = Vec((Lin, Lin)).new()
+        for j in k..f.decreases.len() {
+            if f.decreases[j].0 != d.0 { break }
+            let Some(m) = f.decreases[j].1 else { break }
+            for sn in f.snapshots {
+                if sn.0 == j { parts.push((m.clone(), Lin.of(sn.1))) }
+            }
+        }
+        if parts.len() < 2 || parts.len() + 1 > MAX_DISJUNCTS { continue }
+        var lt = Vec(Vec(Cond)).new()
+        for i in 0..parts.len() {
+            var c = Vec(Cond).new()
+            for j in 0..i {
+                c.push(Cond { op: Cmp.Eq, a: parts[j].0.clone(), b: parts[j].1.clone() })
+            }
+            c.push(Cond { op: Cmp.Le, a: parts[i].0.shift(1), b: parts[i].1.clone() })
+            lt.push(c)
+        }
+        var le = lt.clone()
+        var same = Vec(Cond).new()
+        for x in parts { same.push(Cond { op: Cmp.Eq, a: x.0.clone(), b: x.1.clone() }) }
+        le.push(same)
+        for inv in f.invariants {
+            if inv.0 == d.0 || !in_loop(f, d.0, inv.0) { continue }
+            out.push((inv.0, disjunction(lt.clone(), false)))
+            out.push((inv.0, disjunction(le.clone(), false)))
+        }
+    }
+    out
 }
 
 // A measure went down: each part of `old` is not negative, and `new` is
@@ -2177,7 +2283,7 @@ fn smaller(inout g: Gen, p: Path, old: [Lin], new: [Lin]) {
 
 // `c` is in the natural loop whose head is `h`: every path from the
 // entry to `c` passes `h` (`h` dominates `c`), and `c` leads back to `h`.
-fn in_loop(f: Function, h: i64, c: i64) -> bool {
+pub fn in_loop(f: Function, h: i64, c: i64) -> bool {
     if c == h { return true }
     !reaches_avoiding(f, 0, c, h) && reaches_avoiding(f, c, h, -1)
 }

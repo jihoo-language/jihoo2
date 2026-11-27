@@ -1,8 +1,9 @@
 // `decreases d` on a function: every call to itself passes arguments for
 // which `d` is smaller, and `d` is not negative on entry, so the recursion
-// ends. Calls through other functions are not followed. A tuple is
-// compared in order: Ackermann's function ends because each call makes
-// `m` smaller, or keeps it and makes `n` smaller.
+// ends. So does every call to another function in a cycle of direct
+// calls with it that states `decreases` too, compared over the parts both
+// measures have. A tuple is compared in order: Ackermann's function ends
+// because each call makes `m` smaller, or keeps it and makes `n` smaller.
 
 fn fact(n: i64) -> i64
     requires n >= 0
@@ -57,22 +58,65 @@ fn walk(n: i64) -> i64
     steps
 }
 
+fn even(n: i64) -> bool
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return true }
+    odd(n - 1)
+}
+
+fn odd(n: i64) -> bool
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return false }
+    even(n - 1)
+}
+
+// Measures of different lengths: `g`'s is compared with the first part
+// of `f`'s.
+fn f(a: i64, b: i64) -> i64
+    requires a >= 0 && b >= 0
+    decreases (a, b)
+{
+    if a == 0 { return b }
+    if b > 0 { return f(a, b - 1) }
+    g(a - 1)
+}
+
+fn g(a: i64) -> i64
+    requires a >= 0
+    decreases a
+{
+    if a == 0 { return 0 }
+    f(a - 1, 5)
+}
+
 fn main() {
     println(fact(5))
     println(gcd(12, 18))
     println(bsearch([1, 3, 5, 7], 5, 0, 4))
     println(ack(2, 3))
     println(walk(2))
+    println(even(10))
+    println(odd(10))
+    println(f(3, 2))
 }
 
-//> 11:38: proved integer overflow in fact
-//> 26:20: proved integer overflow in bsearch
-//> 26:15: proved integer overflow in bsearch
-//> 27:8: proved index out of bounds in bsearch
-//> 27:41: proved integer overflow in bsearch
-//> 35:24: kept integer overflow in ack (argument), known 1..=2^63
-//> 36:28: proved integer overflow in ack
-//> 37:9: proved integer overflow in ack
-//> 37:23: proved integer overflow in ack
-//> 51:20: proved integer overflow in walk
-//> 52:13: proved integer overflow in walk
+//> 12:38: proved integer overflow in fact
+//> 27:20: proved integer overflow in bsearch
+//> 27:15: proved integer overflow in bsearch
+//> 28:8: proved index out of bounds in bsearch
+//> 28:41: proved integer overflow in bsearch
+//> 36:24: kept integer overflow in ack (argument), known 1..=2^63
+//> 37:28: proved integer overflow in ack
+//> 38:9: proved integer overflow in ack
+//> 38:23: proved integer overflow in ack
+//> 52:20: proved integer overflow in walk
+//> 53:13: proved integer overflow in walk
+//> 66:9: proved integer overflow in even
+//> 74:10: proved integer overflow in odd
+//> 84:28: proved integer overflow in f
+//> 85:7: proved integer overflow in f
+//> 93:7: proved integer overflow in g

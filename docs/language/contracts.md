@@ -274,10 +274,12 @@ fn gcd(a: i64, b: i64) -> i64
 ```
 
 `d` is a term as in clauses. An inner loop's `decreases` is proved like
-any other; an outer loop's is not yet when its iterations pass an inner
-loop's head, where the value `d` had when the iteration began is not
-known (put the inner loop in a function of its own). `for` loops end
-anyway.
+any other. An outer loop's iterations that pass an inner loop's head
+carry the value `d` had when the iteration began across it: the verifier
+infers whether, at the inner head, `d` is still that value, no larger or
+smaller (for a tuple, in order), and that the value was not negative, so
+the inner loop's invariants need only say what keeps `d` itself in range.
+`for` loops end anyway.
 
 On a function, after `requires` and `ensures`, `decreases d` over the
 parameters says that its recursion ends: at every call to itself, `d` of
@@ -295,8 +297,32 @@ fn bsearch(xs: [i64], key: i64, lo: i64, hi: i64) -> i64
 }
 ```
 
-Only direct calls count: recursion through another function, a closure
-or a pointer is not checked.
+Functions that call each other are checked the same way: at a direct
+call to a function in a cycle of direct calls with this one, when both
+state `decreases`, the callee's measure of the arguments is smaller than
+this one's on entry. Measures of different lengths are compared over the
+parts both have.
+
+```jihoo
+fn even(n: i64) -> bool
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return true }
+    odd(n - 1)
+}
+
+fn odd(n: i64) -> bool
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return false }
+    even(n - 1)
+}
+```
+
+A function of the cycle without `decreases` is not checked, and neither
+is recursion through a closure or a pointer.
 
 A measure can be a tuple, compared in order: `decreases (m, n)` goes down
 when `m` does, or when `m` stays and `n` does, and every part is not
