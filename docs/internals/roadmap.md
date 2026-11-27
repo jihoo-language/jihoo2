@@ -194,7 +194,8 @@ specialized library work; they do not by themselves require new syntax.
   `run` suite checks fixed seeds. The programs also use a struct with a
   method, an enum with guards, `Vec(i64)`, capturing closures, `String`
   generic functions, `f64` math, `Option`, `Result` with `?`, `while`
-  with `break`, `Map`, `dyn` and `std.sort`; their first runs found that closures
+  with `break`, `Map`, `dyn`, `std.sort`, `inout`, generic structs and
+  `Box`; their first runs found that closures
   borrowed a `var` they only read mutably, and that the compile-time
   interpreter had neither float `%` nor the math builtins.
 - Maintain the [fusion benchmark](../../benchmarks/functional-fusion/README.md)

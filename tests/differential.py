@@ -11,7 +11,8 @@ ranges, `for` loops, fixed arrays, a struct with a method, an enum
 matched with bindings and guards, `Vec(i64)`, closures that capture,
 `String`, generic functions at every integer type, `Option`, `Result`
 with `?`, `while` with `break`, `Map`, trait objects (`dyn`) with a
-default method, `std.sort`, and calls to earlier functions. Nothing
+default method, `std.sort`, `inout` arguments, a generic struct changed
+through `inout self`, `Box`, and calls to earlier functions. Nothing
 in them overflows a checked operation, so every build must print the
 same, and that must be what Python computes.
 
@@ -352,7 +353,8 @@ class Gen:
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
                            "enum", "vec", "closure", "slice", "string", "option",
-                           "while", "map", "dyn", "sort"]) if depth > 0 \
+                           "while", "map", "dyn", "sort", "inout", "pair",
+                           "box"]) if depth > 0 \
             else rng.choice(["var", "set"])
         if kind in HEAP and self.cost + HEAP[kind] * self.repeat > CALL_BUDGET:
             kind = "var"
@@ -421,6 +423,8 @@ class Gen:
             return self.closure(env_types, pad)
         if kind == "slice":
             return self.slice(env_types, pad)
+        if kind in ("inout", "pair", "box"):
+            return {"inout": self.inout, "pair": self.pair, "box": self.boxed}[kind](env_types, pad)
         if kind in ("map", "dyn", "sort"):
             return {"map": self.map, "dyn": self.dyn, "sort": self.sort}[kind](env_types, pad)
         if kind == "option":
@@ -590,6 +594,53 @@ class Gen:
             f"{pad}let {c} = fn({x}: i64) -> i64 {{ {body[0]} }}",
             f"{pad}var {n}: i64 = {c}({a[0]}) -% {c}({b[0]})",
         ], run
+
+    def inout(self, env_types, pad):
+        """A variable changed by calls that borrow it mutably (`&v`)."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        start = self.expr(env_types, "i64", 2)
+        ks = [self.expr(env_types, "i64", 2) for _ in range(rng.randint(1, 3))]
+        env_types[n] = "i64"
+
+        def run(env, n=n, start=start, ks=ks):
+            v = start[2](env)
+            for k in ks:
+                v = wrap(v * 3 + k[2](env), "i64")
+            env[n] = v
+        return [f"{pad}var {n}: i64 = {start[0]}"] + [f"{pad}bump(&{n}, {k[0]})" for k in ks], run
+
+    def pair(self, env_types, pad):
+        """A generic `Pair(T)` at any integer type, maybe swapped in place."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        p = f"p{n}"
+        t = rng.choice(list(TYPES))
+        a = self.expr(env_types, t, 2)
+        b = self.expr(env_types, t, 2)
+        swaps = rng.randint(0, 3)
+        env_types[n] = "i64"
+
+        def run(env, n=n, a=a, b=b, swaps=swaps):
+            x, y = a[2](env), b[2](env)
+            for _ in range(swaps):
+                x, y = y, x
+            env[n] = wrap(x, "i64")
+        return [f"{pad}var {p} = Pair({t}) {{ a: {a[0]}, b: {b[0]} }}"] + [
+            f"{pad}{p}.swap()" for _ in range(swaps)
+        ] + [f"{pad}var {n}: i64 = {p}.first() as i64"], run
+
+    def boxed(self, env_types, pad):
+        """A value on the heap, read through `*`."""
+        n = f"v{len(env_types)}"
+        b = f"b{n}"
+        x = self.expr(env_types, "i64", 2)
+        y = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, x=x, y=y):
+            env[n] = wrap(x[2](env) + y[2](env), "i64")
+        return [f"{pad}let {b} = Box.new({x[0]})", f"{pad}var {n}: i64 = *{b} +% {y[0]}"], run
 
     def map(self, env_types, pad):
         """A `Map(i64, i64)` of four keys, added to in a loop, then read."""
@@ -801,7 +852,7 @@ def literal_i64(v):
 
 # Statements that allocate, with what they cost in calls' worth of
 # interpreter steps (a `Map` is filled in a loop).
-HEAP = {"vec": 1, "string": 1, "map": 3, "dyn": 1, "sort": 2}
+HEAP = {"vec": 1, "string": 1, "map": 3, "dyn": 1, "sort": 2, "box": 1}
 
 # The types the statements use.
 PRELUDE = """trait Op {
@@ -846,6 +897,23 @@ fn twice_halved(x: i64) -> Result(i64, i64) {
     let a = halve(x)?
     let b = halve(a)?
     Ok(a +% b)
+}
+
+fn bump(inout x: i64, k: i64) { x = x *% 3 +% k }
+
+struct Pair(comptime T: type) {
+    a: T
+    b: T
+}
+
+impl(T: type) Pair(T) {
+    fn swap(inout self) {
+        let t = self.a
+        self.a = self.b
+        self.b = t
+    }
+
+    fn first(self) -> T { self.a }
 }
 
 fn pick(comptime T: type, c: bool, x: T, y: T) -> T { if c { x } else { y } }
