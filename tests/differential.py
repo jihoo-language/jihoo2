@@ -7,16 +7,18 @@ Each program is a few functions `fK(a: i64, b: i64) -> i64` built from
 wrapping arithmetic, bit operations, division by values that are never
 zero, shifts, conversions between every integer type, `if`, `match` on
 ranges, `for` loops, fixed arrays, a struct with a method, an enum
-matched with bindings and guards, `Vec(i64)`, closures that capture, and
-calls to earlier functions. Nothing
-in them overflows a checked operation, so every build must print the
-same, and that must be what Python computes.
+matched with bindings and guards, `Vec(i64)`, closures that capture,
+`String`, generic functions at every integer type, and calls to earlier
+functions. Nothing in them overflows a checked operation, so every build
+must print the same, and that must be what Python computes.
 
     tests/differential.py --compiler out/jihoo             # the fixed seeds CI runs
     tests/differential.py --seed 100 --count 500 --keep d  # more, keeping failures in d
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import random
 import subprocess
@@ -92,7 +94,7 @@ class Gen:
                 return self.convert((n, env_types[n], lambda env, n=n: env[n]), t)
             return self.literal(t)
         kind = rng.choice(["arith", "arith", "bits", "shift", "div", "conv", "if", "match",
-                           "call"])
+                           "call", "pick"])
         bits, signed = TYPES[t]
         if kind == "arith":
             op = rng.choice(["+%", "-%", "*%"])
@@ -164,6 +166,17 @@ class Gen:
                 return arms[0][2](env) if k == 0 else arms[1][2](env) if k <= 3 else arms[2][2](env)
             return (f"(match {x[0]} & (7 as {t}) {{ 0 => {arms[0][0]}, 1..=3 => {arms[1][0]}, "
                     f"_ => {arms[2][0]} }})", t, pick)
+        if kind == "pick":
+            # the generic `pick(T, ...)`, at this type
+            s = rng.choice(list(TYPES))
+            x = self.expr(env_types, s, depth - 1)
+            y = self.expr(env_types, s, depth - 1)
+            a = self.expr(env_types, t, depth - 1)
+            b = self.expr(env_types, t, depth - 1)
+
+            def pick(env, x=x, y=y, a=a, b=b):
+                return a[2](env) if x[2](env) <= y[2](env) else b[2](env)
+            return (f"pick({x[0]} <= {y[0]}, {a[0]}, {b[0]})", t, pick)
         # a call of an earlier function
         if self.funcs == 0 or self.loops > 0:
             return self.literal(t)
@@ -201,7 +214,7 @@ class Gen:
         rng = self.rng
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
-                           "enum", "vec", "closure"]) if depth > 0 else rng.choice(["var", "set"])
+                           "enum", "vec", "closure", "slice", "string"]) if depth > 0 else rng.choice(["var", "set"])
         if kind == "var" or (kind == "set" and not [n for n in env_types if n[0] == "v"]):
             t = rng.choice(list(TYPES))
             e = self.expr(env_types, t, 3)
@@ -261,6 +274,10 @@ class Gen:
             return self.vec(env_types, pad)
         if kind == "closure":
             return self.closure(env_types, pad)
+        if kind == "slice":
+            return self.slice(env_types, pad)
+        if kind == "string":
+            return self.string(env_types, pad)
         # an array: built, one element changed, one read into a variable
         n = f"v{len(env_types)}"
         elems = [self.expr(env_types, "i64", 2) for _ in range(4)]
@@ -423,6 +440,57 @@ class Gen:
             f"{pad}var {n}: i64 = {c}({a[0]}) -% {c}({b[0]})",
         ], run
 
+    def slice(self, env_types, pad):
+        """An array of any integer type summed by the generic `total(T, [T])`."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        arr = f"a{n}"
+        t = rng.choice(list(TYPES))
+        count = rng.randint(1, 4)
+        elems = [self.expr(env_types, t, 2) for _ in range(count)]
+        lo = rng.randint(0, count)
+        env_types[n] = "i64"
+
+        def run(env, n=n, elems=elems, lo=lo):
+            total = 0
+            for e in elems[lo:]:
+                total = wrap(total + wrap(e[2](env), "i64"), "i64")
+            env[n] = total
+        return [
+            f"{pad}var {arr}: [{t}; {count}] = [{', '.join(e[0] for e in elems)}]",
+            f"{pad}var {n}: i64 = total({arr}[{lo}..{count}])",
+        ], run
+
+    def string(self, env_types, pad):
+        """A `String` grown by `push` in a loop and `push_str`, read by
+        length or by a byte."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        st, j = f"s{n}", f"j{n}"
+        start = "".join(rng.choice("abc") for _ in range(rng.randint(0, 3)))
+        end = "".join(rng.choice("xyz") for _ in range(rng.randint(0, 3)))
+        k = self.convert(self.expr(env_types, rng.choice(list(TYPES)), 2), "i64")
+        at = self.convert(self.expr(env_types, rng.choice(list(TYPES)), 2), "u64")
+        read = rng.choice(["len", "byte"])
+        env_types[n] = "i64"
+
+        def run(env, n=n, k=k, at=at, read=read):
+            text = start + "q" * (k[2](env) & 3) + end + "!"
+            if read == "len":
+                env[n] = len(text)
+            else:
+                env[n] = ord(text[at[2](env) % len(text)])
+        lines = [
+            f'{pad}var {st} = String.from("{start}")',
+            f"{pad}for {j} in 0..({k[0]} & 3) {{ {st}.push('q') }}",
+            f'{pad}{st}.push_str("{end}!")',
+        ]
+        if read == "len":
+            lines.append(f"{pad}var {n}: i64 = {st}.len()")
+        else:
+            lines.append(f"{pad}var {n}: i64 = {st}.as_str()[(({at[0]}) % ({st}.len() as u64)) as i64] as i64")
+        return lines, run
+
     def function(self):
         self.cost = 1
         env_types = {"a": "i64", "b": "i64"}
@@ -459,6 +527,14 @@ impl P {
 }
 
 fn mix(p: P) -> i64 { p.x ^ (p.y as i64) }
+
+fn pick(comptime T: type, c: bool, x: T, y: T) -> T { if c { x } else { y } }
+
+fn total(comptime T: type, xs: [T]) -> i64 {
+    var t: i64 = 0
+    for x in xs { t = t +% (x as i64) }
+    t
+}
 
 enum E {
     A(i64)
@@ -565,9 +641,13 @@ def main():
         return
     compiler = args.compiler.resolve()
     failed = 0
-    with tempfile.TemporaryDirectory(prefix="jihoo-differential-") as directory:
-        for seed in range(args.seed, args.seed + args.count):
-            problems = check(compiler, seed, args.functions, directory, args.keep)
+    # Programs are checked in parallel, and reported in order of seed.
+    with tempfile.TemporaryDirectory(prefix="jihoo-differential-") as directory, \
+            ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+        results = pool.map(lambda seed: check(compiler, seed, args.functions, directory,
+                                              args.keep),
+                           range(args.seed, args.seed + args.count))
+        for problems in results:
             for p in problems:
                 print(p)
             failed += bool(problems)
