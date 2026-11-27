@@ -381,6 +381,33 @@ def main():
             # The checks of the unfinished texts publish first.
             while client.diagnostics(uri(main_file)) != []:
                 pass
+            # Inlay hints: the inferred types of `let`s and `var`s written
+            # without one, after their names.
+            assert client.capabilities["inlayHintProvider"] is True
+            hints = client.request("textDocument/inlayHint", {
+                "textDocument": {"uri": uri(main_file)},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 100, "character": 0}}})
+            shown = sorted((h["position"]["line"], h["position"]["character"], h["label"]) for h in hints)
+
+            def after(name):
+                start = position(fixed, src.index(name.encode()) + len(name.encode()), utf8)
+                return (start["line"], start["character"])
+            assert shown == sorted([after("let s") + (": str",), after("let value") + (": i64",),
+                                    after("var v") + (": Vec(String)",), after("let p") + (": Point",),
+                                    after("let old") + (": Vec(String)",), after("let bag") + (": Bag",)]), shown
+            # Only those in the range.
+            line = after("let p")[0]
+            hints = client.request("textDocument/inlayHint", {
+                "textDocument": {"uri": uri(main_file)},
+                "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 99}}})
+            assert [h["label"] for h in hints] == [": Point"], hints
+            # Highlights: a name's occurrences in the document.
+            assert client.capabilities["documentHighlightProvider"] is True
+            found = client.request("textDocument/documentHighlight", {
+                "textDocument": {"uri": uri(main_file)},
+                "position": position(fixed, src.index(b"value") + 1, utf8)})
+            starts = sorted((h["range"]["start"]["line"], h["range"]["start"]["character"]) for h in found)
+            assert starts == sorted(r[1:] for r in uses + [at(declared)]), found
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -491,7 +518,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, references, rename, completion, signatures, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, rename, completion, signatures, highlights, inlay hints, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":
