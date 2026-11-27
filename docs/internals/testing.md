@@ -118,7 +118,9 @@ generic functions instantiated at every integer type, `f64` arithmetic,
 `as` or by their bits, every NaN as one value), `Option` matched,
 `Result` through `?`, `while` loops ended by `break`, a `Map` filled in
 a loop, trait objects (`Vec(dyn Op)`) called through a default method,
-`std.sort`, and calls to earlier functions.
+`std.sort`, a variable changed through `inout` arguments, a generic
+`Pair(T)` swapped through `inout self`, `Box`, and calls to earlier
+functions.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
 compile-time interpreter (a `const` table) and by compiled code, given
