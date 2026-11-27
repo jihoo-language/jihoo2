@@ -83,7 +83,8 @@ loaded syntax trees (the member of `x.name`, with any receiver, as the
 compiler resolved it), shows locals' inferred types and items'
 declarations on hover, finds references and renames, checking that the
 renamed program still checks, completes names and members, shows
-signatures in calls, outlines
+signatures in calls, highlights names, shows inferred types inline,
+outlines
 documents (their items, fields,
 variants and methods), and formats documents. Checks run in a child
 process, so replies do not wait for them, and an edit stops a check that

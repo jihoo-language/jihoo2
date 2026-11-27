@@ -446,6 +446,12 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   with its parameters and the one being written. A method's `self` and a
   type parameter that calls infer (`comptime T: type`) are not among them.
   The call is analyzed as `f()` with the rest of its line left out.
+- **Highlights**: the occurrences in the document of what the name at the
+  cursor stands for, found as references are.
+- **Inlay hints**: after the name of each `let x = ...` and `var x = ...`
+  written without a type, the type the compiler inferred (`: Vec(String)`),
+  as far as the program could be lowered; a name whose type differs
+  between generic instances has none.
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show

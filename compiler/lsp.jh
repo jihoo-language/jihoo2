@@ -332,6 +332,9 @@ impl Server {
                 "referencesProvider",
                 Json.Bool(true)
             ).with("renameProvider", Json.Bool(true)).with(
+                "documentHighlightProvider",
+                Json.Bool(true)
+            ).with("inlayHintProvider", Json.Bool(true)).with(
                 "signatureHelpProvider",
                 json.obj().with("triggerCharacters", Json.Arr(two_texts("(", ",")))
             ).with(
@@ -430,6 +433,28 @@ impl Server {
                 Some(i) => {
                     let found = self.references(i, line, character, declaration, &cache)
                     reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/documentHighlight" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let line = params.at(["position", "line"]).int_or(-1)
+            let character = params.at(["position", "character"]).int_or(-1)
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let found = self.highlights(i, line, character, &cache)
+                    reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/inlayHint" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let from = params.at(["range", "start", "line"]).int_or(0)
+            let to = params.at(["range", "end", "line"]).int_or(1 << 40)
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let hints = self.inlay_hints(i, from, to)
+                    reply(id, hints)
                 }
                 None => reply(id, Json.Null)
             }
@@ -1241,6 +1266,69 @@ impl Server {
             }
         }
         Ok(json.obj().with("changes", changes))
+    }
+}
+
+impl Server {
+    // The occurrences in the document of what the name at a position
+    // stands for, its declarations among them, as `DocumentHighlight`s.
+    fn highlights(self, i: i64, line: i64, character: i64, inout cache: UsesCache) -> Json {
+        var sources = diag.Sources.new()
+        let Some((found, defs, _)) = self.find_references(i, line, character, &sources, &cache) else {
+            return Json.Null
+        }
+        var spans = found.clone()
+        for sp in defs { push_span(&spans, sp) }
+        let path = self.docs[i].path.clone()
+        var out = Vec(Json).new()
+        for sp in spans {
+            if !in_file(sp, path.as_str(), sources) { continue }
+            out.push(json.obj().with("range", self.range(sp, sources)).with("kind", json.int(1)))
+        }
+        Json.Arr(out)
+    }
+
+    // The types the compiler inferred for `let x = ...` and `var x = ...`
+    // written without one, between two lines of the document, as
+    // `InlayHint`s after the names: `: Vec(String)`. A name whose type
+    // differs between generic instances has none.
+    fn inlay_hints(self, i: i64, from: i64, to: i64) -> Json {
+        let d = self.docs[i]
+        var sources = diag.Sources.new()
+        let a = match load.load_with(
+            d.path.as_str(),
+            load.default_search(self.search.clone()),
+            self.tgt.name(),
+            &sources,
+            false,
+            self.overlay()
+        ) {
+            Ok(a) => a
+            Err(_) => return Json.Null
+        }
+        let file = a.modules[a.root as i64].ast.file
+        let text = sources.files[file as i64].text.as_str()
+        let toks = match lex.lex(file, text) {
+            Ok(t) => t
+            Err(_) => return Json.Null
+        }
+        let (fns, types) = sema.lowered(a, self.tgt)
+        var out = Vec(Json).new()
+        for k in 2..toks.len() {
+            let kw = toks[k - 2].tok
+            if (kw != lex.Tok.Let && kw != lex.Tok.Var) || toks[k - 1].tok != lex.Tok.Ident ||
+                toks[k].tok != lex.Tok.Assign { continue }
+            let name = toks[k - 1]
+            let (l, _) = line_col(text, name.span.hi as i64)
+            if l < from || l > to { continue }
+            let tys = lowered_local_types(fns, types, name.span, name.text.as_str())
+            if tys.len() != 1 { continue }
+            out.push(json.obj().with("position", self.position(text, name.span.hi as i64)).with(
+                "label",
+                json.text((": " + tys[0].as_str()).as_str())
+            ).with("kind", json.int(1)))
+        }
+        Json.Arr(out)
     }
 }
 
