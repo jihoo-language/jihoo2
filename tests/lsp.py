@@ -359,7 +359,9 @@ def main():
             assert client.request("textDocument/documentSymbol", {"textDocument": {"uri": uri(main_file)}}) is None
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 101},
                                                      "contentChanges": [{"text": fixed}]})
-            assert client.diagnostics(uri(main_file)) == []
+            # The unparsable text's check may publish first.
+            while client.diagnostics(uri(main_file)) != []:
+                pass
             # The comment above a declaration comes with it.
             assert "Puts v in the place" in hover("replace"), hover("replace")
             assert client.request("textDocument/hover", {
