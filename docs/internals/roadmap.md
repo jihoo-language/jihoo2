@@ -83,7 +83,8 @@ loaded syntax trees (the member of `x.name`, with any receiver, as the
 compiler resolved it), shows locals' inferred types and items'
 declarations on hover, finds references and renames, checking that the
 renamed program still checks, completes names and members, shows
-signatures in calls, highlights names, shows inferred types inline,
+signatures in calls, highlights names, shows inferred types inline, offers a quick fix for an
+immutable binding that is changed,
 outlines
 documents (their items, fields,
 variants and methods), and formats documents. Checks run in a child

@@ -452,6 +452,9 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   written without a type, the type the compiler inferred (`: Vec(String)`),
   as far as the program could be lowered; a name whose type differs
   between generic instances has none.
+- **Quick fixes** (code actions) for the diagnostics the client sends:
+  for "`x` cannot be changed; declare it with `var`", the `let` that binds
+  `x` where the error is, made `var`.
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show

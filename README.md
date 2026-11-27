@@ -283,7 +283,8 @@ server built on the same checking and diagnostics: errors in unsaved
 documents, go to definition and hover (members by the type the compiler
 resolved), references, rename (refused when the renamed program would not
 check), completion of names and members, signature help, highlights,
-inferred types as inlay hints, document outlines and formatting.
+inferred types as inlay hints, a quick fix for `let` bindings that are
+changed, document outlines and formatting.
 
 Next ([roadmap](docs/internals/roadmap.md)): application-driven library work,
 and jihoo2 0.2.0, after which the compiler can use what came after 0.1.0.

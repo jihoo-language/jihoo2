@@ -408,6 +408,31 @@ def main():
                 "position": position(fixed, src.index(b"value") + 1, utf8)})
             starts = sorted((h["range"]["start"]["line"], h["range"]["start"]["character"]) for h in found)
             assert starts == sorted(r[1:] for r in uses + [at(declared)]), found
+            # A quick fix: `let` to `var` for a binding that is changed.
+            assert client.capabilities["codeActionProvider"] is True
+            changed = "fn main() {\n    let total: i64 = 1\n    total += 2\n    println(total)\n}\n"
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 110},
+                                                     "contentChanges": [{"text": changed}]})
+            diagnostics = client.diagnostics(uri(main_file))
+            while not diagnostics:
+                diagnostics = client.diagnostics(uri(main_file))
+            assert "declare it with `var`" in diagnostics[0]["message"], diagnostics
+            actions = client.request("textDocument/codeAction", {
+                "textDocument": {"uri": uri(main_file)}, "range": diagnostics[0]["range"],
+                "context": {"diagnostics": diagnostics}})
+            assert len(actions) == 1 and actions[0]["kind"] == "quickfix", actions
+            assert actions[0]["title"] == "Declare `total` with `var`", actions
+            assert actions[0]["edit"]["changes"][uri(main_file)] == [{
+                "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 7}},
+                "newText": "var"}], actions
+            # Other diagnostics have none.
+            assert client.request("textDocument/codeAction", {
+                "textDocument": {"uri": uri(main_file)}, "range": diagnostics[0]["range"],
+                "context": {"diagnostics": [{"range": diagnostics[0]["range"], "message": "other"}]}}) == []
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 111},
+                                                     "contentChanges": [{"text": fixed}]})
+            while client.diagnostics(uri(main_file)) != []:
+                pass
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -460,7 +485,7 @@ def main():
             assert related[0]["location"]["uri"] == uri(ROOT / "lib/std/thread.jh"), related
             assert "in the instance" in related[1]["message"], related
 
-            error = client.request_error("textDocument/codeAction", {
+            error = client.request_error("textDocument/semanticTokens/full", {
                 "textDocument": {"uri": uri(main_file)}, "position": {"line": 0, "character": 0}})
             assert error["code"] == -32601, error
 
@@ -518,7 +543,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, references, rename, completion, signatures, highlights, inlay hints, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, rename, completion, signatures, highlights, inlay hints, quick fixes, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":
