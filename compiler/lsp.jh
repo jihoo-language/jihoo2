@@ -332,6 +332,9 @@ impl Server {
                 "referencesProvider",
                 Json.Bool(true)
             ).with("renameProvider", Json.Bool(true)).with(
+                "codeActionProvider",
+                Json.Bool(true)
+            ).with(
                 "documentHighlightProvider",
                 Json.Bool(true)
             ).with("inlayHintProvider", Json.Bool(true)).with(
@@ -433,6 +436,19 @@ impl Server {
                 Some(i) => {
                     let found = self.references(i, line, character, declaration, &cache)
                     reply(id, found)
+                }
+                None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/codeAction" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let actions = self.code_actions(
+                        i,
+                        uri.as_str(),
+                        params.at(["context", "diagnostics"])
+                    )
+                    reply(id, actions)
                 }
                 None => reply(id, Json.Null)
             }
@@ -1327,6 +1343,77 @@ impl Server {
                 "label",
                 json.text((": " + tys[0].as_str()).as_str())
             ).with("kind", json.int(1)))
+        }
+        Json.Arr(out)
+    }
+}
+
+impl Server {
+    // Quick fixes for the diagnostics the client sends: for "`x` cannot be
+    // changed; declare it with `var`", the `let` that binds `x` in scope
+    // there, as `var`. From the document's own syntax tree.
+    fn code_actions(self, i: i64, uri: str, diagnostics: Json) -> Json {
+        let text = self.docs[i].text.as_str()
+        var out = Vec(Json).new()
+        let ds = match diagnostics {
+            Arr(ds) => ds
+            _ => return Json.Arr(out)
+        }
+        let toks = match lex.lex(0, text) {
+            Ok(t) => t
+            Err(_) => return Json.Arr(out)
+        }
+        let m = match parse.parse_module(0, toks.clone()) {
+            Ok(m) => m
+            Err(_) => return Json.Arr(out)
+        }
+        for d in ds {
+            let msg = d.at(["message"]).str_or("")
+            let suffix = "` cannot be changed; declare it with `var`"
+            if !msg.as_str().starts_with("`") || !msg.as_str().ends_with(suffix) { continue }
+            let name = msg.as_str()[1..msg.len() - suffix.len]
+            let at = self.offset(
+                text,
+                d.at(["range", "start", "line"]).int_or(0),
+                d.at(["range", "start", "character"]).int_or(0)
+            )
+            var binding: Option(Span) = None
+            for b in locals(m, at as u32) {
+                if b.name == name { binding = Some(b.span) }
+            }
+            let Some(bs) = binding else { continue }
+            // The `let` right before the bound name: `let x` or `let x: T`.
+            var keyword = -1
+            for k in 1..toks.len() {
+                let t = toks[k]
+                if t.tok == lex.Tok.Ident && t.text == name && bs.lo <= t.span.lo &&
+                    t.span.hi <= bs.hi && toks[k - 1].tok == lex.Tok.Let && keyword < 0 {
+                    keyword = k - 1
+                }
+            }
+            if keyword < 0 { continue }
+            let sp = toks[keyword].span
+            var edits = Vec(Json).new()
+            edits.push(json.obj().with(
+                "range",
+                json.obj().with("start", self.position(text, sp.lo as i64)).with(
+                    "end",
+                    self.position(text, sp.hi as i64)
+                )
+            ).with("newText", json.text("var")))
+            out.push(
+                json.obj().with("title", json.text(("Declare `" + name +
+                    "` with `var`").as_str())).with(
+                        "kind",
+                        json.text("quickfix")
+                    ).with("diagnostics", Json.Arr(vec_of(d.clone()))).with(
+                        "isPreferred",
+                        Json.Bool(true)
+                    ).with(
+                        "edit",
+                        json.obj().with("changes", json.obj().with(uri, Json.Arr(edits)))
+                    )
+            )
         }
         Json.Arr(out)
     }
