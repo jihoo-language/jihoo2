@@ -440,6 +440,12 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   public items; after `Type.`: its variants and functions. Elsewhere: the
   locals in scope, the module's items, the modules it imports, the
   prelude's items, and keywords. Each comes with its kind and declaration.
+- **Signature help** inside a call's arguments, also on typing `(` and
+  `,`: the declaration of the function the innermost open `(` calls
+  (`f(`, `x.method(`, `module.f(`), found as go to definition finds it,
+  with its parameters and the one being written. A method's `self` and a
+  type parameter that calls infer (`comptime T: type`) are not among them.
+  The call is analyzed as `f()` with the rest of its line left out.
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show
