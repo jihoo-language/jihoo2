@@ -69,6 +69,45 @@ struct Server {
     input: Input
     // The check running in a child process, if any.
     job: Option(Job)
+    // The members table of the last request, for the files it was made of.
+    uses: UsesCache
+}
+
+// `sema.member_uses` of a program, kept while the text of every file it
+// loaded stays the same: requests on an unchanged program (hover after
+// hover) lower it once.
+struct UsesCache {
+    key: u64
+    valid: bool
+    uses: Vec((Span, Span))
+}
+
+impl UsesCache {
+    fn new() -> UsesCache { UsesCache { key: 0, valid: false, uses: Vec((Span, Span)).new() } }
+
+    fn get(
+        inout self,
+        a: load.Ast,
+        sources: diag.Sources,
+        tgt: target.Target
+    ) -> Vec((Span, Span)) {
+        // FNV-1a over the paths and texts of the loaded files.
+        var h: u64 = 14695981039346656037
+        for f in sources.files {
+            for part in [f.path.as_str(), f.text.as_str()] {
+                for i in 0..part.len {
+                    h = (h ^ part[i] as u64) *% 1099511628211
+                }
+                h = (h ^ 0xff) *% 1099511628211
+            }
+        }
+        if !self.valid || self.key != h {
+            self.uses = sema.member_uses(a, tgt)
+            self.key = h
+            self.valid = true
+        }
+        self.uses.clone()
+    }
 }
 
 // A check of one document in a child process, which writes what to
@@ -182,6 +221,7 @@ pub fn serve(sink search: Vec(String), tgt: target.Target, version: str) -> i32 
         shutdown: false,
         input: Input { buf: Vec(u8).filled(65536, 0), pos: 0, end: 0 },
         job: None
+        uses: UsesCache.new()
     }
     loop {
         // While a check runs, wait for whichever comes first: a message
@@ -254,6 +294,13 @@ fn notification(method: str, sink params: Json) -> Json {
 
 impl Server {
     fn handle(inout self, m: Json, method: str) {
+        // The members cache, lent to the request for its duration.
+        var cache = mem.replace(&self.uses, UsesCache.new())
+        self.respond(m, method, &cache)
+        self.uses = cache
+    }
+
+    fn respond(inout self, m: Json, method: str, inout cache: UsesCache) {
         let id = m.at(["id"])
         let request = m.get("id").is_some()
         let params = m.at(["params"])
@@ -355,7 +402,7 @@ impl Server {
             let character = params.at(["position", "character"]).int_or(-1)
             match self.doc(uri.as_str()) {
                 Some(i) => {
-                    let found = self.definition(i, line, character)
+                    let found = self.definition(i, line, character, &cache)
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
@@ -366,7 +413,7 @@ impl Server {
             let character = params.at(["position", "character"]).int_or(-1)
             match self.doc(uri.as_str()) {
                 Some(i) => {
-                    let found = self.hover(i, line, character)
+                    let found = self.hover(i, line, character, &cache)
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
@@ -381,7 +428,7 @@ impl Server {
             }
             match self.doc(uri.as_str()) {
                 Some(i) => {
-                    let found = self.references(i, line, character, declaration)
+                    let found = self.references(i, line, character, declaration, &cache)
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
@@ -392,7 +439,7 @@ impl Server {
             let character = params.at(["position", "character"]).int_or(-1)
             match self.doc(uri.as_str()) {
                 Some(i) => {
-                    let help = self.signature_help(i, line, character)
+                    let help = self.signature_help(i, line, character, &cache)
                     reply(id, help)
                 }
                 None => reply(id, Json.Null)
@@ -414,7 +461,7 @@ impl Server {
             let character = params.at(["position", "character"]).int_or(-1)
             let new_name = params.at(["newName"]).str_or("")
             match self.doc(uri.as_str()) {
-                Some(i) => match self.rename(i, line, character, new_name.as_str()) {
+                Some(i) => match self.rename(i, line, character, new_name.as_str(), &cache) {
                     Ok(edit) => reply(id, edit)
                     Err(m) => reply_error(id, REQUEST_FAILED, ("cannot rename: " + m).as_str())
                 }
@@ -897,7 +944,7 @@ impl Server {
 
     // The definitions of the name at a position: a `Location`, an array
     // of them, or null.
-    fn definition(self, i: i64, line: i64, character: i64) -> Json {
+    fn definition(self, i: i64, line: i64, character: i64, inout cache: UsesCache) -> Json {
         let d = self.docs[i]
         let offset = self.offset(d.text.as_str(), line, character)
         var sources = diag.Sources.new()
@@ -913,7 +960,7 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        let uses = sema.member_uses(a, self.tgt)
+        let uses = cache.get(a, sources, self.tgt)
         var found = typed_members(a, sources, uses, offset)
         if found.len() == 0 { found = resolve(a, sources, offset) }
         var locations = Vec(Json).new()
@@ -930,7 +977,7 @@ impl Server {
     // What the name at a position is: a local's or parameter's type, as
     // the compiler inferred it (one per generic instance), or the
     // declaration of an item, field or method, with the comment above it.
-    fn hover(self, i: i64, line: i64, character: i64) -> Json {
+    fn hover(self, i: i64, line: i64, character: i64, inout cache: UsesCache) -> Json {
         let d = self.docs[i]
         let offset = self.offset(d.text.as_str(), line, character)
         var sources = diag.Sources.new()
@@ -946,7 +993,7 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        let uses = sema.member_uses(a, self.tgt)
+        let uses = cache.get(a, sources, self.tgt)
         var found = typed_members(a, sources, uses, offset)
         if found.len() == 0 { found = resolve(a, sources, offset) }
         if found.len() == 0 { return Json.Null }
@@ -1002,9 +1049,16 @@ impl Server {
     // with its declarations if asked: the members the compiler resolved to
     // it, in every loaded file, and the names of the document that resolve
     // to it as go to definition resolves them.
-    fn references(self, i: i64, line: i64, character: i64, declaration: bool) -> Json {
+    fn references(
+        self,
+        i: i64,
+        line: i64,
+        character: i64,
+        declaration: bool,
+        inout cache: UsesCache
+    ) -> Json {
         var sources = diag.Sources.new()
-        let Some((found, defs, _)) = self.find_references(i, line, character, &sources) else {
+        let Some((found, defs, _)) = self.find_references(i, line, character, &sources, &cache) else {
             return Json.Null
         }
         var locations = Vec(Json).new()
@@ -1028,7 +1082,8 @@ impl Server {
         i: i64,
         line: i64,
         character: i64,
-        inout sources: diag.Sources
+        inout sources: diag.Sources,
+        inout cache: UsesCache
     ) -> Option((Vec(Span), Vec(Span), Vec(u32))) {
         let d = self.docs[i]
         let offset = self.offset(d.text.as_str(), line, character)
@@ -1044,7 +1099,7 @@ impl Server {
             Ok(a) => a
             Err(_) => return None
         }
-        let uses = sema.member_uses(a, self.tgt)
+        let uses = cache.get(a, sources, self.tgt)
         let Some((name, _)) = word_at(sources, a, offset) else { return None }
         // Declarations by their names, however each was found.
         let defs = names_in(sources, definitions(a, sources, uses, offset), name.as_str())
@@ -1089,7 +1144,14 @@ impl Server {
     // name, or is already in a document the rename changes (where it could
     // capture or be captured), a use or declaration is in the standard
     // library, or the program that checked does not check renamed.
-    fn rename(self, i: i64, line: i64, character: i64, new_name: str) -> Result(Json, String) {
+    fn rename(
+        self,
+        i: i64,
+        line: i64,
+        character: i64,
+        new_name: str,
+        inout cache: UsesCache
+    ) -> Result(Json, String) {
         match lex.lex(0, new_name) {
             Ok(toks) => if toks.len() != 2 || toks[0].tok != lex.Tok.Ident ||
                 toks[0].text != new_name {
@@ -1102,7 +1164,8 @@ impl Server {
             i,
             line,
             character,
-            &sources
+            &sources,
+            &cache
         ) else {
             return Err(String.from("there is nothing to rename here"))
         }
@@ -1193,7 +1256,7 @@ impl Server {
     // in, with the parameter being written: the innermost `(` still open
     // before it, after a name (`f(`, `x.f(`, `m.f(`). The call is analyzed
     // as `f()` with the rest of its line left out, since it is unfinished.
-    fn signature_help(self, i: i64, line: i64, character: i64) -> Json {
+    fn signature_help(self, i: i64, line: i64, character: i64, inout cache: UsesCache) -> Json {
         let d = self.docs[i]
         let text = d.text.as_str()
         let offset = min(self.offset(text, line, character), text.len)
@@ -1235,7 +1298,7 @@ impl Server {
             Ok(a) => a
             Err(_) => return Json.Null
         }
-        let uses = sema.member_uses(a, self.tgt)
+        let uses = cache.get(a, sources, self.tgt)
         var signatures = Vec(Json).new()
         var active = 0
         for sp in definitions(a, sources, uses, name_start) {
