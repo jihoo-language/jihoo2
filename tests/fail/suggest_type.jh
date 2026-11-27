@@ -1,0 +1,6 @@
+// A misspelled type, from the prelude.
+// error: unknown type `Strng`
+// error: did you mean `String`?
+fn main() {
+    let s: Strng = String.new()
+}

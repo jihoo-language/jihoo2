@@ -12,6 +12,7 @@ import diag
 import lex
 import mir
 import sema
+import suggest
 import types
 
 type Diag = diag.Diag
@@ -945,8 +946,12 @@ impl sema.Sema {
                 for f in fields {
                     let i = match field_index(fs, f.name.as_str()) {
                         Some(i) => i
-                        None => return Err(err(f.pat.span, ("`" + self.types.show(ty).as_str() +
-                            "` has no field `" + f.name.as_str() + "`").as_str()))
+                        None => {
+                            let d = err(f.pat.span, ("`" + self.types.show(ty).as_str() +
+                                "` has no field `" + f.name.as_str() + "`").as_str())
+                            let names = self.types.field_names(ty)
+                            return Err(suggest.with_note(d, f.name.as_str(), names))
+                        }
                     }
                     self.test_pat(&fb, f.pat, place.with(Proj.Field(i as u32)), fs[i].ty, fail)?
                 }
@@ -1388,8 +1393,12 @@ impl sema.Sema {
                 for f in fields {
                     let i = match field_index(fs, f.name.as_str()) {
                         Some(i) => i
-                        None => return Err(err(f.pat.span, ("`" + self.types.show(ty).as_str() +
-                            "` has no field `" + f.name.as_str() + "`").as_str()))
+                        None => {
+                            let d = err(f.pat.span, ("`" + self.types.show(ty).as_str() +
+                                "` has no field `" + f.name.as_str() + "`").as_str())
+                            let names = self.types.field_names(ty)
+                            return Err(suggest.with_note(d, f.name.as_str(), names))
+                        }
                     }
                     v[i] = self.reduce(&fb, f.pat, fs[i].ty)?
                 }

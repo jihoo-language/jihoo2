@@ -2,6 +2,7 @@
 // diagnostics.
 
 import std.mem
+import diag
 
 // The edit distance between two names: insertions, deletions,
 // substitutions and swaps of neighbouring bytes, each one edit.
@@ -67,6 +68,15 @@ pub fn note(name: str, candidates: [str]) -> String {
         Some(i) => "did you mean `" + candidates[i] + "`?"
         None => String.new()
     }
+}
+
+// The diagnostic with a note naming the closest of `names` to `name`, if
+// one is close.
+pub fn with_note(sink d: diag.Diag, name: str, names: Vec(String)) -> diag.Diag {
+    var views = Vec(str).new()
+    for x in names { views.push(x.as_str()) }
+    let n = note(name, views.as_slice())
+    if n.is_empty() { d } else { d.note(None, n.as_str()) }
 }
 
 #[test]

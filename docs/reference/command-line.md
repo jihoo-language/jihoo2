@@ -166,7 +166,7 @@ By default the root module must have a `main`; `--lib` removes that requirement.
 
 A successful check exits with status 0 and writes nothing by default. Source errors
 exit with status 1 and use the same diagnostics as compilation. A name,
-function, method, variant or module member that does not exist gets a note
+type, field, function, method, variant or module member that does not exist gets a note
 naming the closest one that does, when one is within a third of its length
 in edits (``note: did you mean `count`?``). Invalid
 command options exit with status 2. `check` rejects `-o`, `--keep-ll`, link

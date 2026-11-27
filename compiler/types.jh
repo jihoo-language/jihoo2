@@ -796,6 +796,19 @@ impl Types {
     }
 
     // The variants of an enum type, if it is one.
+    // The names of a struct's fields; none for other types.
+    pub fn field_names(self, t: u32) -> Vec(String) {
+        var out = Vec(String).new()
+        match self.kind(t) {
+            Adt(i) => match self.adts[i as i64].body {
+                Struct(fs) => for f in fs { out.push(f.name.clone()) }
+                _ => {}
+            }
+            _ => {}
+        }
+        out
+    }
+
     pub fn variants(self, t: u32) -> Option(ref Vec(VariantDef)) {
         match self.kind(t) {
             Adt(i) => match self.adts[i as i64].body {

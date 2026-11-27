@@ -3254,7 +3254,7 @@ impl sema.Sema {
                     Some(t) => self.variant_value(&fb, t, n, Vec(ast.Expr).new(), span)
                     None => {
                         let d = err(span, ("unknown name `" + n + "`").as_str())
-                        Err(with_suggestion(d, n, self.names_in_scope(fb, module)))
+                        Err(suggest.with_note(d, n, self.names_in_scope(fb, module)))
                     }
                 }
             }
@@ -3533,8 +3533,9 @@ impl sema.Sema {
             }
             break
         }
-        Err(err(span, ("`" + self.types.show(bv.ty).as_str() + "` has no field `" + name +
-            "`").as_str()))
+        let d = err(span, ("`" + self.types.show(bv.ty).as_str() + "` has no field `" + name +
+            "`").as_str())
+        Err(suggest.with_note(d, name, self.types.field_names(bv.ty)))
     }
 
     // A dotted path that names something other than a variable's field.
@@ -3683,7 +3684,7 @@ impl sema.Sema {
                     Some(vs) => for v in vs { names.push(v.name.clone()) }
                     None => {}
                 }
-                Err(with_suggestion(d, name, names))
+                Err(suggest.with_note(d, name, names))
             }
         }
     }
@@ -3747,7 +3748,7 @@ impl sema.Sema {
         }
         let d = err(span, ("`" + self.adts[d as i64].name.as_str() + "` has no function `" + name +
             "`").as_str())
-        Err(with_suggestion(d, name, names))
+        Err(suggest.with_note(d, name, names))
     }
 
     pub fn variant_value(
@@ -3860,8 +3861,11 @@ impl sema.Sema {
             }
             let i = match idx {
                 Some(i) => i
-                None => return Err(err(f.span, ("`" + self.types.show(t).as_str() +
-                    "` has no field `" + f.name.as_str() + "`").as_str()))
+                None => {
+                    let d = err(f.span, ("`" + self.types.show(t).as_str() + "` has no field `" +
+                        f.name.as_str() + "`").as_str())
+                    return Err(suggest.with_note(d, f.name.as_str(), self.types.field_names(t)))
+                }
             }
             if !fs[i].public && !self.same_package(decl_mod, fb.env.module) {
                 return Err(err(f.span, ("the field `" + f.name.as_str() + "` is private").as_str()))
@@ -5760,7 +5764,7 @@ impl sema.Sema {
                     None => {}
                 }
                 let d = err(callee.span, ("unknown function `" + n.as_str() + "`").as_str())
-                Err(with_suggestion(d, n.as_str(), self.names_in_scope(fb, env.module)))
+                Err(suggest.with_note(d, n.as_str(), self.names_in_scope(fb, env.module)))
             }
             Field(base, name) => {
                 // `module.f(...)`, `Type.f(...)`, `Enum.Variant(...)`
@@ -5847,7 +5851,7 @@ impl sema.Sema {
                                     let d = err(span, ("module `" + sema.join_path(head).as_str() +
                                         "` has no function `" + name.as_str() + "`").as_str())
                                     let names = self.module_names(m, true)
-                                    return Err(with_suggestion(d, name.as_str(), names))
+                                    return Err(suggest.with_note(d, name.as_str(), names))
                                 }
                                 _ => {}
                             }
@@ -6262,7 +6266,7 @@ impl sema.Sema {
             Some(m) => Err(d.note(None, m.as_str()))
             None => {
                 let names = self.method_names(recv.ty)?
-                Err(with_suggestion(d, name, names))
+                Err(suggest.with_note(d, name, names))
             }
         }
     }
@@ -8514,13 +8518,4 @@ fn is_implied_param(p: ast.Param) -> bool {
         }
         None => false
     }
-}
-
-// The diagnostic with a note naming the closest of `names` to `name`, if
-// one is close.
-fn with_suggestion(sink d: Diag, name: str, names: Vec(String)) -> Diag {
-    var views = Vec(str).new()
-    for x in names { views.push(x.as_str()) }
-    let note = suggest.note(name, views.as_slice())
-    if note.is_empty() { d } else { d.note(None, note.as_str()) }
 }
