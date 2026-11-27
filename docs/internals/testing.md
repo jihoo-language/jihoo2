@@ -146,6 +146,22 @@ constant folding rejected `MIN / -1` and `MIN % -1` as overflow, which
 compiled code wraps as [documented](../language/types.md#integers)
 (`tests/run/min_div.jh`).
 
+## Broken programs
+
+[`scripts/fuzz_compiler.py`](../../scripts/fuzz_compiler.py) checks that
+the compiler reports errors in programs rather than crashing on them. It
+changes the files of `tests/run`, `tests/fail`, `tests/verify` and
+`examples` at random (a number or an operator replaced, which mostly
+keeps a program well formed, or a token deleted, doubled or swapped, or
+the file cut short) and runs `check` and `emit-llvm` on each. A trap, a
+signal, the compiler's own `panic:` or a case that does not end within a
+minute is a crash; `--keep` saves those cases.
+
+```sh
+scripts/fuzz_compiler.py --compiler out/jihoo                      # 2000 cases
+scripts/fuzz_compiler.py --seed 7 --count 20000 --keep crashes
+```
+
 ## Memory
 
 Programs should neither leak nor touch memory they do not own. Build with
