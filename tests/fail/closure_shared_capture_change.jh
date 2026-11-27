@@ -1,0 +1,9 @@
+// A closure that changes a variable through a method taking `inout self`
+// holds it mutably borrowed while it is alive.
+fn main() {
+    var v = Vec(i64).new()
+    let push = fn() { v.push(1) }
+    println(v.len())
+    push()
+}
+// error: borrowed mutably

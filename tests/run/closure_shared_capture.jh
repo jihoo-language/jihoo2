@@ -1,0 +1,45 @@
+// A closure borrows a `var` it only reads shared, so the variable can be
+// read while the closure is alive; one that changes it, through an
+// assignment, `&` or a method taking `inout self`, borrows it mutably.
+
+struct Counter {
+    n: i64
+}
+
+impl Counter {
+    fn bump(inout self) { self.n += 1 }
+    fn get(self) -> i64 { self.n }
+}
+
+fn bump_twice(inout c: Counter) {
+    c.bump()
+    c.bump()
+}
+
+fn main() {
+    var n: i64 = 3
+    var v = Vec(i64).new()
+    v.push(4)
+    let add = fn(x: i64) -> i64 { x + n + v[0] }
+    println(add(n) + add(v.len()))
+    var c = Counter { n: 0 }
+    let read = fn() -> i64 { c.get() }
+    println(read() + c.n)
+    let bump = fn() { c.bump() }
+    bump()
+    // A closure that calls one that changes `c`.
+    let again = fn() { bump() }
+    again()
+    let twice = fn() { bump_twice(&c) }
+    twice()
+    let set = fn(x: i64) { n = x }
+    set(9)
+    let push = fn() { v.push(n) }
+    push()
+    println(c.n)
+    println(v.len() + n)
+}
+//> 18
+//> 0
+//> 4
+//> 11

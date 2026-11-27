@@ -162,7 +162,7 @@ pub fn join(comptime A: type, comptime B: type, a: fn() -> A, b: fn() -> B) -> (
 // what it captures.
 pub fn each(lo: i64, hi: i64, comptime f: fn(i64)) {
     inline if captures_mut(f) {
-        compile_error("`thread.each` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.each` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     each_in(lo, hi, levels(hi - lo), f)
 }
@@ -170,7 +170,7 @@ pub fn each(lo: i64, hi: i64, comptime f: fn(i64)) {
 // `f` of each element of `xs`, computed on several threads, in order.
 pub fn map(comptime T: type, comptime U: type, xs: [T], comptime f: fn(T) -> U) -> Vec(U) {
     inline if captures_mut(f) {
-        compile_error("`thread.map` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.map` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     var out = Vec(U).with_capacity(xs.len)
     let p = out.ptr
@@ -184,7 +184,7 @@ pub fn map(comptime T: type, comptime U: type, xs: [T], comptime f: fn(T) -> U) 
 // threads.
 pub fn each_mut(comptime T: type, inout xs: Vec(T), comptime f: fn(inout T)) {
     inline if captures_mut(f) {
-        compile_error("`thread.each_mut` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.each_mut` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     let p = xs.ptr
     let n = xs.len
@@ -199,7 +199,7 @@ pub fn each_mut(comptime T: type, inout xs: Vec(T), comptime f: fn(inout T)) {
 // better.
 pub fn each_uneven(lo: i64, hi: i64, comptime f: fn(i64)) {
     inline if captures_mut(f) {
-        compile_error("`thread.each_uneven` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.each_uneven` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     take_each(lo, hi, f)
 }
@@ -207,7 +207,7 @@ pub fn each_uneven(lo: i64, hi: i64, comptime f: fn(i64)) {
 // `f` of each element of `xs`, in order, computed as `each_uneven` does.
 pub fn map_uneven(comptime T: type, comptime U: type, xs: [T], comptime f: fn(T) -> U) -> Vec(U) {
     inline if captures_mut(f) {
-        compile_error("`thread.map_uneven` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.map_uneven` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     var out = Vec(U).with_capacity(xs.len)
     let p = out.ptr
@@ -221,7 +221,7 @@ pub fn map_uneven(comptime T: type, comptime U: type, xs: [T], comptime f: fn(T)
 // does.
 pub fn each_mut_uneven(comptime T: type, inout xs: Vec(T), comptime f: fn(inout T)) {
     inline if captures_mut(f) {
-        compile_error("`thread.each_mut_uneven` calls its closure on several threads at once, so the closure cannot capture a `var` or a closure; borrow with `let` first")
+        compile_error("`thread.each_mut_uneven` calls its closure on several threads at once, so the closure cannot change what it captures or capture a closure")
     }
     let p = xs.ptr
     // Each element is lent to one thread.

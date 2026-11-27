@@ -1,5 +1,5 @@
 // Nor a closure, which might change what it captures.
-// error: so the closure cannot capture a `var` or a closure
+// error: so the closure cannot change what it captures or capture a closure
 import std.thread
 
 fn main() {

@@ -1,0 +1,9 @@
+// A closure that only reads `n` borrows it shared: `n` cannot change
+// while the closure is alive.
+fn main() {
+    var n: i64 = 1
+    let get = fn() -> i64 { n }
+    n = 2
+    println(get())
+}
+// error: borrowed

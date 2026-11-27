@@ -6,5 +6,5 @@ fn main() {
     var v = Vec(i64).new()
     v.push(1)
     var k = 2
-    thread.each_mut(&v, fn(x) { x *= k })
+    thread.each_mut(&v, fn(x) { x *= k; k += 1 })
 }

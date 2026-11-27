@@ -672,8 +672,8 @@ impl sema.Sema {
 
     // `captures_mut(f)`, for a compile-time closure parameter `f`: whether
     // calling the closure may change what it captures. It does if it
-    // captures a variable mutably (any `var`), or captures a closure, which
-    // might.
+    // captures a variable mutably (one it may change), or captures a
+    // closure, which might.
     fn captures_mut(self, e: ast.Expr, env: Env) -> Result(bool, Diag) {
         let bad = "`captures_mut` takes a compile-time closure parameter"
         let name = match e.kind {
