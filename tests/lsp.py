@@ -285,6 +285,41 @@ def main():
             # An item of another module, from its use.
             found = references("twice", 0, 0, True)
             assert found == sorted([(uri(helper), 0, 7), at(src.index(b"twice"))]), found
+            # Rename: every edit, in each file that changes.
+            assert client.capabilities["renameProvider"] is True
+
+            def rename_params(word, after, new_name):
+                return {"textDocument": {"uri": uri(main_file)},
+                        "position": position(fixed, src.index(word.encode(), after) + 1, utf8),
+                        "newName": new_name}
+
+            def edits(result):
+                return sorted((u, e["range"]["start"]["line"], e["range"]["start"]["character"],
+                               e["newText"]) for u, es in result["changes"].items() for e in es)
+            renamed = client.request("textDocument/rename", rename_params("value", 0, "amount"))
+            assert edits(renamed) == sorted(x + ("amount",) for x in uses + [at(declared)]), renamed
+            renamed = client.request("textDocument/rename", rename_params("x", src.index(b"p.x"), "y"))
+            assert edits(renamed) == sorted(x + ("y",) for x in [
+                at(src.index(b"x: i64")), at(src.index(b"x: value")), at(src.index(b"p.x") + 2)]), renamed
+            # An item of another module, in that module's file too.
+            renamed = client.request("textDocument/rename", rename_params("twice", 0, "double"))
+            assert edits(renamed) == sorted([(uri(helper), 0, 7, "double"),
+                                             at(src.index(b"twice")) + ("double",)]), renamed
+            # A use the search does not see (in another module that is not
+            # open) makes the renamed program fail to check: refused.
+            helper.write_text("pub fn twice(x: i64) -> i64 { x * 2 }\n"
+                              "pub fn quad(x: i64) -> i64 { twice(twice(x)) }\n")
+            error = client.request_error("textDocument/rename", rename_params("twice", 0, "double"))
+            assert "would not check" in error["message"], error
+            helper.write_text("pub fn twice(x: i64) -> i64 { x * 2 }\n")
+            # Refused: not a name, a name already in the document, the
+            # standard library's `len`.
+            error = client.request_error("textDocument/rename", rename_params("value", 0, "2x"))
+            assert "is not a name" in error["message"], error
+            error = client.request_error("textDocument/rename", rename_params("value", 0, "old"))
+            assert "`old` is already used" in error["message"], error
+            error = client.request_error("textDocument/rename", rename_params("len", src.index(b"old.len"), "size"))
+            assert "standard library" in error["message"], error
             # Unparsable text has no outline.
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
                                                      "contentChanges": [{"text": "fn main( {\n"}]})
@@ -393,7 +428,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, references, outline, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, references, rename, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@ struct PollFd {
 const METHOD_NOT_FOUND: i64 = -32601
 const INVALID_PARAMS: i64 = -32602
 const NOT_INITIALIZED: i64 = -32002
+const REQUEST_FAILED: i64 = -32803
 
 struct Doc {
     uri: String
@@ -282,7 +283,7 @@ impl Server {
             ).with("documentFormattingProvider", Json.Bool(true)).with(
                 "referencesProvider",
                 Json.Bool(true)
-            ).with(
+            ).with("renameProvider", Json.Bool(true)).with(
                 "documentSymbolProvider",
                 Json.Bool(true)
             )
@@ -377,6 +378,18 @@ impl Server {
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/rename" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            let line = params.at(["position", "line"]).int_or(-1)
+            let character = params.at(["position", "character"]).int_or(-1)
+            let new_name = params.at(["newName"]).str_or("")
+            match self.doc(uri.as_str()) {
+                Some(i) => match self.rename(i, line, character, new_name.as_str()) {
+                    Ok(edit) => reply(id, edit)
+                    Err(m) => reply_error(id, REQUEST_FAILED, ("cannot rename: " + m).as_str())
+                }
+                None => reply_error(id, INVALID_PARAMS, "the document is not open")
             }
         } else if method == "textDocument/documentSymbol" {
             let uri = params.at(["textDocument", "uri"]).str_or("")
@@ -961,9 +974,35 @@ impl Server {
     // it, in every loaded file, and the names of the document that resolve
     // to it as go to definition resolves them.
     fn references(self, i: i64, line: i64, character: i64, declaration: bool) -> Json {
+        var sources = diag.Sources.new()
+        let Some((found, defs, _)) = self.find_references(i, line, character, &sources) else {
+            return Json.Null
+        }
+        var locations = Vec(Json).new()
+        for sp in found {
+            if !declaration && has_span(defs, sp) { continue }
+            locations.push(self.location(sp, sources))
+        }
+        if declaration {
+            for sp in defs {
+                if !has_span(found, sp) { locations.push(self.location(sp, sources)) }
+            }
+        }
+        Json.Arr(locations)
+    }
+
+    // The uses and the declarations, by their names, of what the name at a
+    // position stands for, with the loaded files in `sources`, and which of
+    // those files are the standard library's.
+    fn find_references(
+        self,
+        i: i64,
+        line: i64,
+        character: i64,
+        inout sources: diag.Sources
+    ) -> Option((Vec(Span), Vec(Span), Vec(u32))) {
         let d = self.docs[i]
         let offset = self.offset(d.text.as_str(), line, character)
-        var sources = diag.Sources.new()
         let overlay = self.overlay()
         let a = match load.load_with(
             d.path.as_str(),
@@ -974,13 +1013,13 @@ impl Server {
             overlay
         ) {
             Ok(a) => a
-            Err(_) => return Json.Null
+            Err(_) => return None
         }
         let uses = sema.member_uses(a, self.tgt)
-        let Some((name, _)) = word_at(sources, a, offset) else { return Json.Null }
+        let Some((name, _)) = word_at(sources, a, offset) else { return None }
         // Declarations by their names, however each was found.
         let defs = names_in(sources, definitions(a, sources, uses, offset), name.as_str())
-        if defs.len() == 0 { return Json.Null }
+        if defs.len() == 0 { return None }
         var found = Vec(Span).new()
         for u in uses {
             if has_span(defs, narrow(sources, u.1, name.as_str())) { push_span(&found, u.0) }
@@ -1009,17 +1048,131 @@ impl Server {
             }
             Err(_) => {}
         }
-        var locations = Vec(Json).new()
-        for sp in found {
-            if !declaration && has_span(defs, sp) { continue }
-            locations.push(self.location(sp, sources))
+        var std_files = Vec(u32).new()
+        for m in a.modules {
+            if m.name == "std" || m.name.as_str().starts_with("std.") { std_files.push(m.ast.file) }
         }
-        if declaration {
-            for sp in defs {
-                if !has_span(found, sp) { locations.push(self.location(sp, sources)) }
+        Some((found, defs, std_files))
+    }
+
+    // A `WorkspaceEdit` renaming what the name at a position stands for,
+    // its declarations and uses, or why it cannot: the new name is not a
+    // name, or is already in a document the rename changes (where it could
+    // capture or be captured), a use or declaration is in the standard
+    // library, or the program that checked does not check renamed.
+    fn rename(self, i: i64, line: i64, character: i64, new_name: str) -> Result(Json, String) {
+        match lex.lex(0, new_name) {
+            Ok(toks) => if toks.len() != 2 || toks[0].tok != lex.Tok.Ident ||
+                toks[0].text != new_name {
+                return Err("`" + new_name + "` is not a name")
+            }
+            Err(_) => return Err("`" + new_name + "` is not a name")
+        }
+        var sources = diag.Sources.new()
+        let Some((found, defs, std_files)) = self.find_references(
+            i,
+            line,
+            character,
+            &sources
+        ) else {
+            return Err(String.from("there is nothing to rename here"))
+        }
+        var spans = found.clone()
+        for sp in defs { push_span(&spans, sp) }
+        // The files to change, in order of first edit, with their spans.
+        var files = Vec(u32).new()
+        for sp in spans {
+            var seen = false
+            for f in files {
+                if f == sp.file { seen = true }
+            }
+            if !seen { files.push(sp.file) }
+        }
+        var overlay = self.overlay()
+        var changes = json.obj()
+        for f in files {
+            let file = sources.files[f as i64]
+            var in_std = false
+            for x in std_files {
+                if x == f { in_std = true }
+            }
+            if in_std {
+                return Err("it is also declared or used in the standard library (" +
+                    file.path.as_str() + ")")
+            }
+            let text = file.text.as_str()
+            match lex.lex(f, text) {
+                Ok(toks) => {
+                    for t in toks {
+                        if t.tok == lex.Tok.Ident && t.text == new_name {
+                            let (l, _) = line_col(text, t.span.lo as i64)
+                            return Err("`" + new_name + "` is already used in " +
+                                file.path.as_str() + " (line " + (l + 1).to_string() + ")")
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+            // The edits from the end, so that earlier offsets hold.
+            var mine = Vec(Span).new()
+            for sp in spans {
+                if sp.file == f { mine.push(sp) }
+            }
+            sort_spans(&mine)
+            var renamed = text.to_string()
+            var k = mine.len()
+            while k > 0 {
+                k -= 1
+                let sp = mine[k]
+                renamed = renamed.as_str()[0..sp.lo as i64].to_string() + new_name +
+                    renamed.as_str()[sp.hi as i64..renamed.len()]
+            }
+            overlay.insert(load.file_key(file.path.as_str()), renamed)
+            var edits = Vec(Json).new()
+            for sp in mine {
+                edits.push(json.obj().with("range", self.range(sp, sources)).with(
+                    "newText",
+                    json.text(new_name)
+                ))
+            }
+            changes = changes.with(path_uri(file.path.as_str()).as_str(), Json.Arr(edits))
+        }
+        // A program that checked must still check.
+        let path = self.docs[i].path.clone()
+        var before = diag.Sources.new()
+        let was = analyze(path.as_str(), self.search.clone(), self.tgt, &before, self.overlay())
+        if was.is_ok() {
+            var after = diag.Sources.new()
+            match analyze(path.as_str(), self.search.clone(), self.tgt, &after, overlay) {
+                Ok(_) => {}
+                Err(d) => return Err("the renamed program would not check: " + d.msg.as_str())
             }
         }
-        Json.Arr(locations)
+        Ok(json.obj().with("changes", changes))
+    }
+}
+
+fn line_col(text: str, offset: i64) -> (i64, i64) {
+    var line = 0
+    var start = 0
+    for i in 0..min(offset, text.len) {
+        if text[i] == '\n' {
+            line += 1
+            start = i + 1
+        }
+    }
+    (line, offset - start)
+}
+
+fn sort_spans(inout spans: Vec(Span)) {
+    for i in 1..spans.len() {
+        var j = i
+        while j > 0 && spans[j - 1].lo > spans[j].lo {
+            let x = spans[j - 1]
+            spans[j - 1] = spans[j]
+            spans[j] = x
+            j -= 1
+        }
     }
 }
 
