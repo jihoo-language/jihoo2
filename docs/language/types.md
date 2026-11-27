@@ -48,6 +48,10 @@ already has its type, so a literal too large for `i64` needs a context:
 integer with `as` saturates: NaN becomes 0, and values out of range become
 the nearest end.
 
+`x.to_bits()` is a float's IEEE 754 bits (`u64` for `f64`, `u32` for
+`f32`), and `f64.from_bits(b)` and `f32.from_bits(b)` the float of given
+bits, in compiled code and at compile time alike.
+
 `println(x)` and `to_string()` write a float as the shortest decimal that
 reads back as the same value (`0.1`, `1.0`, `-0.0`, `NaN`, `inf`), with an
 exponent below 1e-4 and from 1e16 on (`1e-5`, `1e16`). The digits are

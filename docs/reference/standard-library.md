@@ -202,7 +202,8 @@ compile-time code, so
 `std.float` has the digits beneath: `shortest` (the fewest that read back as
 the float), `exact` (a chosen count, rounded half to even), and the text
 forms `write_shortest`, `write_fixed` and `write_exponent`, computed with
-big integers rather than float arithmetic.
+big integers rather than float arithmetic. It also gives every program
+`to_bits` and `from_bits` on `f64` and `f32`.
 
 ## `Map(K, V)`
 

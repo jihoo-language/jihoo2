@@ -113,8 +113,10 @@ zero (sometimes `-1`), conversions between every integer type, `if`,
 read through a method and a borrowing function, an enum matched with
 bindings and a guard, `Vec(i64)` pushed, changed and iterated, closures
 that capture the variables around them, a `String` grown and read,
-generic functions instantiated at every integer type, and calls to
-earlier functions.
+generic functions instantiated at every integer type, `f64` arithmetic,
+`%`, comparisons and the math builtins (back to integers by a saturating
+`as` or by their bits, every NaN as one value), and calls to earlier
+functions.
 Each function's results on six inputs are computed three ways that must
 agree: by a model of jihoo's integer semantics in Python, by the
 compile-time interpreter (a `const` table) and by compiled code, given

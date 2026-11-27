@@ -17,6 +17,8 @@ must print the same, and that must be what Python computes.
 """
 
 import argparse
+import math
+import struct
 from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
@@ -51,6 +53,60 @@ def tdiv(a, b):
     return q if (a < 0) == (b < 0) else -q
 
 
+def float_to_int(x, t):
+    """`x as t`: towards zero, saturating, NaN as 0."""
+    bits, signed = TYPES[t]
+    if math.isnan(x):
+        return 0
+    lo, hi = (-(1 << (bits - 1)), (1 << (bits - 1)) - 1) if signed else (0, (1 << bits) - 1)
+    if math.isinf(x):
+        return hi if x > 0 else lo
+    return max(lo, min(hi, math.trunc(x)))
+
+
+def fbits(x):
+    """The program's `fbits(x)`: the bits as `i64`, 0 for every NaN."""
+    if math.isnan(x):
+        return 0
+    return struct.unpack("<q", struct.pack("<d", x))[0]
+
+
+def fdiv(a, b):
+    if b != 0:
+        return a / b
+    if a == 0 or math.isnan(a):
+        return math.nan
+    return math.copysign(math.inf, a) * math.copysign(1.0, b)
+
+
+def fmod(a, b):
+    if math.isnan(a) or math.isnan(b) or math.isinf(a) or b == 0:
+        return math.nan
+    return math.fmod(a, b)
+
+
+def rounding(f):
+    """floor, ceil, trunc or round (halves away from zero) on a float, as
+    C has them: infinities and NaN unchanged, a zero result keeps the sign."""
+    def r(x):
+        if math.isnan(x) or math.isinf(x):
+            return x
+        v = float(f(x))
+        return math.copysign(0.0, x) if v == 0 else v
+    return r
+
+
+def round_away(x):
+    return math.floor(abs(x) + 0.5) * (1 if x > 0 else -1) if abs(x) < 2**52 else x
+
+
+ROUNDING = {"floor": math.floor, "ceil": math.ceil, "trunc": math.trunc, "round": round_away}
+
+FLOATS = [("0.0", 0.0), ("1.0", 1.0), ("0.5", 0.5), ("0.1", 0.1), ("2.5", 2.5), ("3.0", 3.0),
+          ("1.0e16", 1e16), ("1.0e300", 1e300), ("1.0e-300", 1e-300), ("5e-324", 5e-324),
+          ("9007199254740993.0", 9007199254740993.0)]
+
+
 # ---- expressions: (text, type, evaluate(env)) ----
 
 class Gen:
@@ -64,6 +120,10 @@ class Gen:
         # same for the function being written; calls stay within a budget.
         self.costs = []
         self.cost = 1
+        # How many times the statement being written runs per call (the
+        # product of the loops around it): a `Vec` or `String` statement
+        # costs as much as a call, that many times.
+        self.repeat = 1
 
     def literal(self, t):
         bits, signed = TYPES[t]
@@ -94,7 +154,7 @@ class Gen:
                 return self.convert((n, env_types[n], lambda env, n=n: env[n]), t)
             return self.literal(t)
         kind = rng.choice(["arith", "arith", "bits", "shift", "div", "conv", "if", "match",
-                           "call", "pick"])
+                           "call", "pick", "float"])
         bits, signed = TYPES[t]
         if kind == "arith":
             op = rng.choice(["+%", "-%", "*%"])
@@ -166,6 +226,12 @@ class Gen:
                 return arms[0][2](env) if k == 0 else arms[1][2](env) if k <= 3 else arms[2][2](env)
             return (f"(match {x[0]} & (7 as {t}) {{ 0 => {arms[0][0]}, 1..=3 => {arms[1][0]}, "
                     f"_ => {arms[2][0]} }})", t, pick)
+        if kind == "float":
+            # a float computation, back as an integer by `as` or by its bits
+            x = self.fexpr(env_types, 3)
+            if rng.random() < 0.5:
+                return (f"({x[0]} as {t})", t, lambda env, x=x: float_to_int(x[1](env), t))
+            return self.convert((f"fbits({x[0]})", "i64", lambda env, x=x: fbits(x[1](env))), t)
         if kind == "pick":
             # the generic `pick(T, ...)`, at this type
             s = rng.choice(list(TYPES))
@@ -191,6 +257,60 @@ class Gen:
             return env["#funcs"][k](a[2](env), b[2](env), env["#funcs"])
         return self.convert((f"f{k}({a[0]}, {b[0]})", "i64", call), t)
 
+    def fexpr(self, env_types, depth):
+        """An `f64` expression: (text, evaluate(env))."""
+        rng = self.rng
+        if depth <= 0 or rng.random() < 0.25:
+            if rng.random() < 0.5:
+                text, v = rng.choice(FLOATS)
+                if rng.random() < 0.3:
+                    return (f"(-{text})", lambda env, v=v: -v)
+                return (text, lambda env, v=v: v)
+            s = rng.choice(list(TYPES))
+            e = self.expr(env_types, s, 1)
+            return (f"({e[0]} as f64)", lambda env, e=e: float(e[2](env)))
+        kind = rng.choice(["arith", "arith", "div", "mod", "sqrt", "round", "if", "neg"])
+        if kind == "arith":
+            op = rng.choice(["+", "-", "*"])
+            a = self.fexpr(env_types, depth - 1)
+            b = self.fexpr(env_types, depth - 1)
+            f = {"+": lambda x, y: x + y, "-": lambda x, y: x - y, "*": lambda x, y: x * y}[op]
+            return (f"({a[0]} {op} {b[0]})", lambda env, a=a, b=b, f=f: f(a[1](env), b[1](env)))
+        if kind in ("div", "mod"):
+            a = self.fexpr(env_types, depth - 1)
+            b = self.fexpr(env_types, depth - 1)
+            op, f = ("/", fdiv) if kind == "div" else ("%", fmod)
+            return (f"({a[0]} {op} {b[0]})", lambda env, a=a, b=b, f=f: f(a[1](env), b[1](env)))
+        if kind == "sqrt":
+            a = self.fexpr(env_types, depth - 1)
+
+            def root(env, a=a):
+                x = a[1](env)
+                if math.isnan(x) or x < 0:
+                    return math.nan
+                return math.sqrt(x)
+            return (f"sqrt({a[0]})", root)
+        if kind == "round":
+            name = rng.choice(list(ROUNDING))
+            a = self.fexpr(env_types, depth - 1)
+            f = rounding(ROUNDING[name])
+            return (f"{name}({a[0]})", lambda env, a=a, f=f: f(a[1](env)))
+        if kind == "neg":
+            a = self.fexpr(env_types, depth - 1)
+            return (f"(-{a[0]})", lambda env, a=a: -a[1](env))
+        op = rng.choice(["<", "<=", "==", "!=", ">", ">="])
+        x = self.fexpr(env_types, depth - 1)
+        y = self.fexpr(env_types, depth - 1)
+        a = self.fexpr(env_types, depth - 1)
+        b = self.fexpr(env_types, depth - 1)
+        f = {"<": lambda p, q: p < q, "<=": lambda p, q: p <= q,
+             "==": lambda p, q: p == q, "!=": lambda p, q: p != q,
+             ">": lambda p, q: p > q, ">=": lambda p, q: p >= q}[op]
+
+        def choose(env, x=x, y=y, a=a, b=b, f=f):
+            return a[1](env) if f(x[1](env), y[1](env)) else b[1](env)
+        return (f"(if {x[0]} {op} {y[0]} {{ {a[0]} }} else {{ {b[0]} }})", choose)
+
     def convert(self, e, t):
         if e[1] == t:
             return e
@@ -214,7 +334,10 @@ class Gen:
         rng = self.rng
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
-                           "enum", "vec", "closure", "slice", "string"]) if depth > 0 else rng.choice(["var", "set"])
+                           "enum", "vec", "closure", "slice", "string"]) if depth > 0 \
+            else rng.choice(["var", "set"])
+        if kind in ("vec", "string") and self.cost + self.repeat > CALL_BUDGET:
+            kind = "var"
         if kind == "var" or (kind == "set" and not [n for n in env_types if n[0] == "v"]):
             t = rng.choice(list(TYPES))
             e = self.expr(env_types, t, 3)
@@ -237,7 +360,9 @@ class Gen:
             inner = dict(env_types)
             inner[i] = "i64"
             self.loops += 1
+            self.repeat *= k
             lines, body = self.block(inner, depth - 1, rng.randint(1, 3), indent + 1)
+            self.repeat //= k
             self.loops -= 1
 
             def run(env, i=i, body=body, k=k):
@@ -271,12 +396,14 @@ class Gen:
         if kind == "enum":
             return self.enum(env_types, pad)
         if kind == "vec":
+            self.cost += self.repeat
             return self.vec(env_types, pad)
         if kind == "closure":
             return self.closure(env_types, pad)
         if kind == "slice":
             return self.slice(env_types, pad)
         if kind == "string":
+            self.cost += self.repeat
             return self.string(env_types, pad)
         # an array: built, one element changed, one read into a variable
         n = f"v{len(env_types)}"
@@ -527,6 +654,9 @@ impl P {
 }
 
 fn mix(p: P) -> i64 { p.x ^ (p.y as i64) }
+
+// A float's bits, with every NaN as 0: NaNs' sign and payload may differ.
+fn fbits(x: f64) -> i64 { if x != x { 0 } else { x.to_bits() as i64 } }
 
 fn pick(comptime T: type, c: bool, x: T, y: T) -> T { if c { x } else { y } }
 
