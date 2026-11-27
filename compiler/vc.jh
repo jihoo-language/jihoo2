@@ -4,6 +4,7 @@
 // the semantics. Each check gives goals for `linear.check`: *these facts
 // imply that claim*.
 
+import std.mem
 import fm
 import forms
 import linear
@@ -718,8 +719,15 @@ impl Gen {
         var goals = Vec(linear.Goal).new()
         var goal_tags = Vec(Vec(Tag)).new()
         for case in 0..cases {
-            var gf = facts.clone()
-            var gt = tags.clone()
+            // The last case takes the facts; the others copy them.
+            var gf = if case + 1 == cases {
+                mem.replace(&facts, Vec(Lin).new())
+            } else { facts.clone() }
+            var gt = if case + 1 == cases {
+                mem.replace(&tags, Vec(Tag).new())
+            } else {
+                tags.clone()
+            }
             var r = case
             for c in chosen {
                 let alts = p.ors[c]
