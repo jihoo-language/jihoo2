@@ -1,0 +1,7 @@
+// A misspelled local is named with the closest name in scope.
+// error: unknown name `coutn`
+// error: did you mean `count`?
+fn main() {
+    let count = 1
+    println(coutn)
+}

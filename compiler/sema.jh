@@ -2428,7 +2428,7 @@ impl Sema {
     // A method by name: inherent impls first, then traits the type
     // implements. Returns the function declaration and its impl arguments
     // (for a trait's default body: `Self`).
-    fn impl_candidates(self, t: u32) -> Vec(u32) {
+    pub fn impl_candidates(self, t: u32) -> Vec(u32) {
         var candidates = match self.types.adt_index(t) {
             Some(a) => {
                 let decl = self.types.adts[a as i64].decl

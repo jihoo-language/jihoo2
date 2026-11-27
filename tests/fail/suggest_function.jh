@@ -1,0 +1,6 @@
+// A misspelled function, from the prelude.
+// error: unknown function `printn`
+// error: did you mean `println`?
+fn main() {
+    printn(1)
+}

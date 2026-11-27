@@ -1,0 +1,6 @@
+// No note when no name is close.
+// error: unknown function `frobnicate`
+// no-error: did you mean
+fn main() {
+    let q = frobnicate(2)
+}

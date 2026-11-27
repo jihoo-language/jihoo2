@@ -1,0 +1,6 @@
+// A misspelled function or variant of a type.
+// error: `Vec(i64)` has no variant or function `nwe`
+// error: did you mean `new`?
+fn main() {
+    let v = Vec(i64).nwe()
+}

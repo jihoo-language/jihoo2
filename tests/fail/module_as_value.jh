@@ -1,0 +1,7 @@
+// A module named where a value is expected.
+// error: `fs` is a module, not a value
+import std.fs
+
+fn main() {
+    let m = fs
+}
