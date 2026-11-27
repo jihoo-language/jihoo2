@@ -81,7 +81,8 @@ included, with the compiler's loader, checker and diagnostics, publishes
 errors with their notes as related information, finds definitions in the
 loaded syntax trees (the member of `x.name`, with any receiver, as the
 compiler resolved it), shows locals' inferred types and items'
-declarations on hover, and formats documents. Checks run in a child
+declarations on hover, outlines documents (their items, fields,
+variants and methods), and formats documents. Checks run in a child
 process, so replies do not wait for them, and an edit stops a check that
 has become stale. A client test drives it over
 the protocol in both position encodings.

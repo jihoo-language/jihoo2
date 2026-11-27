@@ -21,6 +21,7 @@ import lex
 import load
 import mir
 import os
+import parse
 import sema
 import target
 import timing
@@ -278,7 +279,10 @@ impl Server {
             ).with("definitionProvider", Json.Bool(true)).with(
                 "hoverProvider",
                 Json.Bool(true)
-            ).with("documentFormattingProvider", Json.Bool(true))
+            ).with("documentFormattingProvider", Json.Bool(true)).with(
+                "documentSymbolProvider",
+                Json.Bool(true)
+            )
             reply(id, json.obj().with("capabilities", caps).with(
                 "serverInfo",
                 json.obj().with("name", json.text("jihoo")).with("version", json.text(
@@ -355,6 +359,15 @@ impl Server {
                     reply(id, found)
                 }
                 None => reply(id, Json.Null)
+            }
+        } else if method == "textDocument/documentSymbol" {
+            let uri = params.at(["textDocument", "uri"]).str_or("")
+            match self.doc(uri.as_str()) {
+                Some(i) => {
+                    let symbols = self.symbols(i)
+                    reply(id, symbols)
+                }
+                None => reply_error(id, INVALID_PARAMS, "the document is not open")
             }
         } else if method == "textDocument/formatting" {
             let uri = params.at(["textDocument", "uri"]).str_or("")
@@ -709,6 +722,117 @@ impl Server {
             // Syntax errors are reported as diagnostics; nothing changes.
             Err(_) => Json.Null
         }
+    }
+
+    // The outline of a document, from its own syntax tree (so without
+    // checking it, or loading its imports): its items as `DocumentSymbol`s,
+    // with their fields, variants and methods inside them. Null when it
+    // does not parse.
+    fn symbols(self, i: i64) -> Json {
+        let text = self.docs[i].text.as_str()
+        let toks = match lex.lex(0, text) {
+            Ok(t) => t
+            Err(_) => return Json.Null
+        }
+        let m = match parse.parse_module(0, toks) {
+            Ok(m) => m
+            Err(_) => return Json.Null
+        }
+        var out = Vec(Json).new()
+        for it in m.items {
+            match self.item_symbol(text, it) {
+                Some(s) => out.push(s)
+                None => {}
+            }
+        }
+        Json.Arr(out)
+    }
+
+    fn item_symbol(self, text: str, it: ast.Item) -> Option(Json) {
+        var children = Vec(Json).new()
+        // Protocol `SymbolKind`s.
+        let (name, kind) = match it.kind {
+            Fn(f) => (f.name.clone(), 12)
+            Struct(st) => {
+                for f in st.fields {
+                    children.push(self.symbol(text, f.name.as_str(), 8, f.span, Vec(Json).new()))
+                }
+                (st.name.clone(), 23)
+            }
+            Enum(e) => {
+                for v in e.variants {
+                    children.push(self.symbol(text, v.name.as_str(), 22, v.span, Vec(Json).new()))
+                }
+                (e.name.clone(), 10)
+            }
+            Trait(t) => {
+                for x in t.items {
+                    match self.item_symbol(text, x) {
+                        Some(s) => children.push(s)
+                        None => {}
+                    }
+                }
+                (t.name.clone(), 11)
+            }
+            Impl(im) => {
+                for x in im.items {
+                    match self.item_symbol(text, x) {
+                        Some(s) => children.push(s)
+                        None => {}
+                    }
+                }
+                // `impl Show for Point`, as written.
+                var n = String.from("impl ")
+                match im.trait_ {
+                    Some(t) => {
+                        n.push_str(source_text(text, t.span))
+                        n.push_str(" for ")
+                    }
+                    None => {}
+                }
+                n.push_str(source_text(text, im.self_ty.span))
+                (n, 19)
+            }
+            Const(c) => (c.name.clone(), 14)
+            Static(c) => (c.name.clone(), 13)
+            TypeAlias(n, _) => (n.clone(), 26)
+            TypeFamily(f) => (f.name.clone(), 26)
+            Import(_) => return None
+        }
+        // Methods are functions in an impl or trait; that is where they
+        // are shown, so the kind stays.
+        Some(self.symbol(text, name.as_str(), kind, it.span, children))
+    }
+
+    // A `DocumentSymbol`: its whole span, and the first `name` in it as
+    // the part to select (the start for an impl).
+    fn symbol(self, text: str, name: str, kind: i64, span: Span, sink children: Vec(Json)) -> Json {
+        let lo = min(span.lo as i64, text.len)
+        let hi = max(lo, min(span.hi as i64, text.len))
+        var at = lo
+        var found = false
+        var j = lo
+        while !found && j + name.len <= hi {
+            if text[j..j + name.len] == name && (j == 0 || !word(text[j - 1])) &&
+                (j + name.len == text.len || !word(text[j + name.len])) {
+                at = j
+                found = true
+            }
+            j += 1
+        }
+        let sel_hi = if found { at + name.len } else { lo }
+        var s = json.obj().with("name", json.text(name)).with("kind", json.int(kind)).with(
+            "range",
+            json.obj().with("start", self.position(text, lo)).with("end", self.position(text, hi))
+        ).with(
+            "selectionRange",
+            json.obj().with("start", self.position(text, at)).with("end", self.position(
+                text,
+                sel_hi
+            ))
+        )
+        if children.len() > 0 { s = s.with("children", Json.Arr(children)) }
+        s
     }
 
     // The definitions of the name at a position: a `Location`, an array
@@ -1118,6 +1242,11 @@ fn narrow(sources: diag.Sources, span: Span, name: str) -> Span {
         i += 1
     }
     Span.new(span.file, lo, lo)
+}
+
+fn source_text(text: str, span: Span) -> str {
+    let lo = min(span.lo as i64, text.len)
+    text[lo..max(lo, min(span.hi as i64, text.len))]
 }
 
 fn word(b: u8) -> bool {

@@ -230,6 +230,27 @@ def main():
                 "textDocument": {"uri": uri(main_file)},
                 "position": position(fixed3, offset, utf8)})
             assert isinstance(found, dict) and found["uri"] == uri(ROOT / "lib/std/string.jh"), found
+            # The outline: items, with fields, variants and methods inside.
+            assert client.capabilities["documentSymbolProvider"] is True
+            outline = ("enum Shape {\n    Dot\n    Square(i64)\n}\n\n"
+                       "impl Show for Shape {\n    fn to_string(self) -> String { String.from(\"s\") }\n}\n\n"
+                       "const LIMIT: i64 = 3\n")
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 103},
+                                                     "contentChanges": [{"text": fixed + "\n" + outline}]})
+            symbols = client.request("textDocument/documentSymbol", {"textDocument": {"uri": uri(main_file)}})
+            names = [(s["name"], s["kind"]) for s in symbols]
+            assert names == [("Point", 23), ("Bag", 23), ("main", 12), ("Shape", 10),
+                             ("impl Show for Shape", 19), ("LIMIT", 14)], names
+            point = symbols[0]
+            assert point["selectionRange"]["start"] == position(fixed, fixed.encode().index(b"Point"), utf8), point
+            assert [(c["name"], c["kind"]) for c in point["children"]] == [("x", 8)], point
+            shape = symbols[3]
+            assert [c["name"] for c in shape["children"]] == ["Dot", "Square"], shape
+            assert [(c["name"], c["kind"]) for c in symbols[4]["children"]] == [("to_string", 12)], symbols[4]
+            # Unparsable text has no outline.
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 104},
+                                                     "contentChanges": [{"text": "fn main( {\n"}]})
+            assert client.request("textDocument/documentSymbol", {"textDocument": {"uri": uri(main_file)}}) is None
             client.notify("textDocument/didChange", {"textDocument": {"uri": uri(main_file), "version": 101},
                                                      "contentChanges": [{"text": fixed}]})
             assert client.diagnostics(uri(main_file)) == []
@@ -334,7 +355,7 @@ def main():
         result = subprocess.run([str(compiler), "lsp", "main.jh"], capture_output=True)
         assert result.returncode == 2 and b"lsp takes no files" in result.stderr
 
-    print("Language server: diagnostics, definitions, hover, formatting and lifecycle passed")
+    print("Language server: diagnostics, definitions, hover, outline, formatting and lifecycle passed")
 
 
 if __name__ == "__main__":

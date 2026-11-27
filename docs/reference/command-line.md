@@ -421,6 +421,11 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   method shows its declaration up to its body, with the `//` comment just
   above it. When the program does not check, a local shows its
   declaration's line instead.
+- **Document symbols**: the outline of a document from its own syntax
+  tree, so also while it does not check: its functions, structs (with
+  their fields), enums (with their variants), traits and impls (`impl Show
+  for Point`, with their methods), constants, statics and type aliases.
+  A document that does not parse has none.
 - **Formatting** of a whole document with `fmt`'s default width, as one edit.
   A document with syntax errors is left unchanged.
 
