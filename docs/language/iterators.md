@@ -20,7 +20,9 @@ fn main() {
 [`Iterator`](generics.md#standard-traits). A `Vec` or slice supplies an
 iterator through `.iter()`; `v.into_iter()` gives ownership of the vector's
 elements to the iterator. `iter.range(start, end)` yields `i64` values from
-`start` up to, but excluding, `end`; reversed ranges are empty.
+`start` up to, but excluding, `end`; reversed ranges are empty. `.rev()`
+on a range or on a `Vec`'s or slice's `.iter()` gives what is left of it
+from the last value down: `for x in v.iter().rev()`.
 
 ## Adapters and consumers
 

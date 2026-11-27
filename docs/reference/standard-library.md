@@ -42,7 +42,8 @@ adapters `map`, `filter`, `take`, `skip`, `step_by`, `take_while`,
 `skip_while`, `enumerate`, `zip` and `chain`, and the consumers `fold`,
 `for_each`, `count`, `any`, `all`, `find`, `position`, `last`, `nth`,
 `min`, `max` (items with `Ord`), `sum`, `product` (number items) and
-`collect` (a `Vec`). Slices gain `.iter()`, and `iter.range(start, end)` supplies a half-open
+`collect` (a `Vec`). Slices gain `.iter()`; `.rev()` on a range or a
+slice's iterator goes from the end; and `iter.range(start, end)` supplies a half-open
 `i64` range. Adapters are lazy and own their input iterator; `map` and
 `filter` hold their callback as given, a borrowing closure or a `move fn`,
 so a function can return a pipeline (`-> impl Iterator`). See
