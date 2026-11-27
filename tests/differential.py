@@ -8,9 +8,10 @@ wrapping arithmetic, bit operations, division by values that are never
 zero, shifts, conversions between every integer type, `if`, `match` on
 ranges, `for` loops, fixed arrays, a struct with a method, an enum
 matched with bindings and guards, `Vec(i64)`, closures that capture,
-`String`, generic functions at every integer type, and calls to earlier
-functions. Nothing in them overflows a checked operation, so every build
-must print the same, and that must be what Python computes.
+`String`, generic functions at every integer type, `Option`, `Result`
+with `?`, `while` with `break`, and calls to earlier functions. Nothing
+in them overflows a checked operation, so every build must print the
+same, and that must be what Python computes.
 
     tests/differential.py --compiler out/jihoo             # the fixed seeds CI runs
     tests/differential.py --seed 100 --count 500 --keep d  # more, keeping failures in d
@@ -154,7 +155,7 @@ class Gen:
                 return self.convert((n, env_types[n], lambda env, n=n: env[n]), t)
             return self.literal(t)
         kind = rng.choice(["arith", "arith", "bits", "shift", "div", "conv", "if", "match",
-                           "call", "pick", "float"])
+                           "call", "pick", "float", "result"])
         bits, signed = TYPES[t]
         if kind == "arith":
             op = rng.choice(["+%", "-%", "*%"])
@@ -232,6 +233,20 @@ class Gen:
             if rng.random() < 0.5:
                 return (f"({x[0]} as {t})", t, lambda env, x=x: float_to_int(x[1](env), t))
             return self.convert((f"fbits({x[0]})", "i64", lambda env, x=x: fbits(x[1](env))), t)
+        if kind == "result":
+            # `?` through `twice_halved`, then matched
+            x = self.expr(env_types, "i64", depth - 1)
+
+            def result(env, x=x):
+                v = x[2](env)
+                if v & 1:
+                    return wrap(-v, "i64")
+                h = v >> 1
+                if h & 1:
+                    return wrap(-h, "i64")
+                return wrap(h + (h >> 1), "i64")
+            return self.convert((f"(match twice_halved({x[0]}) {{ Ok(x) => x, Err(e) => 0 -% e }})",
+                                 "i64", result), t)
         if kind == "pick":
             # the generic `pick(T, ...)`, at this type
             s = rng.choice(list(TYPES))
@@ -334,7 +349,8 @@ class Gen:
         rng = self.rng
         pad = "    " * indent
         kind = rng.choice(["var", "var", "set", "set", "for", "if", "array", "struct",
-                           "enum", "vec", "closure", "slice", "string"]) if depth > 0 \
+                           "enum", "vec", "closure", "slice", "string", "option",
+                           "while"]) if depth > 0 \
             else rng.choice(["var", "set"])
         if kind in ("vec", "string") and self.cost + self.repeat > CALL_BUDGET:
             kind = "var"
@@ -402,6 +418,10 @@ class Gen:
             return self.closure(env_types, pad)
         if kind == "slice":
             return self.slice(env_types, pad)
+        if kind == "option":
+            return self.option(env_types, pad)
+        if kind == "while":
+            return self.while_loop(env_types, pad)
         if kind == "string":
             self.cost += self.repeat
             return self.string(env_types, pad)
@@ -567,6 +587,61 @@ class Gen:
             f"{pad}var {n}: i64 = {c}({a[0]}) -% {c}({b[0]})",
         ], run
 
+    def option(self, env_types, pad):
+        """An `Option(i64)` made by `if` and matched."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        o = f"o{n}"
+        s = rng.choice(list(TYPES))
+        x = self.expr(env_types, s, 2)
+        y = self.expr(env_types, s, 2)
+        some = self.expr(env_types, "i64", 2)
+        none = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, x=x, y=y, some=some, none=none):
+            env[n] = some[2](env) if x[2](env) < y[2](env) else none[2](env)
+        return [
+            f"{pad}let {o}: Option(i64) = if {x[0]} < {y[0]} {{ Some({some[0]}) }} else {{ None }}",
+            f"{pad}var {n}: i64 = match {o} {{ Some(x) => x, None => {none[0]} }}",
+        ], run
+
+    def while_loop(self, env_types, pad):
+        """A `while` loop of a counter that may end early by `break`."""
+        rng = self.rng
+        n = f"v{len(env_types)}"
+        k = f"k{n}"
+        count = rng.randint(1, 8)
+        inner = dict(env_types)
+        inner[k] = "i64"
+        self.loops += 1
+        step = self.expr(inner, "i64", 2)
+        self.loops -= 1
+        stop = self.expr(env_types, "i64", 2)
+        env_types[n] = "i64"
+
+        def run(env, n=n, k=k, count=count, step=step, stop=stop):
+            v = 0
+            limit = stop[2](env)
+            i = 0
+            while i < count:
+                inner = dict(env)
+                inner[k] = i
+                v = wrap(v * 7 + step[2](inner), "i64")
+                if (v ^ limit) & 3 == 0:
+                    break
+                i += 1
+            env[n] = v
+        return [
+            f"{pad}var {n}: i64 = 0",
+            f"{pad}var {k}: i64 = 0",
+            f"{pad}while {k} < {count} {{",
+            f"{pad}    {n} = {n} *% 7 +% {step[0]}",
+            f"{pad}    if ({n} ^ {stop[0]}) & 3 == 0 {{ break }}",
+            f"{pad}    {k} += 1",
+            f"{pad}}}",
+        ], run
+
     def slice(self, env_types, pad):
         """An array of any integer type summed by the generic `total(T, [T])`."""
         rng = self.rng
@@ -657,6 +732,15 @@ fn mix(p: P) -> i64 { p.x ^ (p.y as i64) }
 
 // A float's bits, with every NaN as 0: NaNs' sign and payload may differ.
 fn fbits(x: f64) -> i64 { if x != x { 0 } else { x.to_bits() as i64 } }
+
+fn halve(x: i64) -> Result(i64, i64) { if x & 1 == 0 { Ok(x >> 1) } else { Err(x) } }
+
+// Both halvings or the first odd value, by `?`.
+fn twice_halved(x: i64) -> Result(i64, i64) {
+    let a = halve(x)?
+    let b = halve(a)?
+    Ok(a +% b)
+}
 
 fn pick(comptime T: type, c: bool, x: T, y: T) -> T { if c { x } else { y } }
 
