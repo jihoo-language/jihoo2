@@ -1,0 +1,40 @@
+#![freestanding]
+// comptime_float_math.jh as a freestanding program: float `%` and the
+// rounding builtins come from std.rt rather than libm.
+
+import std.env
+
+fn f(z: f64) -> [f64; 12] {
+    [sqrt(2.0 + z), floor(-0.5 + z), ceil(-0.5 + z), trunc(-2.7 + z), round(2.5 + z),
+        round(-0.4 + z), abs(-3.0 + z), copysign(1.0, -0.0 - z), (7.5 + z) % 2.0,
+        (-7.5 + z) % 2.0, (sqrt((2.0 + z) as f32) as f64), (1.0 + z) % 0.0]
+}
+
+fn g(z: i64) -> [i64; 3] { [abs(-5 + z), abs(-9223372036854775807 - 1 + z), abs((7 + z) as i64)] }
+
+const F = f(0.0)
+const G = g(0)
+
+fn main() {
+    // 0 however many arguments there are, unknown while compiling
+    let z = env.args().len() >> 40
+    let a = f(z as f64)
+    let b = g(z)
+    for i in 0..12 { println(a[i].to_string() + " " + F[i].to_string()) }
+    for i in 0..3 { println(b[i].to_string() + " " + G[i].to_string()) }
+}
+//> 1.4142135623730951 1.4142135623730951
+//> -1.0 -1.0
+//> -0.0 -0.0
+//> -2.0 -2.0
+//> 3.0 3.0
+//> -0.0 -0.0
+//> 3.0 3.0
+//> -1.0 -1.0
+//> 1.5 1.5
+//> -1.5 -1.5
+//> 1.4142135381698608 1.4142135381698608
+//> NaN NaN
+//> 5 5
+//> -9223372036854775808 -9223372036854775808
+//> 7 7

@@ -3882,13 +3882,14 @@ fn compile_inner(
             _ => false
         }
         // Without floating-point registers, std.rt's conversions between
-        // floats and 128-bit integers (LLVM's `__float*` and `__fix*`) have
-        // nothing to convert.
+        // floats and 128-bit integers (LLVM's `__float*` and `__fix*`) and
+        // its float math (`fmod`, `floor`, ...) have nothing to work on.
         if exported && codegen.general_regs_only && !user &&
             s.module_name(s.fns[fid].module) == "std.rt" &&
-            (decl.name.as_str().starts_with("__float") || decl.name.as_str().starts_with("__fix")) {
-            continue
-        }
+            (decl.name.as_str().starts_with("__float") || decl.name.as_str().starts_with("__fix") ||
+            !decl.name.as_str().starts_with("__")) {
+                continue
+            }
         if exported || (user && !generic) {
             s.instance(fid as u32, Vec(CVal).new(), no_span())?
         }

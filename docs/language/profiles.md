@@ -31,7 +31,10 @@ A freestanding program starts at `_start`, which the compiler writes: it
 records the arguments for `env.args()`, calls `main` and exits with its
 result. It also writes `jihoo_clone`, which starts a thread on a new stack
 for [`std.thread`](threads.md#profiles). What the C runtime would provide, LLVM's helpers for 128-bit
-division and float conversion, comes from `std/rt.jh`;
+division and float conversion and the C math functions it calls for float
+`%` and, where the machine has no instruction for them, `floor`, `ceil`,
+`trunc` and `round` (`fmod`, `floor`, ... and their `f32` forms), comes
+from `std/rt.jh`;
 functions nothing calls are left out of the executable.
 
 ## UEFI
@@ -123,8 +126,9 @@ Bounds checks stay, and with `--release` too. `#![freestanding]` keeps the C
 library out: the object then refers to the `extern fn`s it declares, here
 `host_panic`, and to `memcpy`, `memmove` and `memset`, which the host
 provides as it does for C code, since C compilers call them the same way.
-It defines LLVM's helpers for 128-bit arithmetic (`std/rt.jh`) as global
-symbols. The rest of `std.sys` still means Linux, so allocation (`Vec`,
+It defines LLVM's helpers for 128-bit arithmetic and the C math
+functions above (`std/rt.jh`) as global symbols; a host that links libm
+gets the same results from either. The rest of `std.sys` still means Linux, so allocation (`Vec`,
 `String`, `Box`) and input and output make Linux system calls; such a
 library uses what does not allocate (slices, `Option`, `Result`, iterators
 over borrowed data) and calls the host through `extern fn`s. `nm` on the
@@ -154,8 +158,8 @@ jihoo emit-obj --lib -mno-red-zone -mgeneral-regs-only kernel.jh -o kernel.o
   value holding one, is an error (`` `half` uses a floating-point value
   ``), once per function and only for functions that are compiled. A
   pointer to a float is allowed. `std/rt.jh`'s conversions between floats
-  and 128-bit integers (`__floattidf`, `__fixdfti`, ...) are left out;
-  its 128-bit division stays.
+  and 128-bit integers (`__floattidf`, `__fixdfti`, ...) and its float
+  math (`fmod`, `floor`, ...) are left out; its 128-bit division stays.
 
 Each applies to every function the compiler writes, generic instances,
 `std.rt`'s helpers, `jihoo.panic` and the memory functions of a
