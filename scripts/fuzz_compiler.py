@@ -22,6 +22,13 @@ traps and nonzero exits are fine.
     scripts/fuzz_compiler.py --compiler out/jihoo                  # 1000 of each
     scripts/fuzz_compiler.py --seed 7 --count 5000 --keep crashes
     nix-shell -p valgrind --run 'scripts/fuzz_compiler.py --valgrind --count 500'
+
+With --threads it tests the absence of data races likewise: the programs
+of tests/run that start threads (and have no `unsafe`) get the same edits,
+and each one the compiler accepts is built with --sanitize=thread and run;
+a ThreadSanitizer report is kept.
+
+    scripts/fuzz_compiler.py --threads --count 400
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -120,32 +127,43 @@ def well_formed_edits(rng, text):
 
 
 def safety(args, compiler):
-    files = [f for f in sorted((ROOT / "tests/run").glob("*.jh"))
-             if not re.search(r"\bunsafe\b|\bextern\b|thread|process|stdin|read_line|uefi",
-                              f.read_text())]
+    def threaded(text):
+        return re.search(r"import std\.thread", text) and not text.startswith("#![")
+    if args.threads:
+        files = [f for f in sorted((ROOT / "tests/run").glob("*.jh"))
+                 if threaded(f.read_text()) and not re.search(r"\bunsafe\b|\bextern\b",
+                                                              f.read_text())]
+    else:
+        files = [f for f in sorted((ROOT / "tests/run").glob("*.jh"))
+                 if not re.search(r"\bunsafe\b|\bextern\b|thread|process|stdin|read_line|uefi",
+                                  f.read_text())]
     with tempfile.TemporaryDirectory(prefix="jihoo-fuzz-") as directory:
         def case(k):
-            rng = random.Random(f"{args.seed}:valgrind:{k}")
+            rng = random.Random(f"{args.seed}:{'threads' if args.threads else 'valgrind'}:{k}")
             source = rng.choice(files)
             text = well_formed_edits(rng, source.read_text())
             path = Path(directory) / f"safe-{k}.jh"
             exe = Path(directory) / f"safe-{k}"
             path.write_text(text)
-            r = subprocess.run([compiler, "build", "-O0", str(path), "-o", str(exe)],
-                               capture_output=True, timeout=120)
+            build = [compiler, "build", "-O0", str(path), "-o", str(exe)]
+            if args.threads:
+                build = [compiler, "build", "-O1", "--sanitize=thread", str(path), "-o", str(exe)]
+            r = subprocess.run(build, capture_output=True, timeout=300)
             if r.returncode != 0:
                 return None
+            run = [str(exe)] if args.threads else ["valgrind", "-q", "--error-exitcode=99", str(exe)]
             try:
-                v = subprocess.run(["valgrind", "-q", "--error-exitcode=99", str(exe)],
-                                   capture_output=True, timeout=120)
+                v = subprocess.run(run, capture_output=True, timeout=120)
             except subprocess.TimeoutExpired:
                 return True
-            if v.returncode != 99:
+            report = b"ThreadSanitizer" in v.stderr if args.threads else v.returncode == 99
+            if not report:
                 return True
             if args.keep:
                 args.keep.mkdir(parents=True, exist_ok=True)
                 (args.keep / path.name).write_text(text)
-            return (f"#{k} from {source.relative_to(ROOT)}: memory error\n" +
+            what = "data race" if args.threads else "memory error"
+            return (f"#{k} from {source.relative_to(ROOT)}: {what}\n" +
                     v.stderr.decode(errors="replace")[-1500:])
 
         with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
@@ -154,7 +172,8 @@ def safety(args, compiler):
     ran = sum(1 for x in results if x is not None)
     for e in errors:
         print(e)
-    print(f"{ran} changed programs compiled and ran under valgrind, {len(errors)} with memory errors")
+    tool = "ThreadSanitizer" if args.threads else "valgrind"
+    print(f"{ran} changed programs compiled and ran under {tool}, {len(errors)} with reports")
     sys.exit(1 if errors else 0)
 
 
@@ -167,9 +186,11 @@ def main():
     parser.add_argument("--keep", type=Path, help="directory for the cases that crash")
     parser.add_argument("--valgrind", action="store_true",
                         help="run accepted programs under valgrind instead")
+    parser.add_argument("--threads", action="store_true",
+                        help="run accepted threaded programs under ThreadSanitizer instead")
     args = parser.parse_args()
     compiler = str(args.compiler.resolve())
-    if args.valgrind:
+    if args.valgrind or args.threads:
         return safety(args, compiler)
     files = [f for d in SOURCES for f in sorted((ROOT / d).glob("*.jh"))]
     with tempfile.TemporaryDirectory(prefix="jihoo-fuzz-") as directory:

@@ -176,6 +176,15 @@ touch memory it does not own; panics and traps are fine.
 nix-shell -p valgrind --run 'scripts/fuzz_compiler.py --valgrind --count 500'
 ```
 
+`--threads` does the same for data races: the programs of `tests/run` that
+start threads get those edits, and each the compiler accepts is built with
+[`--sanitize=thread`](../reference/command-line.md#sanitizers) and run; a
+ThreadSanitizer report is kept. Safe code must not race.
+
+```sh
+scripts/fuzz_compiler.py --threads --count 400
+```
+
 ## Memory
 
 Programs should neither leak nor touch memory they do not own. Build with
