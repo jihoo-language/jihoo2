@@ -425,6 +425,13 @@ takes no files; `-I` and `--target` apply to every document. It provides:
   declaration when the client asks: the members the compiler resolved to
   it (`x.name`, `f().name`) in every loaded file, and the names of the
   document that resolve to it, a local or an item of any module.
+- **Rename**: an edit of every declaration and reference found that way,
+  in each file. It is refused when the new name is not a name or already
+  appears in a file it would change (where it could capture or be
+  captured), when a declaration or use is in the standard library, and
+  when a program that checked would not check renamed, as when a use it
+  cannot see remains (a module that uses an item of another, neither of
+  them the document).
 - **Document symbols**: the outline of a document from its own syntax
   tree, so also while it does not check: its functions, structs (with
   their fields), enums (with their variants), traits and impls (`impl Show
