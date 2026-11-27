@@ -1,0 +1,28 @@
+// An inner loop that undoes the outer loop's step: the measure's value
+// when the iteration began is carried across the inner loop's head, and
+// the measure is not smaller than it on the way back.
+// verify
+// error: unproved `decreases` in undo
+fn undo(n: i64) -> i64 {
+    var s = 0
+    var i = 0
+    while i < n
+        invariant 0 <= i
+        decreases n - i
+    {
+        i += 1
+        var j = 0
+        while j < 1
+            invariant 0 <= j && 0 <= i
+            decreases 1 - j
+        {
+            if i > 0 { i -= 1 }
+            j += 1
+        }
+        s +%= 1
+        if s > 100 { return s }
+    }
+    s
+}
+
+fn main() { println(undo(4)) }

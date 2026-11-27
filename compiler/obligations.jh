@@ -2623,6 +2623,8 @@ pub fn model_of(p: Program, f: mir.Function, ifaces: [Interface]) -> Option(vc.F
         blocks,
         invariants,
         decreases,
+        snapshots: Vec((i64, i64)).new(),
+        cycle: Vec(i64).new(),
         callee: vc.Callee {
             symbol: f.symbol.clone(), kinds, args: b.arg_count, lengths, derefs, fields,
             entries: m.entries.clone(), requires, ensures, measure

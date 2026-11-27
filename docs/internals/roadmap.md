@@ -566,11 +566,19 @@ Next, in order:
    divided, and a remainder is smaller than the divisor), so Euclid's
    loop is proved to end. The compiler proves 1,262 of its bounds and
    overflow checks. Done: `decreases` on functions, proved at each call
-   to itself against the parameters' values on entry. Left: an outer
-   loop's `decreases` across an inner loop's head, which needs the
-   measure's value at the start of the iteration as a variable, and recursion
-   through other functions. Done: measures that are tuples, compared in
-   order, for loops and functions (Ackermann's function is proved to end).
+   to itself against the parameters' values on entry. Done: measures
+   that are tuples, compared in order, for loops and functions
+   (Ackermann's function is proved to end). Done: an outer loop's
+   `decreases` across an inner loop's head. Each part of the measure has
+   a snapshot variable, equal to it where an iteration starts, and
+   inference proposes at the cut points inside the loop that the measure
+   is equal to it, no larger or smaller (in order for a tuple), keeping
+   what is proved (`tests/verify/decreases.jh`,
+   `tests/fail/decreases_outer_undone.jh`). Done: recursion through
+   other functions: a call to a function in the same strongly connected
+   component of the call graph, when both state `decreases`, proves the
+   callee's measure smaller over the parts both have
+   (`tests/verify/recursion.jh`, `tests/fail/decreases_mutual.jh`).
 2. Done: `/` and `%` by constants in clauses (`invariant i % 2 == 0`).
    A quotient is a variable of the function's model (`SpecVar.Quot`,
    `Contract.quots`) that each use of the clause defines anew with the

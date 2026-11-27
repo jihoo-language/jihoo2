@@ -1,0 +1,22 @@
+// A call to a function in a cycle of calls with this one whose arguments
+// do not make the measure smaller: `pong(n)` keeps `n`.
+// verify
+// error: unproved `decreases` at this recursive call of pong in ping
+// no-error: in pong
+fn ping(n: i64) -> i64
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return 0 }
+    pong(n)
+}
+
+fn pong(n: i64) -> i64
+    requires n >= 0
+    decreases n
+{
+    if n == 0 { return 0 }
+    ping(n - 1)
+}
+
+fn main() { println(ping(3)) }

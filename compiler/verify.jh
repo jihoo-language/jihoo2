@@ -224,7 +224,7 @@ fn copy_source(s: vc.Source) -> vc.Source {
         TypeInvariant(t) => vc.Source.TypeInvariant(t)
         Proof(k) => vc.Source.Proof(k)
         Decreases(k) => vc.Source.Decreases(k)
-        Recursion(b) => vc.Source.Recursion(b)
+        Recursion(b, c) => vc.Source.Recursion(b, c)
     }
 }
 
@@ -241,10 +241,97 @@ fn outcome(
     infer.cut(&g, heads.as_slice())
     let more = infer.bounded(g, heads.as_slice())
     infer.cut(&g, more.as_slice())
+    vc.snapshot(&g)
     infer.infer(&g, heads.as_slice(), more.as_slice(), contracts)
     var o = prove_all(g, contracts, lifts)
     o.written = written
     o
+}
+
+// Per function, the others in a cycle of direct calls with it: its
+// strongly connected component of the call graph (Tarjan's algorithm,
+// without recursion).
+fn call_cycles(models: [Option(vc.Function)]) -> Vec(Vec(i64)) {
+    let n = models.len
+    var edges = Vec(Vec(i64)).new()
+    for m in models {
+        var out = Vec(i64).new()
+        match m {
+            Some(f) => for b in f.blocks {
+                match b.term {
+                    Call(_, _, site) => if site.callee >= 0 && site.callee < n {
+                        out.push(site.callee)
+                    }
+                    _ => {}
+                }
+            }
+            None => {}
+        }
+        edges.push(out)
+    }
+    var index = Vec(i64).filled(n, -1)
+    var low = Vec(i64).filled(n, 0)
+    var on_stack = Vec(bool).filled(n, false)
+    var stack = Vec(i64).new()
+    var comp = Vec(i64).filled(n, -1)
+    var comps = 0
+    var next = 0
+    for root in 0..n {
+        if index[root] >= 0 { continue }
+        // (function, next edge to follow)
+        var work = Vec((i64, i64)).new()
+        work.push((root, 0))
+        index[root] = next
+        low[root] = next
+        next += 1
+        stack.push(root)
+        on_stack[root] = true
+        loop {
+            let Some(top) = work.pop() else { break }
+            let v = top.0
+            if top.1 < edges[v].len() {
+                work.push((v, top.1 + 1))
+                let w = edges[v][top.1]
+                if index[w] < 0 {
+                    index[w] = next
+                    low[w] = next
+                    next += 1
+                    stack.push(w)
+                    on_stack[w] = true
+                    work.push((w, 0))
+                } else if on_stack[w] && index[w] < low[v] { low[v] = index[w] }
+                continue
+            }
+            if low[v] == index[v] {
+                loop {
+                    let Some(w) = stack.pop() else { break }
+                    on_stack[w] = false
+                    comp[w] = comps
+                    if w == v { break }
+                }
+                comps += 1
+            }
+            match work.last() {
+                Some(parent) => {
+                    let u = parent.0
+                    if low[v] < low[u] { low[u] = low[v] }
+                }
+                None => {}
+            }
+        }
+    }
+    var members = Vec(Vec(i64)).new()
+    for _ in 0..comps { members.push(Vec(i64).new()) }
+    for v in 0..n { members[comp[v]].push(v) }
+    var out = Vec(Vec(i64)).new()
+    for v in 0..n {
+        var others = Vec(i64).new()
+        for w in members[comp[v]] {
+            if w != v { others.push(w) }
+        }
+        out.push(others)
+    }
+    out
 }
 
 // The functions that may be called other than by a direct call the
@@ -453,6 +540,13 @@ pub fn verify(p: mir.Program) -> Report {
             None => contracts.push(None)
         }
         models.push(m)
+    }
+    let cycles = call_cycles(models.as_slice())
+    for i in 0..n {
+        let Some(f) = mem.replace(&models[i], None) else { continue }
+        var g = f
+        g.cycle = cycles[i].clone()
+        models[i] = Some(g)
     }
     // What calls need to prove a small function's panics away: its paths
     // to them from its entry, with cut points at its loops.
@@ -738,9 +832,14 @@ pub fn verify(p: mir.Program) -> Report {
                 Decreases(k) => Some(
                     (b.contract.decreases[k].2, "unproved `decreases`".to_string())
                 )
-                Recursion(block) => Some((
+                Recursion(block, callee) => Some((
                     site_span(b, block, -1),
-                    "unproved `decreases` at this call of " + f.name.as_str() + " to itself"
+                    if callee as i64 == i {
+                        "unproved `decreases` at this call of " + f.name.as_str() + " to itself"
+                    } else {
+                        "unproved `decreases` at this recursive call of " +
+                            p.fns[callee].name.as_str()
+                    }
                 ))
                 TypeInvariant(ty) => Some((
                     if r.at.0 >= 0 {

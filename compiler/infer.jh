@@ -376,11 +376,12 @@ pub const MAX_WORK: i64 = 500000
 // loop's head.
 pub fn infer(inout f: vc.Function, heads: [i64], joins: [i64], contracts: [Option(vc.Callee)]) {
     let proposed = candidates(f)
+    let snapshots = vc.snapshot_candidates(f)
     var written = Vec(vc.Fact).new()
     for inv in f.invariants {
         for x in inv.1 { written.push(x.clone()) }
     }
-    if proposed.len() == 0 && written.len() == 0 { return }
+    if proposed.len() == 0 && written.len() == 0 && snapshots.len() == 0 { return }
     // Per invariant, the index of its first fact this adds (its length if
     // none).
     var first = Vec(i64).new()
@@ -397,6 +398,9 @@ pub fn infer(inout f: vc.Function, heads: [i64], joins: [i64], contracts: [Optio
                     for x in written { f.invariants[i].1.push(x.clone()) }
                 }
             }
+        }
+        for x in snapshots {
+            if x.0 == f.invariants[i].0 { f.invariants[i].1.push(x.1.clone()) }
         }
     }
     var work = 0
