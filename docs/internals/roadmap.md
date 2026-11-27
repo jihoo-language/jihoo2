@@ -188,7 +188,8 @@ specialized library work; they do not by themselves require new syntax.
   compiled at four settings (`--audit-proved` among them) must agree; the
   `run` suite checks fixed seeds. The programs also use a struct with a
   method, an enum with guards, `Vec(i64)`, capturing closures, `String`
-  generic functions and `f64` math; their first runs found that closures
+  generic functions, `f64` math, `Option`, `Result` with `?` and `while`
+  with `break`; their first runs found that closures
   borrowed a `var` they only read mutably, and that the compile-time
   interpreter had neither float `%` nor the math builtins.
 - Maintain the [fusion benchmark](../../benchmarks/functional-fusion/README.md)
