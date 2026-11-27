@@ -55,12 +55,17 @@ without copying.
 
 `String`: `new`, `with_capacity`, `from(s)`, `len`, `is_empty`, `as_str`,
 `push(byte)`, `push_str`, `clear`, `into_bytes`; `+` and `+=` with a `str`;
-`==` and `<` with other strings.
+`==` and `<` with other strings; and the `str` methods below that read the
+text, on its `as_str()`.
 
 `str` (and slices) have the fields `len` and `ptr`, not methods: `s.len`.
-`str`: `s[i]` (a byte), `s[a..b]` (a part), `to_string`,
-`starts_with`, `ends_with`, `find`, `contains`, `trim`, `split`, `lines`,
-`parse_int`, `+`; `for b in s` gives bytes.
+`str`: `s[i]` (a byte), `s[a..b]` (a part), `to_string`, `is_empty`,
+`starts_with`, `ends_with`, `strip_prefix`, `strip_suffix` (an `Option`
+of the rest), `find`, `rfind`, `contains`, `trim`, `trim_start`,
+`trim_end`, `split`, `split_whitespace`, `lines`, `replace(from, to)`,
+`to_upper`, `to_lower` (ASCII letters), `repeat(n)`, `parse_int` (`None`
+for text that is not a decimal `i64`, or does not fit one), `+`; `for b in
+s` gives bytes. A slice of `str` or of `String` has `join(sep)`.
 
 `import std.utf8` adds `s.chars()`, an iterator of `Result(u32, String)`
 Unicode scalar values. Invalid UTF-8 yields one error, then ends iteration.
