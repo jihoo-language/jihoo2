@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: A macro call.
+// error: jihoo has no macros
+fn main() {
+    let v = vec![1, 2]
+}

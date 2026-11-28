@@ -1,0 +1,7 @@
+// Rust's syntax gets a note on jihoo's: `struct P<T>`.
+// error: a type's parameters go in parentheses
+struct P<T> {
+    a: T
+}
+
+fn main() {}

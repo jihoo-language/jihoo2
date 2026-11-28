@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `x: &str`.
+// error: borrowing is the default
+fn g(x: &str) {}
+
+fn main() {}

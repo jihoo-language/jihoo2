@@ -1,0 +1,9 @@
+// Rust's syntax gets a note on jihoo's: `&self`.
+// error: a plain `self` borrows
+struct Q {}
+
+impl Q {
+    fn h(&self) {}
+}
+
+fn main() {}

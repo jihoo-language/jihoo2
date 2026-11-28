@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `fn f<T>`.
+// error: type parameters are `comptime` parameters
+fn f<T>(x: T) {}
+
+fn main() {}

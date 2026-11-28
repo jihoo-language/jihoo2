@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `Vec<i64>` in a type.
+// error: type arguments go in parentheses
+fn main() {
+    let v: Vec<i64> = Vec(i64).new()
+}

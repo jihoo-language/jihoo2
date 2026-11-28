@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: A `|x|` closure.
+// error: a closure is written `fn(x) { x + 1 }`
+fn main() {
+    let f = |x| x + 1
+}

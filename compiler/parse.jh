@@ -91,7 +91,10 @@ fn parse_with_layout(
         if p.eat(Tok.Semi) {
             continue
         }
-        items.push(p.item()?)
+        match p.item() {
+            Ok(it) => items.push(it)
+            Err(d) => return Err(with_rust_hint(d, p.toks.as_slice()))
+        }
     }
     let module = Module { file: file, attrs: attrs, items: items }
     match p {
@@ -99,6 +102,96 @@ fn parse_with_layout(
             module, lists, separators, clauses
         })
     }
+}
+
+// A syntax error where Rust's syntax differs from jihoo's gets a note
+// saying how jihoo writes it (docs/language/from-rust.md), chosen by the
+// tokens around the one the error is at.
+fn with_rust_hint(sink d: Diag, toks: [Token]) -> Diag {
+    var at = -1
+    for i, t in toks {
+        if t.span.lo == d.span.lo && t.span.file == d.span.file {
+            at = i
+            break
+        }
+    }
+    if at < 0 {
+        return d
+    }
+    match rust_hint(toks, at) {
+        Some(h) => d.note(None, h)
+        None => d
+    }
+}
+
+fn tok_at(toks: [Token], i: i64) -> Tok {
+    if i < 0 || i >= toks.len { Tok.Eof } else { toks[i].tok }
+}
+
+fn word_at(toks: [Token], i: i64, w: str) -> bool {
+    tok_at(toks, i) == Tok.Ident && toks[i].text == w
+}
+
+fn rust_hint(toks: [Token], i: i64) -> Option(str) {
+    let t = tok_at(toks, i)
+    let before = tok_at(toks, i - 1)
+    let after = tok_at(toks, i + 1)
+    if t == Tok.Colon && (after == Tok.Colon || before == Tok.Colon) {
+        return Some("jihoo writes paths with `.`: `Vec.new()`, `Shape.Circle(r)`, `std.mem`")
+    }
+    if t == Tok.Lt {
+        let two = tok_at(toks, i - 2)
+        if before == Tok.Impl {
+            return Some("an impl's parameters go in parentheses: `impl(T: Clone) Clone for Box(T)`")
+        }
+        if before == Tok.Ident && (two == Tok.Fn) {
+            return Some("type parameters are `comptime` parameters: `fn f(comptime T: Ord, x: T)`")
+        }
+        if before == Tok.Ident && (two == Tok.Struct || two == Tok.Enum) {
+            return Some("a type's parameters go in parentheses: `struct Pair(T: type) { a: T }`")
+        }
+        if before == Tok.Ident {
+            return Some("type arguments go in parentheses: `Vec(i64)`, `Map(String, i64)`")
+        }
+    }
+    if word_at(toks, i - 1, "mut") {
+        if tok_at(toks, i - 2) == Tok.Let {
+            return Some("a binding that changes is `var x`, not `let mut x`")
+        }
+        if tok_at(toks, i - 2) == Tok.Amp {
+            return Some("there is no `&mut`: an `inout` argument is passed as `&x`")
+        }
+    }
+    if word_at(toks, i, "mut") && before == Tok.Amp {
+        return Some("there is no `&mut`: an `inout` argument is passed as `&x`")
+    }
+    if t == Tok.Let && before == Tok.If {
+        return Some("there is no `if let`: use `match`, or `let Some(x) = o else { ... }`")
+    }
+    if t == Tok.Let && before == Tok.While {
+        return Some(
+            "there is no `while let`: write `loop { let Some(x) = it.next() else { break } ... }`"
+        )
+    }
+    if t == Tok.Bang && before == Tok.Ident &&
+        (after == Tok.LParen || after == Tok.LBracket || after == Tok.LBrace) {
+        return Some(
+            "jihoo has no macros: `println(x)`, `fmt.format(\"{}\", (x,))`, `[1, 2].to_vec()`"
+        )
+    }
+    if t == Tok.Assign && before == Tok.DotDot {
+        return Some("`..=` exists only in patterns; a range up to `n` inclusive is `0..n + 1`")
+    }
+    if t == Tok.Pipe || t == Tok.OrOr {
+        return Some("a closure is written `fn(x) { x + 1 }`")
+    }
+    if t == Tok.Amp && (word_at(toks, i + 1, "self") || word_at(toks, i + 2, "self")) {
+        return Some("a plain `self` borrows; `inout self` is Rust's `&mut self`")
+    }
+    if t == Tok.Amp && (before == Tok.Colon || before == Tok.Arrow || before == Tok.LParen) {
+        return Some("borrowing is the default: a parameter `x: T` borrows, `inout x: T` changes it")
+    }
+    None
 }
 
 // A closure's parameter list may turn out to be a function type's: each
