@@ -16,8 +16,9 @@ edits that keep them well formed (numbers and operators replaced, or a
 statement swapped with the next, doubled or deleted), and each one the
 compiler accepts is built at -O0 and run under valgrind (which must be on
 PATH: `nix-shell -p valgrind`). A program that compiles without `unsafe`
-must not touch memory it does not own; one that does is kept. Panics,
-traps and nonzero exits are fine.
+must not touch memory it does not own, nor lose memory it allocated (a
+skipped drop); one that does is kept. Panics, traps and nonzero exits are
+fine.
 
     scripts/fuzz_compiler.py --compiler out/jihoo                  # 1000 of each
     scripts/fuzz_compiler.py --seed 7 --count 5000 --keep crashes
@@ -151,7 +152,12 @@ def safety(args, compiler):
             r = subprocess.run(build, capture_output=True, timeout=300)
             if r.returncode != 0:
                 return None
-            run = [str(exe)] if args.threads else ["valgrind", "-q", "--error-exitcode=99", str(exe)]
+            # Memory that is definitely lost (no pointer to it left) is an
+            # error too: a value whose drop was skipped. What a panic leaves
+            # is still reachable from the stack, and is not.
+            run = [str(exe)] if args.threads else [
+                "valgrind", "-q", "--error-exitcode=99", "--leak-check=full",
+                "--errors-for-leak-kinds=definite", "--show-leak-kinds=definite", str(exe)]
             # From the temporary directory, where a core dump (valgrind's
             # vgcore.*, of a program that dies by a signal) is removed with it.
             try:

@@ -170,7 +170,9 @@ numbers or operators replaced, or a statement swapped with the next,
 doubled or deleted (which makes a use follow a move, or a borrow overlap a
 change), and each the compiler accepts runs under
 valgrind at `-O0`. A program that compiles without `unsafe` must not
-touch memory it does not own; panics and traps are fine.
+touch memory it does not own, nor lose memory it allocated (valgrind's
+"definitely lost": a drop that was skipped); panics and traps are fine,
+since what they leave is still reachable.
 
 ```sh
 nix-shell -p valgrind --run 'scripts/fuzz_compiler.py --valgrind --count 500'
