@@ -126,7 +126,13 @@ through a borrow of a `#[view]` type gives that origin, not the argument's
 own, and so does a result read through such a call (an iterator adapter's
 item). A call site turns it into the argument's loans without the borrows
 of the places it points into, so an item collected from a vector's
-iterator borrows the vector, not the iterator. Compile-time snapshots compute their own effects
+iterator borrows the vector, not the iterator. A pointer local that only
+holds a view's data pointer or an offset of it carries the view's loans,
+so the view made from it (`s[a..b]`, an element of a slice) borrows what
+the view borrowed; a view made from
+another view's pointer that the function was given, or read through a
+borrowed argument, borrows that view's own or inner origin, and a raw read
+of an integer, float or bool is no way to a borrow. Compile-time snapshots compute their own effects
 from the reachable, prepared bodies before execution.
 
 The idea comes from proof checkers such as Horn: a large untrusted part

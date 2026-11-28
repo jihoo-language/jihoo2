@@ -451,6 +451,10 @@ fn run_body(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> Resu
     for l in body.locals {
         is_view.push(t.is_view(l.ty))
     }
+    let derived = derived_pointers(t, body)
+    for l, d in derived {
+        if d { is_view[l] = true }
+    }
     let rows = holders(body, is_view, lw)
     // rooted[l] = the loans of `l` itself: a value moved or copied out of
     // `l` does not borrow `l`.
@@ -465,7 +469,7 @@ fn run_body(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> Resu
     }
     var places = Vec(Place).new()
     for l in loans { places.push(l.place.clone()) }
-    let lc = LoanCtx { is_view: is_view, rooted: rooted, rows: rows, args: -1, places }
+    let lc = LoanCtx { is_view: is_view, rooted: rooted, rows: rows, args: -1, places, derived }
     var held = lc.rows.held()
     var work = Worklist.new(nb)
     work.add(0)
@@ -535,6 +539,10 @@ struct LoanCtx {
     args: i64
     // Checking: the place of each loan.
     places: Vec(Place)
+    // Pointer locals that only hold a view's data pointer, or an offset of
+    // it (`view_pointer_locals`): they carry the view's loans, so that the
+    // view made from them (`s[a..b]`, an element of a slice) carries them.
+    derived: Vec(bool)
 }
 
 fn root_is_raw(t: Types, body: Body, p: Place) -> bool {
@@ -721,11 +729,30 @@ fn operand_place(o: Operand) -> Option(Place) {
 }
 
 // The loans an operand carries: those of the local it reads, if a view,
-// but not the local's loans on itself.
+// but not the local's loans on itself. When inferring, a view read through
+// a borrowed argument (`(*self).text`, a copy, not a reborrow) carries what
+// the argument's place holds: its inner origin, not its own.
 fn op_loans(o: Operand, held: Held, lc: LoanCtx, t: Types, body: Body) -> Bits {
+    // A view's data pointer carries the view's loans.
+    match view_pointer(t, body, o) {
+        Some(_) => {
+            let Some(p) = operand_place(o) else { return bits(lc.rows.lw) }
+            var prefix = p.clone()
+            prefix.proj.truncate(p.proj.len() - 1)
+            return op_loans(Operand.Copy(prefix), held, lc, t, body)
+        }
+        None => {}
+    }
     match operand_place(o) {
         Some(p) => {
             let l = p.local as i64
+            if p.proj.len() == 0 && lc.derived[l] {
+                let at = lc.rows.at(l)
+                if at < 0 { return bits(lc.rows.lw) }
+                var out = Vec(u64).new()
+                for i in 0..lc.rows.lw { out.push(held[at + i]) }
+                return out
+            }
             if (lc.is_view[l] || has_deref(p)) && place_is_view(t, body, p) {
                 let at = lc.rows.at(l)
                 if at < 0 {
@@ -734,6 +761,14 @@ fn op_loans(o: Operand, held: Held, lc: LoanCtx, t: Types, body: Body) -> Bits {
                 var out = Vec(u64).new()
                 for i in 0..lc.rows.lw {
                     out.push(held[at + i] & !lc.rooted[at + i])
+                }
+                if lc.args >= 0 && starts_deref(p) && body.locals[l].kind == LocalKind.Arg &&
+                    l >= 1 && l <= lc.args && t.is_ref(body.locals[l].ty) {
+                    let own = l - 1
+                    if get(out, own) {
+                        clear(&out, own)
+                        set(&out, lc.args + own)
+                    }
                 }
                 return out
             }
@@ -1055,12 +1090,174 @@ fn raw_operand(t: Types, body: Body, o: Operand) -> bool {
     }
 }
 
+// The data pointer of a `str` or slice, `x.0`, read from a place not
+// reached through a raw pointer: (its root local, reached through a
+// borrow). A view does not own what it points to, so what is made from
+// its pointer (a part of it, `s[a..b]`) borrows what the view borrows.
+fn view_pointer(t: Types, body: Body, o: Operand) -> Option((i64, bool)) {
+    view_field(t, body, o, 0)
+}
+
+// A `str`'s or slice's field `k` (0 the data pointer, 1 the length), read
+// from a place not reached through a raw pointer: as `view_pointer`.
+fn view_field(t: Types, body: Body, o: Operand, k: u32) -> Option((i64, bool)) {
+    let Some(p) = operand_place(o) else { return None }
+    let n = p.proj.len()
+    if n == 0 { return None }
+    match p.proj[n - 1] {
+        Field(i) => if i != k { return None }
+        _ => return None
+    }
+    var prefix = p.clone()
+    prefix.proj.truncate(n - 1)
+    if root_is_raw(t, body, prefix) { return None }
+    var ty = body.locals[p.local as i64].ty
+    var variant: Option(u32) = None
+    for pr in prefix.proj {
+        match pr {
+            Deref => match t.pointee(ty) {
+                Some(x) => ty = x
+                None => return None
+            }
+            Variant(v) => variant = Some(v)
+            Field(i) => match variant {
+                Some(v) => {
+                    ty = t.variants(ty).unwrap()[v as i64].fields[i as i64]
+                    variant = None
+                }
+                None => match t.kind(ty) {
+                    Str | Slice(_) | Closure(_) => return None
+                    _ => ty = t.field_tys(ty)[i as i64]
+                }
+            }
+            Index(_) => match t.kind(ty) {
+                Array(e, _) => ty = e
+                _ => return None
+            }
+        }
+    }
+    match t.kind(ty) {
+        Str | Slice(_) => Some((p.local as i64, has_deref(prefix)))
+        _ => None
+    }
+}
+
+// An operand of an integer, float or bool type: what it reads, even
+// through a raw pointer, is no way to a borrow (a pointer made from an
+// integer is read through as a raw pointer, which counts). A view's
+// length is one.
+fn scalar_operand(t: Types, body: Body, o: Operand) -> bool {
+    let Some(p) = operand_place(o) else { return true }
+    var ty = body.locals[p.local as i64].ty
+    var variant: Option(u32) = None
+    for pr in p.proj {
+        match pr {
+            Deref => match t.pointee(ty) {
+                Some(x) => ty = x
+                None => return false
+            }
+            Variant(v) => variant = Some(v)
+            Field(i) => match variant {
+                Some(v) => {
+                    ty = t.variants(ty).unwrap()[v as i64].fields[i as i64]
+                    variant = None
+                }
+                None => match t.kind(ty) {
+                    Str | Slice(_) => return i == 1
+                    Closure(_) => return false
+                    _ => ty = t.field_tys(ty)[i as i64]
+                }
+            }
+            Index(_) => match t.kind(ty) {
+                Array(e, _) => ty = e
+                _ => return false
+            }
+        }
+    }
+    match t.kind(ty) {
+        Int(_) | Float(_) | Bool => true
+        _ => false
+    }
+}
+
+fn derived_pointers(t: Types, body: Body) -> Vec(bool) {
+    var out = Vec(bool).new()
+    for x in view_pointer_locals(t, body) { out.push(x.is_some()) }
+    out
+}
+
+// Locals that only ever hold a view's data pointer, or an offset of one
+// (`p = offset s.0, i`, then `str(p, n)`): the view each comes from.
+fn view_pointer_locals(t: Types, body: Body) -> Vec(Option((i64, bool))) {
+    var out = Vec(Option((i64, bool))).filled(body.locals.len(), None)
+    var bad = Vec(bool).filled(body.locals.len(), false)
+    // Twice, so that a local made from another such local is found.
+    for _ in 0..2 {
+        for blk in body.blocks {
+            for s in blk.stmts {
+                match s {
+                    Assign(p, r, _) => {
+                        let l = p.local as i64
+                        if p.proj.len() != 0 { continue }
+                        let src = match r {
+                            Offset(a, _) => pointer_source(t, body, out, a)
+                            Use(a) => pointer_source(t, body, out, a)
+                            _ => None
+                        }
+                        match src {
+                            Some(v) => match out[l] {
+                                Some(w) => if w.0 != v.0 || w.1 != v.1 { bad[l] = true }
+                                None => out[l] = Some(v)
+                            }
+                            None => if t.is_ptr(body.locals[l].ty) { bad[l] = true }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            match blk.term {
+                Call(_, _, dest, _, _) => bad[dest.local as i64] = true
+                _ => {}
+            }
+        }
+    }
+    // Only the compiler's temporaries: a raw pointer a program names is
+    // unsafe code's business, as any other.
+    for l in 0..out.len() {
+        if bad[l] || body.locals[l].kind != LocalKind.Temp { out[l] = None }
+    }
+    out
+}
+
+// The view a pointer operand comes from: a view's data pointer, or a local
+// that only holds one.
+fn pointer_source(
+    t: Types,
+    body: Body,
+    derived: Vec(Option((i64, bool))),
+    o: Operand
+) -> Option((i64, bool)) {
+    match view_pointer(t, body, o) {
+        Some(v) => return Some(v)
+        None => {}
+    }
+    let Some(p) = operand_place(o) else { return None }
+    if p.proj.len() != 0 { return None }
+    match derived[p.local as i64] {
+        Some(v) => Some(v)
+        None => None
+    }
+}
+
 // Raw writes can hide a store through a container's pointer. Raw reads can
 // manufacture a returned view (Vec.index, String.as_str). Keep these effects
 // conservative; inference must not assume unsafe library internals are pure.
-fn raw_effects(t: Types, body: Body) -> (bool, bool) {
+// Reads of a view's own data pointer are listed apart (`view_pointer`).
+fn raw_effects(t: Types, body: Body) -> (bool, bool, Vec((i64, bool))) {
     var read = false
     var store = false
+    var views = Vec((i64, bool)).new()
+    let derived = view_pointer_locals(t, body)
     for blk in body.blocks {
         for s in blk.stmts {
             match s {
@@ -1074,11 +1271,22 @@ fn raw_effects(t: Types, body: Body) -> (bool, bool) {
                     match r {
                         Ref(q) => if root_is_raw(t, body, q) { read = true }
                         RefMut(q) => if root_is_raw(t, body, q) { read = true }
-                        Addr(_) | Offset(_, _) => read = true
+                        Addr(_) => read = true
+                        Offset(a, _) => match pointer_source(t, body, derived, a) {
+                            Some(v) => views.push(v)
+                            None => read = true
+                        }
                         _ => {}
                     }
                     for o in elab.rvalue_operands(r) {
-                        if raw_operand(t, body, o) { read = true }
+                        // A view's length is an integer, not a way to a
+                        // borrow.
+                        if raw_operand(t, body, o) && !scalar_operand(t, body, o) {
+                            match pointer_source(t, body, derived, o) {
+                                Some(v) => views.push(v)
+                                None => read = true
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1091,7 +1299,7 @@ fn raw_effects(t: Types, body: Body) -> (bool, bool) {
             _ => {}
         }
     }
-    (read, store)
+    (read, store, views)
 }
 
 // Whether a raw store through the borrow `dest` may keep the loans of an
@@ -1169,11 +1377,16 @@ fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> 
     for l in body.locals {
         views.push(t.is_view(l.ty))
     }
+    let derived = derived_pointers(t, body)
+    for l, d in derived {
+        if d { views[l] = true }
+    }
     let rows = holders(body, views, ow)
     var initial = rows.held()
     for a in 0..count { if views[a + 1] { set(&initial, rows.gaining(a + 1) * 64 + a) } }
     let lc = LoanCtx {
-        is_view: views, rooted: rows.held(), rows: rows, args: count, places: Vec(Place).new()
+        is_view: views, rooted: rows.held(), rows: rows, args: count, places: Vec(Place).new(),
+        derived
     }
     let nb = body.blocks.len()
     var incoming = Vec(Held).new()
@@ -1183,10 +1396,24 @@ fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> 
     }
     for _ in 0..count { result.stored.push(bits(w)) }
     let raw = raw_effects(t, body)
+    // A view made from another view's pointer borrows what that view
+    // does: an argument's own loans, or what the place an argument borrows
+    // holds. From any other local, as from any raw read.
+    var any_read = raw.0
+    if t.is_view(f.sig.ret) {
+        for v in raw.2 {
+            let l = v.0
+            if l >= 1 && l <= count && body.locals[l].kind == LocalKind.Arg {
+                if v.1 && t.is_ref(body.locals[l].ty) {
+                    set(&result.returned_inner, l - 1)
+                } else { set(&result.returned, l - 1) }
+            } else { any_read = true }
+        }
+    }
     for a in 0..count {
         // A raw read through a borrow of a `#[view]` type reads what it
         // borrows (docs/language/borrowing.md#views), not the borrowed value.
-        if raw.0 && t.is_view(f.sig.ret) {
+        if any_read && t.is_view(f.sig.ret) {
             if borrows_view_type(t, body.locals[a + 1].ty) {
                 set(&result.returned_inner, a)
             } else { set(&result.returned, a) }
