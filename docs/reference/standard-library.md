@@ -30,7 +30,9 @@ last value fills the gap), `retain(keep)`, `split_off(at)`, `dedup` (with
 `Eq`: drops each value equal to the one before), `reverse`, `reserve`,
 `resize`, `first`,
 `last`, `as_slice`, `iter`; `v[i]` (bounds-checked). A slice or array
-of `Clone` values gives a `Vec` of copies with `to_vec()`. `windows(n)`
+of `Clone` values gives a `Vec` of copies with `to_vec()`. Slices and
+arrays have `Show` (`[1, 2, 3]`, as a `Vec` prints) and `Eq` (the same
+length and equal values in order) when their values do. `windows(n)`
 and `chunks(n)` on a slice give its overlapping parts of `n` values, or
 its consecutive parts of `n` (the last one shorter). `Clone` and `Eq` when
 `T` has them; with `Eq`, `contains(x)` (also on slices), and with `Ord`,

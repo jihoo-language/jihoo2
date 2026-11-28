@@ -541,6 +541,47 @@ impl(T: Show) Show for Vec(T) {
     }
 }
 
+// `[1, 2, 3]`, as a `Vec` prints.
+impl(T: Show) Show for [T] {
+    fn show(self, inout out: String) {
+        out.push('[')
+        for i, x in self {
+            if i > 0 {
+                out.push_str(", ")
+            }
+            x.show(&out)
+        }
+        out.push(']')
+    }
+}
+
+// The same length, and equal values in order.
+impl(T: Eq) Eq for [T] {
+    fn eq(self, other: [T]) -> bool {
+        if self.len != other.len {
+            return false
+        }
+        for i, x in self {
+            if !x.eq(other[i]) {
+                return false
+            }
+        }
+        true
+    }
+}
+
+impl(T: Show, comptime N: i64) Show for [T; N] {
+    fn show(self, inout out: String) {
+        self[..].show(&out)
+    }
+}
+
+impl(T: Eq, comptime N: i64) Eq for [T; N] {
+    fn eq(self, other: [T; N]) -> bool {
+        self[..].eq(other[..])
+    }
+}
+
 impl(T: Eq) Eq for Vec(T) {
     fn eq(self, other: Vec(T)) -> bool {
         if self.len != other.len {
@@ -705,4 +746,22 @@ fn windows_and_chunks() {
         none += 1
     }
     assert(none == 0, "chunks of nothing")
+}
+
+#[test]
+fn slices_and_arrays_show_and_compare() {
+    let xs = [1, 2, 3]
+    var a = String.new()
+    xs.show(&a)
+    var b = String.new()
+    xs[1..].show(&b)
+    var c = String.new()
+    xs[..0].show(&c)
+    assert(a == "[1, 2, 3]" && b == "[2, 3]" && c == "[]", "show")
+    assert(xs == [1, 2, 3] && xs != [1, 2, 4], "arrays")
+    assert(xs[..2] == [1, 2][..] && xs[..2] != xs[1..], "slices")
+    let words = ["a", "b"]
+    var d = String.new()
+    words.show(&d)
+    assert(d == "[a, b]", "strings inside print bare")
 }
