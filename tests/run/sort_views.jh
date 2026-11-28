@@ -1,0 +1,32 @@
+// A `Vec` of views (`str`, slices) sorts with `sort` and `sort_by`, and
+// filters with `retain`: the comparison closure, which is a view too, is
+// not taken for a value the vector could keep, since no closure fits in
+// it.
+fn by_length(inout v: Vec(str)) {
+    v.sort_by(fn(a, b) { a.len < b.len })
+}
+
+fn main() {
+    var words = ["pear", "fig", "banana"].to_vec()
+    words.sort()
+    println(words)
+    //> [banana, fig, pear]
+    by_length(&words)
+    println(words)
+    //> [fig, pear, banana]
+    let n = 3
+    words.retain(fn(w) { w.len > n })
+    println(words)
+    //> [pear, banana]
+    let text = String.from("b a c")
+    var parts = text.split(" ")
+    parts.sort()
+    println(parts)
+    //> [a, b, c]
+    let rows = [[3, 1].to_vec(), [1, 2].to_vec()].to_vec()
+    var views = Vec([i64]).new()
+    for r in rows { views.push(r.as_slice()) }
+    views.sort_by(fn(a, b) { a[0] < b[0] })
+    println(views[0][1])
+    //> 2
+}

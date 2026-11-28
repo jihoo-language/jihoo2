@@ -1,0 +1,11 @@
+// A closure kept in a `Vec` of closures still borrows what it captured:
+// the store is followed, so the capture cannot go away first.
+// error: goes away here while it is still borrowed
+fn main() {
+    var fs = Vec(fn(i64) -> i64).new()
+    {
+        let k = String.from("abc")
+        fs.push(fn(x) { x + k.len() })
+    }
+    println(fs[0](1))
+}
