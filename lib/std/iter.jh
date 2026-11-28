@@ -26,6 +26,28 @@ impl Iterator for Range {
     }
 }
 
+impl Range {
+    // The same values, from the last down: `range(0, 3).rev()` gives 2, 1, 0.
+    pub fn rev(sink self) -> RevRange {
+        RevRange { start: self.current, current: self.end }
+    }
+}
+
+pub struct RevRange {
+    start: i64
+    current: i64
+}
+
+impl Iterator for RevRange {
+    type Item = i64
+
+    fn next(inout self) -> Option(i64) {
+        if self.current <= self.start { return None }
+        self.current -= 1
+        Some(self.current)
+    }
+}
+
 impl(T: type) [T] {
     pub fn iter(self) -> vec.Iter(T) {
         unsafe { vec.Iter(T) { ptr: self.ptr, end: self.ptr + self.len } }
@@ -541,4 +563,19 @@ fn owned_items_found_and_collected() {
     let names = ["b", "c", "a"]
     let first = names[..].iter().map(fn(s) { s.to_string() }).min()
     assert(first == Some(String.from("a")), "min of strings")
+}
+
+#[test]
+fn reversed() {
+    assert(range(0, 4).rev().collect() == [3, 2, 1, 0].to_vec(), "range rev")
+    assert(range(3, 3).rev().count() == 0 && range(5, 2).rev().count() == 0, "empty rev")
+    var r = range(0, 10)
+    r.next()
+    assert(r.rev().collect() == [9, 8, 7, 6, 5, 4, 3, 2, 1].to_vec(), "rev of what is left")
+    let xs = [1, 2, 3]
+    assert(xs.iter().rev().map(fn(x) { x }).collect() == [3, 2, 1].to_vec(), "slice rev")
+    var it = xs.iter()
+    it.next()
+    assert(it.rev().map(fn(x) { x * 10 }).collect() == [30, 20].to_vec(), "slice rev of the rest")
+    assert(range(0, 6).rev().step_by(2).collect() == [5, 3, 1].to_vec(), "rev step")
 }

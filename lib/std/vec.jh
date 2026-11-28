@@ -239,6 +239,34 @@ impl(T: type) Iterator for Iter(T) {
     }
 }
 
+impl(T: type) Iter(T) {
+    // The values not yet given, from the last down: `for x in v.iter().rev()`.
+    pub fn rev(sink self) -> RevIter(T) {
+        RevIter(T) { start: self.ptr, ptr: self.end }
+    }
+}
+
+// Borrows the values of a `Vec` or slice one by one, from the last.
+#[view]
+pub struct RevIter(T: type) {
+    start: *T
+    ptr: *T
+}
+
+impl(T: type) Iterator for RevIter(T) {
+    type Item = ref T
+
+    fn next(inout self) -> Option(ref T) {
+        if self.ptr == self.start {
+            return None
+        }
+        unsafe {
+            self.ptr = self.ptr - 1
+            Some(*self.ptr)
+        }
+    }
+}
+
 // Owns a `Vec` and gives its values away one by one.
 pub struct IntoIter(T: type) {
     v: Vec(T)
