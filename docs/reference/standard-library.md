@@ -19,7 +19,7 @@ everywhere; the others are imported (`import std.fs`).
 | `min(a, b)`, `max(a, b)` | by `Ord` |
 | `print(x)`, `println(x)`, `eprintln(x)` | anything with `Show` (integers, floats, `bool`, `str`, `String`, and `Vec`, `Option`, `Result` and tuples of them), to standard output (error) |
 | `sort(&v)`, `sort_by(&v, less)` | a stable merge sort of a `Vec` |
-| `is_space`, `is_digit`, `is_alpha` | on bytes |
+| `is_space`, `is_digit`, `is_alpha` | on bytes; as methods of `u8`, Rust's `is_ascii`, `is_ascii_digit`, `is_ascii_hexdigit`, `is_ascii_alphabetic`, `is_ascii_alphanumeric`, `is_ascii_uppercase`, `is_ascii_lowercase`, `is_ascii_whitespace`, `is_ascii_punctuation`, `is_ascii_control`, `to_ascii_uppercase` and `to_ascii_lowercase` |
 
 ## `Vec(T)`
 

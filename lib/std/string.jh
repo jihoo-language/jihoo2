@@ -500,6 +500,60 @@ impl [String] {
     }
 }
 
+// ASCII classes and case of a byte, as Rust names them; a byte that is
+// not ASCII is in none of them.
+impl u8 {
+    pub fn is_ascii(self) -> bool {
+        self < 128
+    }
+
+    pub fn is_ascii_digit(self) -> bool {
+        self >= '0' && self <= '9'
+    }
+
+    pub fn is_ascii_hexdigit(self) -> bool {
+        self.is_ascii_digit() || (self >= 'a' && self <= 'f') || (self >= 'A' && self <= 'F')
+    }
+
+    pub fn is_ascii_uppercase(self) -> bool {
+        self >= 'A' && self <= 'Z'
+    }
+
+    pub fn is_ascii_lowercase(self) -> bool {
+        self >= 'a' && self <= 'z'
+    }
+
+    pub fn is_ascii_alphabetic(self) -> bool {
+        self.is_ascii_uppercase() || self.is_ascii_lowercase()
+    }
+
+    pub fn is_ascii_alphanumeric(self) -> bool {
+        self.is_ascii_alphabetic() || self.is_ascii_digit()
+    }
+
+    // Space, tab, newline, form feed and carriage return.
+    pub fn is_ascii_whitespace(self) -> bool {
+        self == ' ' || self == '\t' || self == '\n' || self == 12 || self == '\r'
+    }
+
+    pub fn is_ascii_punctuation(self) -> bool {
+        (self >= 33 && self <= 47) || (self >= 58 && self <= 64) || (self >= 91 && self <= 96) ||
+            (self >= 123 && self <= 126)
+    }
+
+    pub fn is_ascii_control(self) -> bool {
+        self < 32 || self == 127
+    }
+
+    pub fn to_ascii_uppercase(self) -> u8 {
+        if self.is_ascii_lowercase() { self - 32 } else { self }
+    }
+
+    pub fn to_ascii_lowercase(self) -> u8 {
+        if self.is_ascii_uppercase() { self + 32 } else { self }
+    }
+}
+
 pub fn is_space(b: u8) -> bool {
     b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
@@ -598,4 +652,32 @@ fn string_has_str_methods() {
     assert(String.from("12").parse_int() == Some(12), "parse")
     assert(String.from("1.25").parse_float() == Some(1.25), "parse_float")
     assert(" 1.0".parse_float().is_none() && "2e3".parse_f32() == Some(2000.0 as f32), "floats")
+}
+
+#[test]
+fn ascii_classes() {
+    assert('7'.is_ascii_digit() && !'a'.is_ascii_digit() && 'f'.is_ascii_hexdigit(), "digits")
+    assert(
+        'Q'.is_ascii_uppercase() && 'q'.is_ascii_lowercase() && 'q'.is_ascii_alphabetic(),
+        "letters"
+    )
+    assert(
+        '_'.is_ascii_punctuation() && !'_'.is_ascii_alphanumeric() && '9'.is_ascii_alphanumeric(),
+        "punct"
+    )
+    assert(
+        '\t'.is_ascii_whitespace() && !'x'.is_ascii_whitespace() && (10 as u8).is_ascii_control(),
+        "space"
+    )
+    assert(
+        'a'.to_ascii_uppercase() == 'A' && 'Z'.to_ascii_lowercase() == 'z' &&
+            '1'.to_ascii_uppercase() == '1',
+        "case"
+    )
+    assert(!(200 as u8).is_ascii() && !(200 as u8).is_ascii_alphabetic(), "not ascii")
+    var n = 0
+    for b in 0..256 {
+        if (b as u8).is_ascii_punctuation() { n += 1 }
+    }
+    assert(n == 32, "32 punctuation bytes")
 }
