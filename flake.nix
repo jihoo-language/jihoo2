@@ -9,7 +9,7 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      version = "0.1.0";
+      version = "0.2.0";
 
       # Stage 1/2 compile compiler/main.jh and install lib/. Tests and
       # examples belong only to testSrc: editing them must not bootstrap
