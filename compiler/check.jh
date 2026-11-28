@@ -1048,6 +1048,59 @@ fn raw_effects(t: Types, body: Body) -> (bool, bool) {
     (read, store)
 }
 
+// Whether a raw store through the borrow `dest` may keep the loans of an
+// argument of type `arg`. Only one way is ruled out: a closure's loans are
+// those of its environment, and reach a place only as the closure itself,
+// so a closure cannot be kept where no closure type is (sorting a
+// `Vec(str)` with a comparison). Anything that could hold a value of any
+// type (`dyn`, an untyped pointer) may hold it.
+fn may_hold(t: Types, dest: u32, arg: u32) -> bool {
+    let closure = match t.kind(arg) {
+        Closure(_) | Lambda(_, _, _) => true
+        _ => false
+    }
+    if !closure { return true }
+    var seen = Vec(u32).new()
+    holds_closure(t, dest, &seen)
+}
+
+fn holds_closure(t: Types, ty: u32, inout seen: Vec(u32)) -> bool {
+    for x in seen {
+        if x == ty { return false }
+    }
+    seen.push(ty)
+    match t.kind(ty) {
+        Closure(_) | Lambda(_, _, _) | Dyn(_) | DynFn(_) => true
+        Ptr(inner) => inner == types.U8 || inner == types.UNIT || holds_closure(t, inner, &seen)
+        Ref(inner) | RefMut(inner) | Slice(inner) | Array(inner, _) => holds_closure(
+            t,
+            inner,
+            &seen
+        )
+        Tuple(ts) => {
+            for x in ts {
+                if holds_closure(t, x, &seen) { return true }
+            }
+            false
+        }
+        Adt(_) => {
+            for x in t.field_tys(ty) {
+                if holds_closure(t, x, &seen) { return true }
+            }
+            match t.variants(ty) {
+                Some(vs) => for v in vs {
+                    for x in v.fields {
+                        if holds_closure(t, x, &seen) { return true }
+                    }
+                }
+                None => {}
+            }
+            false
+        }
+        Int(_) | Float(_) | Bool | Str | Never | FnPtr(_) | Type => false
+    }
+}
+
 fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> Effect {
     let count = body.arg_count
     let w = max(1, (count + 63) / 64)
@@ -1069,7 +1122,10 @@ fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> 
         if raw.0 && t.is_view(f.sig.ret) { set(&result.returned, a) }
         if raw.1 {
             for d in 0..count {
-                if stores_views(t, body.locals[d + 1].ty) { set(&result.stored[d], a) }
+                let dest = body.locals[d + 1].ty
+                if stores_views(t, dest) && may_hold(t, dest, body.locals[a + 1].ty) {
+                    set(&result.stored[d], a)
+                }
             }
         }
     }

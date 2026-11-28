@@ -118,7 +118,9 @@ instead of assuming every call stores every input borrow. These relations
 are computed by the borrow kernel, not supplied by sema. Calls without a
 known body keep the conservative rule. Raw reads that can manufacture views
 retain all result origins; raw writes and calls exposing raw pointers retain
-all possible store origins. Compile-time snapshots compute their own effects
+all possible store origins, except that a closure argument is not stored
+where no closure type can be (a comparison given to `sort_by` on a
+`Vec(str)`): its loans reach a place only as the closure itself. Compile-time snapshots compute their own effects
 from the reachable, prepared bodies before execution.
 
 The idea comes from proof checkers such as Horn: a large untrusted part
