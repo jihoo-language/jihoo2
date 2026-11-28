@@ -17,8 +17,10 @@ reference counting.
 Versions start again at 0.1.0. jihoo2 0.1.0, released as
 [v0.1.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.1.0), is
 jihoo's development line after 0.5.0 without the dependent core, built
-from the jihoo 0.5.0 seed, and it is now jihoo2's own seed; the next
-release is 0.2.0. The versions in the headings below (0.1
+from the jihoo 0.5.0 seed, and it was jihoo2's first seed. jihoo2 0.2.0,
+released as [v0.2.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.2.0),
+adds the library, diagnostics and verification work of sections 2, 6 and
+7 and the drop fix for `sink` parameters, and becomes the seed next. The versions in the headings below (0.1
 to 0.5) are jihoo's releases, whose work jihoo2 inherits; jihoo2's own
 releases are named as such.
 
