@@ -311,9 +311,12 @@ impl(T: type) Iterator for RevIter(T) {
         if self.ptr == self.start {
             return None
         }
+        // Through a copy of the pointer, as `Iter.next` reads: what it
+        // gives borrows what the iterator borrows, not the iterator.
         unsafe {
-            self.ptr = self.ptr - 1
-            Some(*self.ptr)
+            let p = self.ptr - 1
+            self.ptr = p
+            Some(*p)
         }
     }
 }

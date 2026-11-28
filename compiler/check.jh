@@ -463,7 +463,9 @@ fn run_body(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> Resu
     for _ in 0..nb {
         held_in.push(rows.held())
     }
-    let lc = LoanCtx { is_view: is_view, rooted: rooted, rows: rows }
+    var places = Vec(Place).new()
+    for l in loans { places.push(l.place.clone()) }
+    let lc = LoanCtx { is_view: is_view, rooted: rooted, rows: rows, args: -1, places }
     var held = lc.rows.held()
     var work = Worklist.new(nb)
     work.add(0)
@@ -527,6 +529,12 @@ struct LoanCtx {
     is_view: Vec(bool)
     rooted: Held
     rows: Rows
+    // Inferring effects: the arguments, whose origins are bits 0 to
+    // `args - 1` (an argument's own loans) and `args` to `2 * args - 1`
+    // (what the place it borrows holds); -1 when checking.
+    args: i64
+    // Checking: the place of each loan.
+    places: Vec(Place)
 }
 
 fn root_is_raw(t: Types, body: Body, p: Place) -> bool {
@@ -917,6 +925,11 @@ fn term_loans(
             var returned = all.clone()
             if effect >= 0 {
                 returned = selected_loans(args, effects[effect].returned, held, lc, ts, body)
+                for ai, a in args {
+                    if get(effects[effect].returned_inner, ai) {
+                        union(&returned, inner_loans(a, held, lc, ts, body))
+                    }
+                }
             }
             for a in args {
                 match a {
@@ -948,6 +961,10 @@ fn term_loans(
 pub struct Effect {
     known: bool
     returned: Bits
+    // The arguments only what they point to reaches the result through:
+    // not a borrow of the place they borrow (an iterator's item, which
+    // borrows what the iterator borrows, not the iterator).
+    returned_inner: Bits
     stored: Vec(Bits)
 }
 
@@ -961,6 +978,35 @@ fn call_effect(c: mir.Callee, count: i64, effects: Vec(Effect)) -> i64 {
         _ => {}
     }
     -1
+}
+
+// What an argument that is a borrow points to holds: its loans without
+// the borrows of the places it points into themselves. When inferring, an
+// argument of this function that it points into stands for what that
+// argument's place holds (its inner origin). Anything stored through the
+// borrow is in its loans, so it is kept.
+fn inner_loans(a: Operand, held: Held, lc: LoanCtx, t: Types, body: Body) -> Bits {
+    var out = op_loans(a, held, lc, t, body)
+    let Some(p) = operand_place(a) else { return out }
+    if p.proj.len() != 0 { return out }
+    var targets = Vec(i64).new()
+    pointees(p.local as i64, held, lc.rows, body, &targets)
+    for r in targets {
+        if lc.args >= 0 {
+            if body.locals[r].kind == LocalKind.Arg && r >= 1 && r <= lc.args {
+                let own = r - 1
+                if get(out, own) {
+                    clear(&out, own)
+                    set(&out, lc.args + own)
+                }
+            }
+        } else {
+            for i, q in lc.places {
+                if q.local as i64 == r && !has_deref(q) { clear(&out, i) }
+            }
+        }
+    }
+    out
 }
 
 fn selected_loans(
@@ -1101,25 +1147,50 @@ fn holds_closure(t: Types, ty: u32, inout seen: Vec(u32)) -> bool {
     }
 }
 
+// A borrow of a `#[view]` struct: a type that holds borrows through raw
+// pointers, which do not point into it.
+fn borrows_view_type(t: Types, ty: u32) -> bool {
+    let inner = match t.kind(ty) {
+        Ref(x) | RefMut(x) => x
+        _ => return false
+    }
+    match t.kind(inner) {
+        Adt(i) => t.adts[i as i64].view
+        _ => false
+    }
+}
+
 fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> Effect {
     let count = body.arg_count
     let w = max(1, (count + 63) / 64)
+    // Rows hold both origins of each argument.
+    let ow = max(1, (2 * count + 63) / 64)
     var views = Vec(bool).new()
     for l in body.locals {
         views.push(t.is_view(l.ty))
     }
-    let rows = holders(body, views, w)
+    let rows = holders(body, views, ow)
     var initial = rows.held()
     for a in 0..count { if views[a + 1] { set(&initial, rows.gaining(a + 1) * 64 + a) } }
-    let lc = LoanCtx { is_view: views, rooted: rows.held(), rows: rows }
+    let lc = LoanCtx {
+        is_view: views, rooted: rows.held(), rows: rows, args: count, places: Vec(Place).new()
+    }
     let nb = body.blocks.len()
     var incoming = Vec(Held).new()
     for _ in 0..nb { incoming.push(initial.clone()) }
-    var result = Effect { known: true, returned: bits(w), stored: Vec(Bits).new() }
+    var result = Effect {
+        known: true, returned: bits(w), returned_inner: bits(w), stored: Vec(Bits).new()
+    }
     for _ in 0..count { result.stored.push(bits(w)) }
     let raw = raw_effects(t, body)
     for a in 0..count {
-        if raw.0 && t.is_view(f.sig.ret) { set(&result.returned, a) }
+        // A raw read through a borrow of a `#[view]` type reads what it
+        // borrows (docs/language/borrowing.md#views), not the borrowed value.
+        if raw.0 && t.is_view(f.sig.ret) {
+            if borrows_view_type(t, body.locals[a + 1].ty) {
+                set(&result.returned_inner, a)
+            } else { set(&result.returned, a) }
+        }
         if raw.1 {
             for d in 0..count {
                 let dest = body.locals[d + 1].ty
@@ -1140,10 +1211,21 @@ fn infer_effect(t: Types, f: mir.Function, body: Body, effects: Vec(Effect)) -> 
         term_loans(body.blocks[b].term, &held, lc, t, body, effects)
         match body.blocks[b].term {
             Return => {
-                union_row(&result.returned, held, lc.rows, mir.RET as i64)
+                var ret = bits(ow)
+                union_row(&ret, held, lc.rows, mir.RET as i64)
+                for a in 0..count {
+                    if get(ret, a) { set(&result.returned, a) }
+                    if get(ret, count + a) { set(&result.returned_inner, a) }
+                }
                 for a in 0..count {
                     if stores_views(t, body.locals[a + 1].ty) {
-                        union_row(&result.stored[a], held, lc.rows, a + 1)
+                        var st = bits(ow)
+                        union_row(&st, held, lc.rows, a + 1)
+                        // What an argument's place holds, stored: as if
+                        // the argument itself was.
+                        for o in 0..count {
+                            if get(st, o) || get(st, count + o) { set(&result.stored[a], o) }
+                        }
                     }
                 }
             }
@@ -1162,7 +1244,10 @@ pub fn infer_effects(t: Types, functions: Vec(mir.Function)) -> Vec(Effect) {
     for f in functions {
         let count = f.sig.params.len()
         let w = max(1, (count + 63) / 64)
-        var e = Effect { known: f.body.is_some(), returned: bits(w), stored: Vec(Bits).new() }
+        var e = Effect {
+            known: f.body.is_some(), returned: bits(w), returned_inner: bits(w),
+            stored: Vec(Bits).new()
+        }
         for _ in 0..count { e.stored.push(bits(w)) }
         effects.push(e)
     }
@@ -1194,13 +1279,17 @@ pub fn infer_effects(t: Types, functions: Vec(mir.Function)) -> Vec(Effect) {
         let inferred = thread.map_uneven(round.as_slice(), fn(i) {
             match fns[i].body {
                 Some(body) => infer_effect(t, fns[i], body, known)
-                None => Effect { known: false, returned: Vec(u64).new(), stored: Vec(Bits).new() }
+                None => Effect {
+                    known: false, returned: Vec(u64).new(), returned_inner: Vec(u64).new(),
+                    stored: Vec(Bits).new()
+                }
             }
         })
         var next = Vec(i64).new()
         for k, e in inferred {
             let i = round[k]
             var changed = union(&effects[i].returned, e.returned)
+            if union(&effects[i].returned_inner, e.returned_inner) { changed = true }
             for a in 0..e.stored.len() {
                 if union(&effects[i].stored[a], e.stored[a]) { changed = true }
             }

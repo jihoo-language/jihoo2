@@ -120,7 +120,13 @@ known body keep the conservative rule. Raw reads that can manufacture views
 retain all result origins; raw writes and calls exposing raw pointers retain
 all possible store origins, except that a closure argument is not stored
 where no closure type can be (a comparison given to `sort_by` on a
-`Vec(str)`): its loans reach a place only as the closure itself. Compile-time snapshots compute their own effects
+`Vec(str)`): its loans reach a place only as the closure itself. Each
+argument has a second origin, what the place it borrows holds: a raw read
+through a borrow of a `#[view]` type gives that origin, not the argument's
+own, and so does a result read through such a call (an iterator adapter's
+item). A call site turns it into the argument's loans without the borrows
+of the places it points into, so an item collected from a vector's
+iterator borrows the vector, not the iterator. Compile-time snapshots compute their own effects
 from the reachable, prepared bodies before execution.
 
 The idea comes from proof checkers such as Horn: a large untrusted part
