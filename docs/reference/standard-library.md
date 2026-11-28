@@ -177,6 +177,24 @@ fn read() -> Result(i64, os.Error) {
 }
 ```
 
+`lines()` on either reader gives an iterator of its lines as new
+`String`s, without `\n` or `\r\n`; each is a `Result`, and the first
+error ends it. `io.stdin_lines()` is that of standard input:
+
+```jihoo
+import std.io
+
+fn main() {
+    var total = 0
+    for line in io.stdin_lines() {
+        for w in line.unwrap().split_whitespace() {
+            total += w.parse_int().unwrap_or(0)
+        }
+    }
+    println(total)
+}
+```
+
 ## Formatting
 
 `std.fmt` formats several values with a pattern. The values are a tuple,

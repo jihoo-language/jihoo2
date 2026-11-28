@@ -166,6 +166,18 @@ accept different schedules that agree for that output.
   (`set_nonblocking`, `wait_readable`, `wait_writable`) are explicit;
   `std.fs`, `io.BufReader` and `std.process` report `os.Error`; a program
   that cannot start fails with the error number of its `execve`.
+- Done: the everyday library gaps that ordinary programs written as in
+  Rust ran into, each with unit tests next to its code: `Map` iteration,
+  `values`, `clear`, `get_or_insert` and `Clone`/`Eq`/`Show`; `Set`;
+  iterator adapters and consumers (`enumerate`, `skip`, `chain`,
+  `collect`, `sum`, `min`, `max`, `rev`, ...); `Option` and `Result`
+  combinators; `str` methods (`replace`, `split_whitespace`,
+  `strip_prefix`, case, `join`) on `String` too; `Vec.retain`, `dedup`,
+  `sort`, `binary_search`; slice `windows` and `chunks`; `u8`'s ASCII
+  classes; `parse_float`, correctly rounded without the C library; and
+  `io.stdin_lines()`. Writing them found that a `sink` parameter moved
+  on only some paths was never dropped on the others, and that
+  `parse_int` wrapped on overflow.
 - Done: library formatting for several values and options. `std.fmt`
   formats a tuple of values with `{}` patterns (positions, fill, alignment,
   sign, bases, width, precision, exponents), and floats print the shortest

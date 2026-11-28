@@ -114,6 +114,59 @@ impl BufRead for BufReader {
     }
 }
 
+// The lines of a reader one by one, without their `\n` (or `\r\n`), each
+// a new `String`: `for line in io.stdin_lines() { let line = line? ... }`.
+// It ends at the end of input, and after the first error, which it gives.
+pub struct Lines(R: BufRead) {
+    reader: R
+    done: bool
+}
+
+impl(R: BufRead) Iterator for Lines(R) {
+    type Item = Result(String, os.Error)
+
+    fn next(inout self) -> Option(Result(String, os.Error)) {
+        if self.done { return None }
+        var line = String.new()
+        match self.reader.read_line(&line) {
+            Ok(0) => {
+                self.done = true
+                None
+            }
+            Ok(_) => {
+                if line.len() > 0 && line.as_bytes()[line.len() - 1] == '\n' {
+                    line.bytes.truncate(line.len() - 1)
+                    if line.len() > 0 && line.as_bytes()[line.len() - 1] == '\r' {
+                        line.bytes.truncate(line.len() - 1)
+                    }
+                }
+                Some(Ok(line))
+            }
+            Err(e) => {
+                self.done = true
+                Some(Err(e))
+            }
+        }
+    }
+}
+
+impl StrReader {
+    pub fn lines(sink self) -> Lines(StrReader) {
+        Lines(StrReader) { reader: self, done: false }
+    }
+}
+
+impl BufReader {
+    pub fn lines(sink self) -> Lines(BufReader) {
+        Lines(BufReader) { reader: self, done: false }
+    }
+}
+
+// The lines of standard input, buffered.
+pub fn stdin_lines() -> Lines(BufReader) {
+    BufReader.new(os.stdin()).lines()
+}
+
 pub fn print(comptime T: Show, x: T) {
     var s = String.new()
     x.show(&s)
@@ -191,4 +244,29 @@ fn buf_reader_invalid_utf8() {
     assert(BufReader.with_capacity("/", 0).is_err(), "zero capacity")
     var d = BufReader.open("/").unwrap()
     assert(d.read_line(&s) == Err(os.Error.IsADirectory) && s == ">ok\n", "read error")
+}
+
+#[test]
+fn lines_without_newlines() {
+    var got = Vec(String).new()
+    for line in StrReader.new("one\ntwo\r\n\nlast").lines() {
+        got.push(line.unwrap())
+    }
+    assert(got.len() == 4 && got[0] == "one" && got[1] == "two" && got[2] == "" && got[3] == "last",
+        "four lines")
+    var none = 0
+    for _ in StrReader.new("").lines() { none += 1 }
+    assert(none == 0, "no lines")
+    var bad = StrReader.new("ok\n").lines()
+    assert(bad.next() == Some(Ok(String.from("ok"))) && bad.next().is_none(), "then the end")
+    var r = piped("a\nbb\n".as_bytes(), 1)
+    var n = 0
+    for line in r.lines() {
+        n += line.unwrap().len()
+    }
+    assert(n == 3, "buffered lines")
+    let bytes = [97 as u8, 10, 0xc3, 10, 98, 10]
+    var e = piped(bytes[..], 4).lines()
+    assert(e.next() == Some(Ok(String.from("a"))), "before the error")
+    assert(e.next() == Some(Err(os.Error.InvalidData)) && e.next().is_none(), "the error ends it")
 }
