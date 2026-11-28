@@ -296,5 +296,5 @@ inferred types as inlay hints, a quick fix for `let` bindings that are
 changed, document outlines and formatting.
 
 Next ([roadmap](docs/internals/roadmap.md)): application-driven library work,
-and moving the seed to 0.2.0, after which the compiler can use what came
-after 0.1.0.
+and using in the compiler what came after 0.1.0, now that 0.2.0 is the
+seed.
