@@ -1,0 +1,12 @@
+// Items collected from a vector's iterator borrow the vector: they cannot
+// outlive it.
+// error: `v` goes away here while it is still borrowed
+import std.iter
+
+fn main() {
+    let c = {
+        let v = [String.from("a")].to_vec()
+        v.iter().collect()
+    }
+    println(c)
+}

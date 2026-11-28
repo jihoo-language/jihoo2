@@ -1,0 +1,11 @@
+// Items collected from a vector's iterator keep the vector borrowed: it
+// cannot change while they are used.
+// error: `v` is changed here while it is borrowed
+import std.iter
+
+fn main() {
+    var v = [String.from("a")].to_vec()
+    let c = v.iter().collect()
+    v.clear()
+    println(c)
+}

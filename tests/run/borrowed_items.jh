@@ -1,0 +1,29 @@
+// Consumers that give back an iterator's items work when the items are
+// borrows: what `vec.Iter` gives borrows the vector, not the iterator (a
+// `#[view]` type reads what it borrows), so `collect`, `find`, `max` and
+// `last` can return items from an iterator they used up.
+import std.iter
+
+fn main() {
+    let v = ["pear", "fig", "banana"].to_vec()
+    let all = v.iter().collect()
+    println(all)
+    //> [pear, fig, banana]
+    println(v.iter().find(fn(w) { w.len == 3 }))
+    //> Some(fig)
+    println(v.iter().max())
+    //> Some(pear)
+    println(v.iter().rev().skip(1).last())
+    //> Some(pear)
+    let short = v.iter().filter(fn(w) { w.len < 5 }).map(fn(w) { w }).collect()
+    println(short)
+    //> [pear, fig]
+    // Elements of a temporary `Vec(str)` borrow the text, not the vector.
+    let text = String.from("b a b")
+    var counts = Map(str, i64).new()
+    for w in text.split(" ") {
+        counts.get_or_insert(w, 0) += 1
+    }
+    println(counts["b"])
+    //> 2
+}

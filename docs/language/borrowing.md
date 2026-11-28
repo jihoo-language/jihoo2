@@ -119,7 +119,10 @@ variables. The compiler follows what each one borrows:
 - A borrow held as a value (`ref T`, from a field or an `Option(ref T)`)
   can be passed where a `T` is borrowed; it is lent on.
 - A function returning a view returns something its arguments point to,
-  and the caller tracks the arguments that can reach that result.
+  and the caller tracks the arguments that can reach that result. A
+  `#[view]` type's raw pointers point to what it borrows, not into it, so
+  what a `Vec` iterator gives borrows the vector and not the iterator:
+  `v.iter().collect()` and `v.iter().max()` return items of `v`.
 - A function given an `inout` view may store the other arguments' views
   in it: after `v.push(s.as_str())` with `v: Vec(str)`, `s` is borrowed
   for as long as `v` is used, as if `v` held the borrow itself.
