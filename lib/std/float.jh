@@ -518,6 +518,239 @@ fn short(x: f64) -> String {
     s
 }
 
+// ---- reading decimal text ----
+
+// A float read from text, before its bits are put together: zero, an
+// infinity, NaN, or `m * 2^e` with `m` below `2^bits`.
+struct Read {
+    negative: bool
+    // 0 a finite value, 1 an infinity, 2 NaN.
+    special: i64
+    m: u64
+    e: i64
+}
+
+// Digits kept: enough to decide any rounding of an f64 (767 significant
+// digits can matter); the rest only say whether more was there.
+const MAX_DIGITS: i64 = 800
+
+fn lower(c: u8) -> u8 {
+    if c >= 'A' && c <= 'Z' { c + 32 } else { c }
+}
+
+fn word_is(s: str, w: str) -> bool {
+    if s.len != w.len { return false }
+    for i in 0..s.len {
+        if lower(s[i]) != w[i] { return false }
+    }
+    true
+}
+
+// The value of `[+-]digits[.digits][e[+-]digits]`, `inf`, `infinity` or
+// `nan`, rounded to `bits` bits of precision (half to even) with `e_min`
+// the exponent of the smallest subnormal; None for other text.
+fn read_decimal(text: str, bits: i64, e_min: i64) -> Option(Read) {
+    var i = 0
+    var negative = false
+    if text.len > 0 && (text[0] == '-' || text[0] == '+') {
+        negative = text[0] == '-'
+        i = 1
+    }
+    let rest = text[i..]
+    if word_is(rest, "inf") || word_is(rest, "infinity") {
+        return Some(Read { negative, special: 1, m: 0, e: 0 })
+    }
+    if word_is(rest, "nan") {
+        return Some(Read { negative, special: 2, m: 0, e: 0 })
+    }
+    // The significant digits, and the power of ten they are scaled by.
+    var digits = Vec(u8).new()
+    var exp: i64 = 0
+    var sticky = false
+    var seen = false
+    var point = false
+    while i < text.len {
+        let c = text[i]
+        if c == '.' {
+            if point { return None }
+            point = true
+        } else if c >= '0' && c <= '9' {
+            seen = true
+            if digits.len() == 0 && c == '0' {
+                if point { exp -= 1 }
+            } else if digits.len() < MAX_DIGITS {
+                digits.push(c - '0')
+                if point { exp -= 1 }
+            } else {
+                if c != '0' { sticky = true }
+                if !point { exp += 1 }
+            }
+        } else {
+            break
+        }
+        i += 1
+    }
+    if !seen { return None }
+    if i < text.len {
+        if text[i] != 'e' && text[i] != 'E' { return None }
+        i += 1
+        var eneg = false
+        if i < text.len && (text[i] == '-' || text[i] == '+') {
+            eneg = text[i] == '-'
+            i += 1
+        }
+        if i == text.len { return None }
+        var n: i64 = 0
+        while i < text.len {
+            let c = text[i]
+            if c < '0' || c > '9' { return None }
+            if n < 100000000 { n = n * 10 + (c - '0') as i64 }
+            i += 1
+        }
+        exp = if eneg { exp - n } else { exp + n }
+    }
+    let zero = Read { negative, special: 0, m: 0, e: 0 }
+    if digits.len() == 0 { return Some(zero) }
+    // Far outside every float's range: no need to compute.
+    let magnitude = exp + digits.len()
+    if magnitude > 400 { return Some(Read { negative, special: 1, m: 0, e: 0 }) }
+    if magnitude < -400 { return Some(zero) }
+    // value = r / s, with a last digit 1 standing for what was dropped.
+    var r = Big.from(0)
+    for d in digits {
+        r.mul_small(10)
+        r.add(Big.from(d as u64))
+    }
+    if sticky {
+        r.mul_small(10)
+        r.add(Big.from(1))
+        exp -= 1
+    }
+    var s = Big.from(1)
+    if exp >= 0 { r.mul_pow10(exp) } else { s.mul_pow10(0 - exp) }
+    // q = floor(r / (s * 2^k)) with bits + 1 bits (the last one the
+    // rounding bit), or fewer for a subnormal: k >= e_min - 1.
+    var k = big_bits(r) - big_bits(s) - bits - 1
+    if k < e_min - 1 { k = e_min - 1 }
+    var rr = r.copy()
+    var ss = s.copy()
+    loop {
+        rr = r.copy()
+        ss = s.copy()
+        if k >= 0 { ss.shl(k) } else { rr.shl(0 - k) }
+        var top = ss.copy()
+        top.shl(bits + 1)
+        if rr.cmp(top) >= 0 {
+            k += 1
+            continue
+        }
+        var low = ss.copy()
+        low.shl(bits)
+        if rr.cmp(low) < 0 && k > e_min - 1 {
+            k -= 1
+            continue
+        }
+        break
+    }
+    var q: u64 = 0
+    var b = bits
+    while b >= 0 {
+        var t = ss.copy()
+        t.shl(b)
+        if rr.cmp(t) >= 0 {
+            rr.sub(t)
+            q = q | (1 as u64) << b as u64
+        }
+        b -= 1
+    }
+    let half = q & 1 == 1
+    var m = q >> 1
+    if half && (!rr.is_zero() || m & 1 == 1) { m += 1 }
+    var e = k + 1
+    if m == (1 as u64) << bits as u64 {
+        m = m >> 1
+        e += 1
+    }
+    Some(Read { negative, special: 0, m, e })
+}
+
+fn big_bits(x: Big) -> i64 {
+    if x.d.len() == 0 { return 0 }
+    (x.d.len() - 1) * 32 + bit_length(x.d[x.d.len() - 1] as u64)
+}
+
+// Powers of ten an f64 holds exactly.
+fn exact_pow10(n: i64) -> f64 {
+    var x = 1.0
+    for _ in 0..n { x = x * 10.0 }
+    x
+}
+
+// The f64 nearest the decimal text, as `str.parse_float` reads it.
+pub fn parse_f64(text: str) -> Option(f64) {
+    // Most numbers in text have few digits: an exact integer times or over
+    // an exact power of ten rounds once, which is right.
+    let fast = fast_f64(text)
+    if fast.is_some() { return fast }
+    let Some(x) = read_decimal(text, 53, -1074) else { return None }
+    let sign: u64 = if x.negative { (1 as u64) << 63 } else { 0 }
+    if x.special == 1 { return Some(f64.from_bits(sign | 0x7ff0000000000000)) }
+    if x.special == 2 { return Some(f64.from_bits(0x7ff8000000000000)) }
+    if x.m == 0 { return Some(f64.from_bits(sign)) }
+    if x.m < (1 as u64) << 52 { return Some(f64.from_bits(sign | x.m)) }
+    let biased = x.e + 1075
+    if biased >= 0x7ff { return Some(f64.from_bits(sign | 0x7ff0000000000000)) }
+    Some(f64.from_bits(sign | (biased as u64) << 52 | (x.m & 0xfffffffffffff)))
+}
+
+// `[+-]digits[.digits]` with at most 15 digits and no exponent... or None.
+fn fast_f64(text: str) -> Option(f64) {
+    var i = 0
+    var negative = false
+    if text.len > 0 && (text[0] == '-' || text[0] == '+') {
+        negative = text[0] == '-'
+        i = 1
+    }
+    var n: i64 = 0
+    var count = 0
+    var scale = 0
+    var point = false
+    var seen = false
+    while i < text.len {
+        let c = text[i]
+        if c == '.' && !point {
+            point = true
+        } else if c >= '0' && c <= '9' {
+            seen = true
+            count += 1
+            if count > 15 { return None }
+            n = n * 10 + (c - '0') as i64
+            if point { scale += 1 }
+        } else {
+            return None
+        }
+        i += 1
+    }
+    if !seen || scale > 22 { return None }
+    let x = (n as f64) / exact_pow10(scale)
+    // Times -1, which keeps the sign of zero (`0.0 - 0.0` is +0).
+    Some(if negative { x * -1.0 } else { x })
+}
+
+// The f32 nearest the decimal text (rounded once, from the exact value).
+pub fn parse_f32(text: str) -> Option(f32) {
+    let Some(x) = read_decimal(text, 24, -149) else { return None }
+    let sign: u32 = if x.negative { (1 as u32) << 31 } else { 0 }
+    if x.special == 1 { return Some(f32.from_bits(sign | 0x7f800000)) }
+    if x.special == 2 { return Some(f32.from_bits(0x7fc00000)) }
+    if x.m == 0 { return Some(f32.from_bits(sign)) }
+    let m = x.m as u32
+    if m < (1 as u32) << 23 { return Some(f32.from_bits(sign | m)) }
+    let biased = x.e + 150
+    if biased >= 0xff { return Some(f32.from_bits(sign | 0x7f800000)) }
+    Some(f32.from_bits(sign | (biased as u32) << 23 | (m & 0x7fffff)))
+}
+
 #[test]
 fn taken_apart() {
     let one = parts_f64(1.0)
@@ -567,4 +800,54 @@ fn bits() {
     assert(f64.from_bits(0.1.to_bits()) == 0.1, "round trip")
     assert((1.0 as f32).to_bits() == 0x3f800000, "f32 bits")
     assert(f32.from_bits(0x40490fdb) == (3.14159265 as f32), "f32 from bits")
+}
+
+#[test]
+fn parses_floats() {
+    assert(parse_f64("1.5") == Some(1.5) && parse_f64("-0.25") == Some(-0.25), "simple")
+    assert(parse_f64("1e3") == Some(1000.0) && parse_f64("2.5E-3") == Some(0.0025), "exponent")
+    assert(parse_f64(".5") == Some(0.5) && parse_f64("5.") == Some(5.0), "bare point")
+    assert(parse_f64("0.1").unwrap().to_bits() == 0.1.to_bits(), "0.1")
+    assert(parse_f64("0.30000000000000004") == Some(0.1 + 0.2), "shortest of 0.1 + 0.2")
+    assert(parse_f64("1.7976931348623157e308").unwrap().to_bits() == 0x7fefffffffffffff, "max")
+    assert(parse_f64("1.8e308").unwrap() == 1.0 / 0.0, "overflow")
+    assert(parse_f64("4.9e-324").unwrap().to_bits() == 1, "least subnormal")
+    assert(parse_f64("2.4e-324").unwrap().to_bits() == 0, "below half of it")
+    assert(parse_f64("2.5e-324").unwrap().to_bits() == 1, "above half of it")
+    assert(
+        parse_f64("2.2250738585072014e-308").unwrap().to_bits() == 0x10000000000000,
+        "least normal"
+    )
+    assert(parse_f64("-0").unwrap().to_bits() == (1 as u64) << 63, "negative zero")
+    assert(parse_f64("inf") == Some(1.0 / 0.0) && parse_f64("-Infinity") == Some(-1.0 / 0.0), "inf")
+    let nan = parse_f64("NaN").unwrap()
+    assert(nan != nan, "nan")
+    // Halfway between 1 and the next float, and just above it.
+    assert(
+        parse_f64("1.00000000000000011102230246251565404236316680908203125") == Some(1.0),
+        "half to even"
+    )
+    let above = parse_f64("1.000000000000000111022302462515654042363166809082031251").unwrap()
+    assert(above.to_bits() == 0x3ff0000000000001, "just above half")
+    for bad in ["", "-", ".", "e5", "1e", "1e+", "1.2.3", "1x", "--1", "in"] {
+        assert(parse_f64(bad).is_none(), "rejected")
+    }
+    assert(parse_f32("3.14159265") == Some(3.14159265 as f32), "f32")
+    assert(parse_f32("1e39").unwrap() == (1.0 as f32) / (0.0 as f32), "f32 overflow")
+    assert(parse_f32("1.4e-45").unwrap().to_bits() == 1, "f32 least subnormal")
+}
+
+#[test]
+fn reads_what_it_writes() {
+    // Every float printed shortest reads back as itself.
+    var x: u64 = 0x123456789abcdef
+    for _ in 0..2000 {
+        x = x *% 6364136223846793005 +% 1442695040888963407
+        let f = f64.from_bits(x)
+        if f != f { continue }
+        var s = String.new()
+        f.show(&s)
+        let back = parse_f64(s.as_str()).unwrap()
+        assert(back.to_bits() == f.to_bits() || (f == 0.0 && back == 0.0), "round trip")
+    }
 }

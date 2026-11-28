@@ -73,7 +73,9 @@ text, on its `as_str()`.
 of the rest), `find`, `rfind`, `contains`, `trim`, `trim_start`,
 `trim_end`, `split`, `split_whitespace`, `lines`, `replace(from, to)`,
 `to_upper`, `to_lower` (ASCII letters), `repeat(n)`, `parse_int` (`None`
-for text that is not a decimal `i64`, or does not fit one), `+`; `for b in
+for text that is not a decimal `i64`, or does not fit one), `parse_float`
+and `parse_f32` (`1.5`, `-2e-3`, `.5`, `inf`, `nan`, rounded to the
+nearest float, half to even, from the exact decimal value), `+`; `for b in
 s` gives bytes. A slice of `str` or of `String` has `join(sep)`.
 
 `import std.utf8` adds `s.chars()`, an iterator of `Result(u32, String)`
@@ -217,8 +219,9 @@ program runs is read then, and the same mistakes panic. Formatting works in
 compile-time code, so
 `const S = comptime fmt.format(...)` is a string constant.
 
-`std.float` has the digits beneath: `shortest` (the fewest that read back as
-the float), `exact` (a chosen count, rounded half to even), and the text
+`std.float` has the digits beneath: `parse_f64` and `parse_f32` (text to
+float, correctly rounded, the inverse of `shortest`), `shortest` (the
+fewest that read back as the float), `exact` (a chosen count, rounded half to even), and the text
 forms `write_shortest`, `write_fixed` and `write_exponent`, computed with
 big integers rather than float arithmetic. It also gives every program
 `to_bits` and `from_bits` on `f64` and `f32`.
