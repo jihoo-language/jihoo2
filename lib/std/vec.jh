@@ -159,6 +159,57 @@ impl(T: type) Vec(T) {
         }
     }
 
+    // Removes the value at `i` and puts the last one in its place: no
+    // shifting, but the order changes.
+    pub fn swap_remove(inout self, i: i64) -> T {
+        if i < 0 || i >= self.len {
+            panic("swap_remove index out of bounds")
+        }
+        unsafe {
+            let x = read(self.ptr + i)
+            self.len -= 1
+            if i != self.len {
+                write(self.ptr + i, read(self.ptr + self.len))
+            }
+            x
+        }
+    }
+
+    // Keeps the values `keep` holds of, in order, and drops the others.
+    pub fn retain(inout self, keep: fn(T) -> bool) {
+        let n = self.len
+        var w = 0
+        for r in 0..n {
+            unsafe {
+                if keep(*(self.ptr + r)) {
+                    if w != r {
+                        write(self.ptr + w, read(self.ptr + r))
+                    }
+                    w += 1
+                } else {
+                    mem.drop_at(T, self.ptr + r)
+                }
+            }
+        }
+        self.len = w
+    }
+
+    // The values from `at` on, moved to a new `Vec`; this one keeps the
+    // ones before.
+    pub fn split_off(inout self, at: i64) -> Vec(T) {
+        if at < 0 || at > self.len {
+            panic("split_off index out of bounds")
+        }
+        let n = self.len - at
+        var out = Vec(T).with_capacity(n)
+        unsafe {
+            mem_copy(out.ptr, self.ptr + at, n)
+        }
+        out.len = n
+        self.len = at
+        out
+    }
+
     pub fn swap(inout self, i: i64, j: i64) {
         if i < 0 || i >= self.len || j < 0 || j >= self.len {
             panic("swap index out of bounds")
@@ -312,6 +363,104 @@ impl(T: Eq) [T] {
 impl(T: Eq) Vec(T) {
     pub fn contains(self, x: T) -> bool {
         self.as_slice().contains(x)
+    }
+
+    // Drops each value equal to the one before it: a sorted `Vec` keeps
+    // one of each.
+    pub fn dedup(inout self) {
+        if self.len < 2 {
+            return
+        }
+        let n = self.len
+        var w = 1
+        for r in 1..n {
+            unsafe {
+                if (*(self.ptr + r)).eq(*(self.ptr + w - 1)) {
+                    mem.drop_at(T, self.ptr + r)
+                } else {
+                    if w != r {
+                        write(self.ptr + w, read(self.ptr + r))
+                    }
+                    w += 1
+                }
+            }
+        }
+        self.len = w
+    }
+}
+
+impl(T: type) [T] {
+    // The parts of `n` values that start at each position, overlapping:
+    // `[1, 2, 3].windows(2)` gives `[1, 2]`, `[2, 3]`. Panics if `n` is not
+    // positive.
+    pub fn windows(self, n: i64) -> Windows(T) {
+        if n <= 0 {
+            panic("windows needs a positive size")
+        }
+        Windows(T) { xs: self, n, at: 0 }
+    }
+
+    // The parts of `n` values one after another, the last one shorter if
+    // `n` does not divide the length. Panics if `n` is not positive.
+    pub fn chunks(self, n: i64) -> Chunks(T) {
+        if n <= 0 {
+            panic("chunks needs a positive size")
+        }
+        Chunks(T) { xs: self, n, at: 0 }
+    }
+}
+
+#[view]
+pub struct Windows(T: type) {
+    xs: [T]
+    n: i64
+    at: i64
+}
+
+impl(T: type) Iterator for Windows(T) {
+    type Item = [T]
+
+    fn next(inout self) -> Option([T]) {
+        if self.at + self.n > self.xs.len {
+            return None
+        }
+        let i = self.at
+        self.at += 1
+        Some(self.xs[i..i + self.n])
+    }
+}
+
+#[view]
+pub struct Chunks(T: type) {
+    xs: [T]
+    n: i64
+    at: i64
+}
+
+impl(T: type) Iterator for Chunks(T) {
+    type Item = [T]
+
+    fn next(inout self) -> Option([T]) {
+        if self.at >= self.xs.len {
+            return None
+        }
+        let i = self.at
+        var end = i + self.n
+        if end > self.xs.len {
+            end = self.xs.len
+        }
+        self.at = end
+        Some(self.xs[i..end])
+    }
+}
+
+impl(T: Clone) Vec(T) {
+    // Copies of the values pushed at the end.
+    pub fn extend_from_slice(inout self, xs: [T]) {
+        self.reserve(xs.len)
+        for x in xs {
+            self.push(x.clone())
+        }
     }
 }
 
@@ -497,4 +646,63 @@ fn contains_and_to_vec() {
     assert(names.contains(String.from("x")) && !names.contains(String.from("y")), "strings")
     let copy = names.as_slice().to_vec()
     assert(copy == names && Vec(i64).new().as_slice().to_vec().is_empty(), "to_vec")
+}
+
+#[test]
+fn removes_retains_and_splits() {
+    var v = [1, 2, 3, 4, 5, 6].to_vec()
+    assert(v.swap_remove(1) == 2 && v == [1, 6, 3, 4, 5].to_vec(), "swap_remove")
+    assert(v.swap_remove(4) == 5 && v.len() == 4, "swap_remove last")
+    v.retain(fn(x) { x % 2 == 0 })
+    assert(v == [6, 4].to_vec(), "retain")
+    var w = [1, 2, 3, 4, 5].to_vec()
+    let tail = w.split_off(3)
+    assert(w == [1, 2, 3].to_vec() && tail == [4, 5].to_vec(), "split_off")
+    assert(w.split_off(3).is_empty() && w.split_off(0).len() == 3 && w.is_empty(), "split ends")
+    var d = [1, 1, 2, 3, 3, 3, 1].to_vec()
+    d.dedup()
+    assert(d == [1, 2, 3, 1].to_vec(), "dedup")
+    var e = Vec(i64).new()
+    e.dedup()
+    e.extend_from_slice([7, 8][..])
+    assert(e == [7, 8].to_vec(), "extend_from_slice")
+}
+
+#[test]
+fn owned_values_retained_and_deduped() {
+    var v = Vec(String).new()
+    for s in ["a", "a", "b", "c", "c"] {
+        v.push(String.from(s))
+    }
+    v.dedup()
+    assert(v.len() == 3 && v[2] == "c", "dedup strings")
+    v.retain(fn(s) { s != "b" })
+    assert(v.len() == 2 && v[1] == "c", "retain strings")
+    let gone = v.swap_remove(0)
+    assert(gone == "a" && v[0] == "c", "swap_remove string")
+}
+
+#[test]
+fn windows_and_chunks() {
+    let xs = [1, 2, 3, 4, 5]
+    var sums = Vec(i64).new()
+    for w in xs.windows(2) {
+        sums.push(w[0] + w[1])
+    }
+    assert(sums == [3, 5, 7, 9].to_vec(), "windows")
+    var n = 0
+    for _ in xs.windows(6) {
+        n += 1
+    }
+    assert(n == 0, "windows longer than the slice")
+    var lens = Vec(i64).new()
+    for c in xs.chunks(2) {
+        lens.push(c.len)
+    }
+    assert(lens == [2, 2, 1].to_vec(), "chunks")
+    var none = 0
+    for _ in Vec(i64).new().as_slice().chunks(3) {
+        none += 1
+    }
+    assert(none == 0, "chunks of nothing")
 }

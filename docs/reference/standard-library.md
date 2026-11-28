@@ -25,9 +25,14 @@ everywhere; the others are imported (`import std.fs`).
 
 A growable array. `Vec(T).new()`, `with_capacity(n)`, `Vec.filled(n, x)`;
 `len`, `is_empty`, `capacity`, `push`, `pop`, `insert`, `remove`, `swap`,
-`truncate`, `clear`, `extend`, `reverse`, `reserve`, `resize`, `first`,
+`truncate`, `clear`, `extend`, `extend_from_slice`, `swap_remove` (the
+last value fills the gap), `retain(keep)`, `split_off(at)`, `dedup` (with
+`Eq`: drops each value equal to the one before), `reverse`, `reserve`,
+`resize`, `first`,
 `last`, `as_slice`, `iter`; `v[i]` (bounds-checked). A slice or array
-of `Clone` values gives a `Vec` of copies with `to_vec()`. `Clone` and `Eq` when
+of `Clone` values gives a `Vec` of copies with `to_vec()`. `windows(n)`
+and `chunks(n)` on a slice give its overlapping parts of `n` values, or
+its consecutive parts of `n` (the last one shorter). `Clone` and `Eq` when
 `T` has them; with `Eq`, `contains(x)` (also on slices), and with `Ord`,
 `sort()` and `binary_search(x)` (also on slices: `Ok` with a position of
 `x`, or `Err` with where it would go); `sort_by(less)` for any `T`.
