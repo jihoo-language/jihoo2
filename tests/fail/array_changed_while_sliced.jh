@@ -1,0 +1,8 @@
+// An array cannot change while a slice of it is used.
+// error: `a` is changed here while it is borrowed
+fn main() {
+    var a = [1, 2]
+    let sl = a[..]
+    a[0] = 5
+    println(sl[0])
+}

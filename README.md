@@ -109,7 +109,7 @@ jihoo run tests/runner.jh                    # the tests
 ## Status
 
 jihoo2 version 0.2, released as
-[v0.2.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.2.0):
+[v0.2.1](https://github.com/jihoo-language/jihoo2/releases/tag/v0.2.1):
 jihoo's development line after 0.5.0 without the dependent core, with
 versions starting again at 0.1.0 ([roadmap](docs/internals/roadmap.md#direction)).
 0.2 adds to 0.1 the library ordinary programs reach for first (`Map`
@@ -117,7 +117,9 @@ iteration, `Set`, iterator adapters, `Option` and `Result` combinators,
 string methods, correctly rounded `parse_float`), "did you mean" notes and
 notes on Rust's syntax in diagnostics, `decreases` across inner loops and
 mutual recursion, and a fix for `sink` parameters moved on only some paths,
-which were not dropped on the others. It keeps jihoo's 0.1
+which were not dropped on the others. 0.2.1 fixes two holes in borrow
+checking that 0.2.0 had: a part of a view (`s[a..b]`) and a slice of an
+array carried no loans, so they could outlive what they point into. It keeps jihoo's 0.1
 rewrite, which broke compatibility with everything
 before it ([why](docs/internals/redesign.md)), with a self-hosted compiler
 and checking, testing, diagnostic and formatting tools. Native (libc) and

@@ -1,0 +1,11 @@
+// A slice of an array borrows the array: it cannot outlive it. (Making
+// it took the array's address, which made no loan, and read freed
+// memory.)
+// error: `a` goes away here while it is still borrowed
+fn main() {
+    let sl = {
+        let a = [String.from("q")]
+        a[..]
+    }
+    println(sl[0])
+}
