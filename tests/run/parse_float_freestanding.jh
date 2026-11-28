@@ -1,0 +1,18 @@
+#![freestanding]
+// Reading floats needs no C library: `str.parse_float` rounds the exact
+// decimal value itself, in both profiles.
+
+fn main() {
+    println("2.5e-3".parse_float().unwrap() * 1000.0)
+    //> 2.5
+    println("0.1".parse_f32().unwrap())
+    //> 0.1
+    println("1.7976931348623157e308".parse_float().unwrap().to_bits() == 0x7fefffffffffffff)
+    //> true
+    println("4.9e-324".parse_float().unwrap().to_bits())
+    //> 1
+    println("-inf".parse_float().unwrap())
+    //> -inf
+    println("1.2.3".parse_float().is_none())
+    //> true
+}

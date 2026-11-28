@@ -105,6 +105,8 @@ impl String {
     pub fn split_whitespace(self) -> Vec(str) { self.as_str().split_whitespace() }
     pub fn lines(self) -> Vec(str) { self.as_str().lines() }
     pub fn parse_int(self) -> Option(i64) { self.as_str().parse_int() }
+    pub fn parse_float(self) -> Option(f64) { self.as_str().parse_float() }
+    pub fn parse_f32(self) -> Option(f32) { self.as_str().parse_f32() }
     pub fn replace(self, from: str, to: str) -> String { self.as_str().replace(from, to) }
     pub fn to_upper(self) -> String { self.as_str().to_upper() }
     pub fn to_lower(self) -> String { self.as_str().to_lower() }
@@ -347,6 +349,16 @@ impl str {
         self.len == 0
     }
 
+    // A decimal float (`1.5`, `-2e-3`, `.5`, `inf`, `nan`), rounded to the
+    // nearest `f64` (`f32`), half to even; None for other text.
+    pub fn parse_float(self) -> Option(f64) {
+        float.parse_f64(self)
+    }
+
+    pub fn parse_f32(self) -> Option(f32) {
+        float.parse_f32(self)
+    }
+
     // Without spaces, tabs and newlines at the start, or at the end.
     pub fn trim_start(self) -> str {
         var a = 0
@@ -584,4 +596,6 @@ fn string_has_str_methods() {
     assert(s.trim() == "Key: Value" && s.contains("Val") && s.find(":") == Some(5), "trim find")
     assert(s.to_lower().trim().starts_with("key") && s.split(":").len() == 2, "case split")
     assert(String.from("12").parse_int() == Some(12), "parse")
+    assert(String.from("1.25").parse_float() == Some(1.25), "parse_float")
+    assert(" 1.0".parse_float().is_none() && "2e3".parse_f32() == Some(2000.0 as f32), "floats")
 }
