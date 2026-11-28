@@ -218,6 +218,11 @@ fn main() {
     //> true
     // Rust's `[1, 2, 3].iter()` and `.to_vec()`: an array has its slice's
     // methods.
+    // Rust's multi-line string literals: `\n`, and `+` across lines.
+    let text = "first line\n" +
+        "second line"
+    println(text.lines().len())
+    //> 2
     let copied = [1, 2, 3].to_vec()
     println(copied.len() + [4, 5].as_vec_len())
     //> 5

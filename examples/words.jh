@@ -1,0 +1,60 @@
+// Word frequencies: the most common words of some files, or of a short
+// text when none are given. It reads files with `std.fs`, splits and
+// lowercases with `str` methods, counts with a `Map` and keeps the
+// distinct short words in a `Set`, then sorts the counts and prints a
+// table with `std.fmt`.
+//   jihoo run examples/words.jh -- README.md docs/language/tour.md
+
+import std.env
+import std.fmt
+import std.fs
+import std.iter
+
+const SAMPLE: str = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox does not. A fox, a dog, and the end."
+
+// The word's letters and digits, lowercased: "Dog," and "dog" count as one.
+fn normalize(w: str) -> String {
+    var out = String.new()
+    for c in w {
+        if c.is_ascii_alphanumeric() { out.push(c.to_ascii_lowercase()) }
+    }
+    out
+}
+
+fn count(text: str, inout counts: Map(String, i64), inout short: Set(String)) {
+    for raw in text.split_whitespace() {
+        let w = normalize(raw)
+        if w.is_empty() { continue }
+        if w.len() <= 2 { short.insert(w.clone()) }
+        counts.get_or_insert(w, 0) += 1
+    }
+}
+
+fn main() {
+    var counts = Map(String, i64).new()
+    var short = Set(String).new()
+    let args = env.args()
+    if args.len() <= 1 {
+        count(SAMPLE, &counts, &short)
+    }
+    for path in args.as_slice()[1..] {
+        match fs.read_file(path) {
+            Ok(text) => count(text.as_str(), &counts, &short)
+            Err(e) => fmt.eprintln("{}: {}", (path, e))
+        }
+    }
+    // The most common first; words with the same count alphabetically.
+    var rows = Vec((String, i64)).new()
+    for (w, n) in counts { rows.push((w.clone(), n)) }
+    rows.sort_by(fn(a, b) { a.1 > b.1 || (a.1 == b.1 && a.0 < b.0) })
+    let total = rows.iter().map(fn(r) { r.1 }).sum()
+    fmt.println("{} words, {} distinct", (total, rows.len()))
+    for (i, row) in rows.iter().take(8).enumerate() {
+        let share = 100.0 * row.1 as f64 / total as f64
+        fmt.println("{:>2}. {:<8} {:>4} {:>5.1}%", (i + 1, row.0.as_str(), row.1, share))
+    }
+    var tiny = Vec(String).new()
+    for w in short { tiny.push(w.clone()) }
+    tiny.sort()
+    println("short words: " + tiny.as_slice().join(" ").as_str())
+}
