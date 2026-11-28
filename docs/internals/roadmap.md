@@ -20,7 +20,7 @@ jihoo's development line after 0.5.0 without the dependent core, built
 from the jihoo 0.5.0 seed, and it was jihoo2's first seed. jihoo2 0.2.0,
 released as [v0.2.0](https://github.com/jihoo-language/jihoo2/releases/tag/v0.2.0),
 adds the library, diagnostics and verification work of sections 2, 6 and
-7 and the drop fix for `sink` parameters, and becomes the seed next. The versions in the headings below (0.1
+7 and the drop fix for `sink` parameters, and is now the seed. The versions in the headings below (0.1
 to 0.5) are jihoo's releases, whose work jihoo2 inherits; jihoo2's own
 releases are named as such.
 
@@ -531,12 +531,12 @@ boundary was stated.
 7. The releases. In jihoo, a 0.4.x release that parsed contracts let
    `lib/std` state its contracts (step 5) before 0.5.0, and contracts'
    syntax has been fixed since; 0.4.6 verified every build and made an
-   unproved contract an error. jihoo2's seed, the released jihoo2 0.1.0,
-   has all of that, so stage 1 is verified and `compiler/` states contracts itself
-   (`linear.jh`'s invariants). What came after 0.1.0 (`prove`,
-   `decreases`, `/` and `%` in clauses, `#[no_alloc]`, `#[no_panic]`,
-   `--audit-proved`) is used in `compiler/` once 0.2.0 is released and
-   the seed moves to it.
+   unproved contract an error. jihoo2's first seed, the released jihoo2
+   0.1.0, had all of that, so stage 1 is verified and `compiler/` states
+   contracts itself (`linear.jh`'s invariants). What came after 0.1.0
+   (`prove`, `decreases`, `/` and `%` in clauses, `#[no_alloc]`,
+   `#[no_panic]`, `--audit-proved`, and the library of 0.2) is released in
+   0.2.0, now the seed, so `compiler/` and `lib/std` may use it.
 
 Status of the completion criteria: the `verify` suite runs `tests/run`
 with and without verification, and checks that the proved checks of
