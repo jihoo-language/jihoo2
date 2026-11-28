@@ -1,0 +1,6 @@
+// A string literal ends on its line, unlike Rust's.
+// error: unterminated string
+fn main() {
+    let s = "one
+two"
+}

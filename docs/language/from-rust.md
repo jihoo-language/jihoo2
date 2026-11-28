@@ -57,6 +57,9 @@ them.
 
 ## What does not exist
 
+- A string literal ends on its line: no line breaks inside it, no `\`
+  line continuation and no raw strings (`r"..."`). Write `\n`, and join
+  long text with `+` (a `String`) or keep it on one line.
 - No `if let`, `while let`, labeled loops or `break value`. Use `match`,
   or `let pattern = value else { ... }`, whose block must not finish
   (`return`, `break`, `continue`, `panic`).
