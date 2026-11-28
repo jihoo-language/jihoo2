@@ -1,0 +1,11 @@
+// An element read out of a slice of views borrows what the views borrow.
+// error: `t` goes away here while it is still borrowed
+fn main() {
+    let s = {
+        let t = String.from("xyz")
+        let parts = [t.as_str()]
+        let sl = parts[..]
+        sl[0]
+    }
+    println(s)
+}

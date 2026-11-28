@@ -2282,12 +2282,23 @@ impl sema.Sema {
             Array(e, n) => match tk.clone() {
                 Slice(e2) => {
                     if e == e2 {
-                        let (p, _) = self.as_place(&fb, v, span)
+                        let (p0, temp) = self.as_place(&fb, v, span)
+                        // A temporary array lives to the end of the block,
+                        // as the slice that borrows it may (`let xs: [i64] =
+                        // [1, 2]`, `[a, b].to_vec()`).
+                        var p = p0
+                        if temp && n != 0 {
+                            let keep = fb.block_temp(from, span)
+                            fb.assign(Place.local(keep), Rvalue.Use(Operand.Move(p)), span)
+                            p = Place.local(keep)
+                        }
                         let pt = self.types.ptr(e)
                         var addr = Operand.Const(Const.Null(pt))
                         if n != 0 {
-                            let fp = self.types.ptr(from)
-                            let a = self.rvalue(&fb, Rvalue.Addr(p), fp, span)
+                            // A borrow of the array, so that the slice
+                            // borrows it (an address would make no loan).
+                            let fp = self.types.intern(TyKind.Ref(from))
+                            let a = self.rvalue(&fb, Rvalue.Ref(p), fp, span)
                             let ap = self.place_of_val(a)
                             let c = self.rvalue(
                                 &fb,
