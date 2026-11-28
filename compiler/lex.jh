@@ -5,7 +5,7 @@
 // its payload lives in the `Token`: the parser compares kinds all the time,
 // and a plain enum compares with `==`.
 
-import std.libc
+import std.float
 import diag
 
 type Diag = diag.Diag
@@ -744,9 +744,9 @@ fn number(
         }
         i += 1
     }
-    var float = false
+    var is_float = false
     if allow_float && radix == 10 && at(src, i) == '.' && is_digit(at(src, i + 1)) {
-        float = true
+        is_float = true
         digits.push('.')
         i += 1
         while is_digit(at(src, i)) || at(src, i) == '_' {
@@ -762,7 +762,7 @@ fn number(
             j += 1
         }
         if is_digit(at(src, j)) {
-            float = true
+            is_float = true
             digits.push('e')
             digits.push_str(src[i + 1..j])
             i = j
@@ -776,10 +776,10 @@ fn number(
     if is_alnum(at(src, i)) || at(src, i) == '_' {
         return Err(Diag.new(span, "malformed number"))
     }
-    if float {
-        digits.push(0)
+    if is_float {
         t.tok = Tok.Float
-        t.float = unsafe { libc.strtod(digits.as_str().ptr, null) }
+        // Correctly rounded, as strtod is, without the C library.
+        t.float = float.parse_f64(digits.as_str()).unwrap()
         return Ok(())
     }
     // Up to 2^128 - 1, for `u128`; sema checks the literal's type.
