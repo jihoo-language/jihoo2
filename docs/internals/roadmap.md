@@ -195,6 +195,16 @@ specialized library work; they do not by themselves require new syntax.
 
 ### 3. Safety and performance regression baselines
 
+- Open: a slice made from an array (`a[..]`, or an array where a slice is
+  expected) carries no loans, because it is made from the array's
+  address: `let sl = { let a = [String.from("q")]; a[..] }` reads freed
+  memory. Making it borrow the array is one line in `body.jh`'s
+  `coerce`, but then the elements of a temporary array of views
+  (`["a", "b"].to_vec()`) count as borrowing the array, not what they
+  borrow, which rejects ordinary code. The fix needs a slice's own
+  loans kept apart from what its elements hold, as arguments' inner
+  origins already are.
+
 - Keep negative cases for moves, borrow effects, drops, scoped threads and
   callback boundaries alongside accepted programs. Continue stage 1/stage 2
   comparisons and native/freestanding checks on both supported targets.

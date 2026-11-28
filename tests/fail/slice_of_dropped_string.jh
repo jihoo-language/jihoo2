@@ -1,0 +1,10 @@
+// A part of a view borrows what the view borrows: `t.as_str()[1..]`
+// cannot outlive `t`. (It used to carry no loans, and read freed memory.)
+// error: `t` goes away here while it is still borrowed
+fn main() {
+    let s = {
+        let t = String.from("xyz")
+        t.as_str()[1..]
+    }
+    println(s)
+}

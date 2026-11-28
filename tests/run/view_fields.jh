@@ -1,0 +1,44 @@
+// A part of a view read through a borrowed struct borrows what the view
+// borrows, not the struct: a tokenizer over a `str` gives words that
+// outlive it, and user iterators over text work with `collect` and `max`.
+import std.iter
+
+struct Words {
+    text: str
+    pos: i64
+}
+
+impl Words {
+    fn rest(self) -> str { self.text[self.pos..] }
+}
+
+impl Iterator for Words {
+    type Item = str
+
+    fn next(inout self) -> Option(str) {
+        while self.pos < self.text.len && self.text[self.pos] == ' ' { self.pos += 1 }
+        if self.pos >= self.text.len { return None }
+        let start = self.pos
+        while self.pos < self.text.len && self.text[self.pos] != ' ' { self.pos += 1 }
+        Some(self.text[start..self.pos])
+    }
+}
+
+fn tail(sink w: Words) -> str {
+    w.rest()
+}
+
+fn main() {
+    let text = String.from("  the quick  brown fox ")
+    let words = Words { text: text.as_str(), pos: 0 }.collect()
+    println(words)
+    //> [the, quick, brown, fox]
+    println(Words { text: "a bb ccc", pos: 0 }.map(fn(w) { w.len }).max())
+    //> Some(3)
+    println(tail(Words { text: "abcd", pos: 2 }))
+    //> cd
+    var pairs = [(2, "b"), (1, "z"), (2, "a")].to_vec()
+    pairs.sort()
+    println(pairs)
+    //> [(1, z), (2, a), (2, b)]
+}
