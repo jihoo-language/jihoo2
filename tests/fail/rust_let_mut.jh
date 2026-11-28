@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `let mut`.
+// error: a binding that changes is `var x`
+fn main() {
+    let mut x = 1
+}

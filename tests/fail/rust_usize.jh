@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `usize`.
+// error: lengths and indices are `i64`
+fn main() {
+    let x: usize = 1
+}

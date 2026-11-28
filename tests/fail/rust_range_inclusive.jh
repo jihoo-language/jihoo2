@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `..=` in a `for`.
+// error: `..=` exists only in patterns
+fn main() {
+    for i in 0..=3 { println(i) }
+}

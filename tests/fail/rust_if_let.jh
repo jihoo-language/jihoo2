@@ -1,0 +1,6 @@
+// Rust's syntax gets a note on jihoo's: `if let`.
+// error: there is no `if let`
+fn main() {
+    let o = Some(1)
+    if let Some(x) = o { println(x) }
+}

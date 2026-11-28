@@ -1,0 +1,7 @@
+// Rust's syntax gets a note on jihoo's: `impl<T>`.
+// error: an impl's parameters go in parentheses
+struct P {}
+
+impl<T> P {}
+
+fn main() {}

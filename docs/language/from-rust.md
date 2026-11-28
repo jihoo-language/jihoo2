@@ -6,7 +6,11 @@
 jihoo looks like Rust and shares many of its ideas, so the places where it
 differs are easy to miss. This page lists them: read it before writing jihoo
 if you know Rust, and check here when code that "should work" does not. The
-[Grammar](../reference/grammar.md) is the exact syntax.
+[Grammar](../reference/grammar.md) is the exact syntax. The compiler
+recognizes the most common Rust spellings (`::`, `Vec<T>`, `fn f<T>`,
+`let mut`, `&mut`, `&self`, `if let`, `while let`, macros, `..=` in a
+`for`, `|x|` closures, `usize`) and adds a note saying how jihoo writes
+them.
 
 ## Side by side
 

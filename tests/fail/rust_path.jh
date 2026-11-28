@@ -1,0 +1,5 @@
+// Rust's syntax gets a note on jihoo's: `::` in a path.
+// error: jihoo writes paths with `.`
+fn main() {
+    let v = Vec::new()
+}

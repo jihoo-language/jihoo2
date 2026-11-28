@@ -1461,6 +1461,16 @@ impl Sema {
             None => {
                 let d = ty_err(span, ("unknown type `" + join_path(p).as_str() + "`").as_str())
                 if p.len() != 1 { return Err(d) }
+                let n = p[0].as_str()
+                if n == "usize" || n == "isize" {
+                    return Err(d.note(None, "lengths and indices are `i64`"))
+                }
+                if n == "char" {
+                    return Err(d.note(
+                        None,
+                        "a byte is a `u8` (`'a'` is one); `std.utf8` decodes scalars as `u32`"
+                    ))
+                }
                 return Err(suggest.with_note(d, p[0].as_str(), self.type_names(env.module)))
             }
         }

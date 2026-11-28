@@ -1,0 +1,6 @@
+// Rust's syntax gets a note on jihoo's: `&mut x`.
+// error: there is no `&mut`
+fn main() {
+    var x = 1
+    let r = &mut x
+}
